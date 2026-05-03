@@ -21,7 +21,7 @@ public final class AttributedMarkdownSerializer {
         while cursor < total {
             let spec = attributed.blockSpec(at: cursor)
             var blockEnd = total
-            attributed.enumerateAttribute(.marginaliaBlockSpec, in: NSRange(location: cursor, length: total - cursor)) { _, range, stop in
+            attributed.enumerateAttribute(.proseBlockSpec, in: NSRange(location: cursor, length: total - cursor)) { _, range, stop in
                 if range.location > cursor {
                     blockEnd = range.location
                     stop.pointee = true
@@ -122,7 +122,7 @@ public final class AttributedMarkdownSerializer {
         if attrs[.attachment] != nil {
             return ""
         }
-        if let flag = attrs[.marginaliaListMarker] as? Bool, flag {
+        if let flag = attrs[.proseListMarker] as? Bool, flag {
             return ""
         }
 
@@ -130,7 +130,7 @@ public final class AttributedMarkdownSerializer {
         var prefix = ""
         var suffix = ""
 
-        if let url = (attrs[.marginaliaLink] as? String) ?? linkURLString(from: attrs[.link]) {
+        if let url = (attrs[.proseLink] as? String) ?? linkURLString(from: attrs[.link]) {
             let label = stripTrailingNewline(content)
             return "[\(label)](\(url))"
         }

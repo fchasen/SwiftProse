@@ -22,22 +22,22 @@ private struct ControllerReadyKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    public var marginaliaTheme: ProseTheme {
+    public var proseTheme: ProseTheme {
         get { self[ThemeKey.self] }
         set { self[ThemeKey.self] = newValue }
     }
 
-    public var marginaliaConfiguration: SwiftProseEditor.Configuration {
+    public var proseConfiguration: SwiftProseEditor.Configuration {
         get { self[ConfigurationKey.self] }
         set { self[ConfigurationKey.self] = newValue }
     }
 
-    public var marginaliaInlineContentProvider: ((ProseInlineContent) -> NSTextAttachment?)? {
+    public var proseInlineContentProvider: ((ProseInlineContent) -> NSTextAttachment?)? {
         get { self[InlineContentProviderKey.self] }
         set { self[InlineContentProviderKey.self] = newValue }
     }
 
-    public var marginaliaControllerReady: ((EditorController) -> Void)? {
+    public var proseControllerReady: ((EditorController) -> Void)? {
         get { self[ControllerReadyKey.self] }
         set { self[ControllerReadyKey.self] = newValue }
     }
@@ -45,26 +45,26 @@ extension EnvironmentValues {
 
 extension View {
     public func theme(_ theme: ProseTheme) -> some View {
-        environment(\.marginaliaTheme, theme)
+        environment(\.proseTheme, theme)
     }
 
     public func configuration(_ configuration: SwiftProseEditor.Configuration) -> some View {
-        environment(\.marginaliaConfiguration, configuration)
+        environment(\.proseConfiguration, configuration)
     }
 
     public func inlineContentProvider(
         _ provider: @escaping (ProseInlineContent) -> NSTextAttachment?
     ) -> some View {
-        environment(\.marginaliaInlineContentProvider, provider)
+        environment(\.proseInlineContentProvider, provider)
     }
 
     /// Receive the live `EditorController` once the editor finishes setup.
     /// Invoked from `onAppear`, so callers can capture the controller in
     /// `@State` and route cursor-aware insertions (link, image, mention)
     /// through it.
-    public func onMarginaliaControllerReady(
+    public func onProseControllerReady(
         _ callback: @escaping (EditorController) -> Void
     ) -> some View {
-        environment(\.marginaliaControllerReady, callback)
+        environment(\.proseControllerReady, callback)
     }
 }

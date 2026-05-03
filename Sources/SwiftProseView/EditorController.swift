@@ -120,7 +120,7 @@ public final class EditorController {
                 && textStorage.safeAttribute(.attachment, at: i) != nil
             if !isAttachmentGlyph {
                 textStorage.removeAttribute(.attachment, range: charRange)
-                textStorage.removeAttribute(.marginaliaListMarker, range: charRange)
+                textStorage.removeAttribute(.proseListMarker, range: charRange)
             }
             i += 1
         }
@@ -139,7 +139,7 @@ public final class EditorController {
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor,
             .paragraphStyle: NSParagraphStyle(),
-            .marginaliaBlockSpec: BlockSpecBox(.paragraph)
+            .proseBlockSpec: BlockSpecBox(.paragraph)
         ]
         if textStorage.length == 0 {
             applyTypingAttributes(plainAttrs)
@@ -644,7 +644,7 @@ public final class EditorController {
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor,
             .paragraphStyle: NSParagraphStyle(),
-            .marginaliaBlockSpec: BlockSpecBox(.paragraph)
+            .proseBlockSpec: BlockSpecBox(.paragraph)
         ]
         if total > 0 {
             let probe = max(0, min(location, total - 1))
@@ -653,16 +653,16 @@ public final class EditorController {
                 .font,
                 .foregroundColor,
                 .paragraphStyle,
-                .marginaliaBlockSpec
+                .proseBlockSpec
             ] {
                 if let v = raw[key] { attrs[key] = v }
             }
             // Inline-only flags must NOT bleed into typed text.
-            attrs.removeValue(forKey: .marginaliaListMarker)
+            attrs.removeValue(forKey: .proseListMarker)
             attrs.removeValue(forKey: .marginaliaInline)
             attrs.removeValue(forKey: .attachment)
             attrs.removeValue(forKey: .link)
-            attrs.removeValue(forKey: .marginaliaLink)
+            attrs.removeValue(forKey: .proseLink)
             attrs.removeValue(forKey: .strikethroughStyle)
         }
         applyTypingAttributes(attrs)
@@ -689,7 +689,7 @@ public final class EditorController {
         withAttributeMutation(range: lineRange) {
             textStorage.beginEditing()
             textStorage.addAttribute(.attachment, value: newAttachment, range: NSRange(location: location, length: 1))
-            textStorage.addAttribute(.marginaliaBlockSpec, value: newSpecBox, range: lineRange)
+            textStorage.addAttribute(.proseBlockSpec, value: newSpecBox, range: lineRange)
             textStorage.endEditing()
         }
         return true
@@ -759,7 +759,7 @@ public final class EditorController {
                 .font: theme.bodyFont,
                 .foregroundColor: theme.foregroundColor,
                 .paragraphStyle: NSParagraphStyle(),
-                .marginaliaBlockSpec: BlockSpecBox(.paragraph)
+                .proseBlockSpec: BlockSpecBox(.paragraph)
             ]
             let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
             withCharacterMutation(range: lineRange) {
@@ -820,7 +820,7 @@ public final class EditorController {
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor,
             .paragraphStyle: NSParagraphStyle(),
-            .marginaliaBlockSpec: BlockSpecBox(.paragraph)
+            .proseBlockSpec: BlockSpecBox(.paragraph)
         ]
         let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
         withCharacterMutation(range: lineRange) {
@@ -857,8 +857,8 @@ public final class EditorController {
             return false
         }
         var markerRange = NSRange(location: lineRange.location, length: 0)
-        _ = textStorage.safeAttribute(.marginaliaListMarker, at: lineRange.location, longestEffectiveRange: &markerRange, in: lineRange)
-        guard let flag = textStorage.safeAttribute(.marginaliaListMarker, at: lineRange.location) as? Bool, flag else {
+        _ = textStorage.safeAttribute(.proseListMarker, at: lineRange.location, longestEffectiveRange: &markerRange, in: lineRange)
+        guard let flag = textStorage.safeAttribute(.proseListMarker, at: lineRange.location) as? Bool, flag else {
             return false
         }
         let bodyStart = markerRange.location + markerRange.length
@@ -868,7 +868,7 @@ public final class EditorController {
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor,
             .paragraphStyle: NSParagraphStyle(),
-            .marginaliaBlockSpec: BlockSpecBox(.paragraph)
+            .proseBlockSpec: BlockSpecBox(.paragraph)
         ]
         let bodyRange = NSRange(location: bodyStart, length: lineRange.length - markerRange.length)
         withCharacterMutation(range: lineRange) {
@@ -906,7 +906,7 @@ public final class EditorController {
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor,
             .paragraphStyle: NSParagraphStyle(),
-            .marginaliaBlockSpec: BlockSpecBox(.paragraph)
+            .proseBlockSpec: BlockSpecBox(.paragraph)
         ]
         let inserted = NSAttributedString(string: "\n", attributes: plainAttrs)
 

@@ -13,13 +13,13 @@ import UIKit
 public struct SwiftProseEditor: View {
     @Binding public var text: String
 
-    @Environment(\.marginaliaConfiguration) private var configuration
-    @Environment(\.marginaliaTheme) private var theme
-    @Environment(\.marginaliaInlineContentProvider) private var inlineProvider
-    @Environment(\.marginaliaControllerReady) private var onControllerReady
+    @Environment(\.proseConfiguration) private var configuration
+    @Environment(\.proseTheme) private var theme
+    @Environment(\.proseInlineContentProvider) private var inlineProvider
+    @Environment(\.proseControllerReady) private var onControllerReady
 
-    @AppStorage("marginalia.toolbarVisible") private var toolbarVisible = true
-    @AppStorage("marginalia.mode") private var modeRawValue: String = Mode.rich.rawValue
+    @AppStorage("swiftprose.toolbarVisible") private var toolbarVisible = true
+    @AppStorage("swiftprose.mode") private var modeRawValue: String = Mode.rich.rawValue
     @StateObject private var hosting = ProseHosting()
 
     private var mode: Mode {
@@ -80,7 +80,7 @@ public struct SwiftProseEditor: View {
         let label = mode == .source ? "Show rendered" : "Show source"
         let symbol = mode == .source ? "eye" : "doc.plaintext"
         return .custom(
-            id: "marginaliaModeToggle",
+            id: "swiftprose.modeToggle",
             label: label,
             systemImage: symbol,
             shortcut: nil,

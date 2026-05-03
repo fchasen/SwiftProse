@@ -106,7 +106,7 @@ import UIKit
         // The second character should be a space.
         #expect((storage.string as NSString).substring(with: NSRange(location: 1, length: 1)) == " ")
         // The whole marker run should be flagged so the serializer drops it.
-        let markerFlag = storage.attribute(.marginaliaListMarker, at: 0, effectiveRange: nil) as? Bool
+        let markerFlag = storage.attribute(.proseListMarker, at: 0, effectiveRange: nil) as? Bool
         #expect(markerFlag == true)
     }
 

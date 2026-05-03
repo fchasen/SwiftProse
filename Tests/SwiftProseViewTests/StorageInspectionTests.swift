@@ -64,7 +64,7 @@ import UIKit
         for i in 0..<storage.length {
             let attrs = storage.attributes(at: i, effectiveRange: nil)
             let attachKey = attrs[.attachment].map { String(describing: type(of: $0)) } ?? "nil"
-            let listMarkerKey = (attrs[.marginaliaListMarker] as? Bool).map { String($0) } ?? "nil"
+            let listMarkerKey = (attrs[.proseListMarker] as? Bool).map { String($0) } ?? "nil"
             let specKey = storage.blockSpec(at: i).map { "kind=\($0.kind)" } ?? "nil"
             let charHex = String((raw as NSString).character(at: i), radix: 16)
             print("  [\(i)] char=0x\(charHex) attachment=\(attachKey) marker=\(listMarkerKey) spec=\(specKey)")

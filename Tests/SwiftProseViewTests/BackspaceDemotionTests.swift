@@ -13,7 +13,7 @@ import UIKit
     @Test func backspaceAtStartOfBulletDemotesToParagraph() throws {
         let controller = try EditorController(initialMarkdown: "- apple\n")
         var bodyStart = -1
-        controller.textStorage.enumerateAttribute(.marginaliaListMarker, in: NSRange(location: 0, length: controller.textStorage.length)) { value, range, stop in
+        controller.textStorage.enumerateAttribute(.proseListMarker, in: NSRange(location: 0, length: controller.textStorage.length)) { value, range, stop in
             if (value as? Bool) == true {
                 bodyStart = range.location + range.length
                 stop.pointee = true

@@ -53,7 +53,7 @@ public enum SpecValidator {
             // Marker / list-item alignment.
             if sawSpec, let canonical = seenSpecs.first {
                 for i in lineRange.location..<(lineRange.location + lineRange.length) {
-                    let marker = (storage.attribute(.marginaliaListMarker, at: i, effectiveRange: nil) as? Bool) == true
+                    let marker = (storage.attribute(.proseListMarker, at: i, effectiveRange: nil) as? Bool) == true
                     if marker && !canonical.isListItem {
                         out.append(SpecDiagnostic(issue: .markerWithoutListItem(at: i), lineRange: lineRange))
                     }
@@ -102,9 +102,9 @@ public enum SpecValidator {
         guard lineRange.length > 0,
               lineRange.location + lineRange.length <= storage.length else { return }
         storage.beginEditing()
-        storage.addAttribute(.marginaliaBlockSpec, value: BlockSpecBox(spec), range: lineRange)
+        storage.addAttribute(.proseBlockSpec, value: BlockSpecBox(spec), range: lineRange)
         if !spec.isListItem {
-            storage.removeAttribute(.marginaliaListMarker, range: lineRange)
+            storage.removeAttribute(.proseListMarker, range: lineRange)
         }
         storage.endEditing()
     }

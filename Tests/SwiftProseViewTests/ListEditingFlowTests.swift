@@ -19,7 +19,7 @@ import UIKit
             let attrs = storage.attributes(at: i, effectiveRange: nil)
             let charHex = String((storage.string as NSString).character(at: i), radix: 16)
             let attachKey = attrs[.attachment].map { String(describing: type(of: $0)) } ?? "nil"
-            let listMarkerKey = (attrs[.marginaliaListMarker] as? Bool).map { String($0) } ?? "nil"
+            let listMarkerKey = (attrs[.proseListMarker] as? Bool).map { String($0) } ?? "nil"
             let specKey = storage.blockSpec(at: i).map { "kind=\($0.kind) listLevel=\($0.listLevel)" } ?? "nil"
             print("  [\(i)] char=0x\(charHex) attachment=\(attachKey) marker=\(listMarkerKey) spec=\(specKey)")
         }
@@ -163,7 +163,7 @@ import UIKit
         // Find body start (after marker).
         let storage = controller.textStorage
         var bodyStart = -1
-        storage.enumerateAttribute(.marginaliaListMarker, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
+        storage.enumerateAttribute(.proseListMarker, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
             if (value as? Bool) == true {
                 bodyStart = range.location + range.length
                 stop.pointee = true

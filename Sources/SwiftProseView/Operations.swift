@@ -41,7 +41,7 @@ public enum Operations {
         let safe = clampedRange(range, in: storage.length)
         var attrs = inheritedAttributes(in: storage, at: safe.location)
         attrs[.link] = url
-        attrs[.marginaliaLink] = url
+        attrs[.proseLink] = url
         attrs[.foregroundColor] = theme.linkColor
         attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
         attrs[.marginaliaInline] = InlineTag.link
@@ -339,16 +339,16 @@ public enum Operations {
         let newSpecBox = BlockSpecBox(newSpec)
 
         var markerRange = NSRange(location: lineRange.location, length: 0)
-        if (storage.safeAttribute(.marginaliaListMarker, at: lineRange.location) as? Bool) == true {
-            _ = storage.safeAttribute(.marginaliaListMarker, at: lineRange.location, longestEffectiveRange: &markerRange, in: lineRange)
+        if (storage.safeAttribute(.proseListMarker, at: lineRange.location) as? Bool) == true {
+            _ = storage.safeAttribute(.proseListMarker, at: lineRange.location, longestEffectiveRange: &markerRange, in: lineRange)
         }
 
         var markerAttrs: [NSAttributedString.Key: Any] = [
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor,
             .paragraphStyle: newParagraphStyle,
-            .marginaliaListMarker: true,
-            .marginaliaBlockSpec: newSpecBox
+            .proseListMarker: true,
+            .proseBlockSpec: newSpecBox
         ]
         let markerString: String
         switch kind {
@@ -372,7 +372,7 @@ public enum Operations {
         let updatedLineLen = lineRange.length + delta_len
         let updatedLineRange = NSRange(location: lineRange.location, length: updatedLineLen)
         storage.addAttribute(.paragraphStyle, value: newParagraphStyle, range: updatedLineRange)
-        storage.addAttribute(.marginaliaBlockSpec, value: newSpecBox, range: updatedLineRange)
+        storage.addAttribute(.proseBlockSpec, value: newSpecBox, range: updatedLineRange)
         storage.endEditing()
 
         let cursor = max(updatedLineRange.location, updatedLineRange.location + updatedLineRange.length - 1)
@@ -390,12 +390,12 @@ public enum Operations {
             return NSRange(location: lineRange.location, length: 0)
         }
         var markerRange = NSRange(location: lineRange.location, length: 0)
-        _ = storage.safeAttribute(.marginaliaListMarker, at: lineRange.location, longestEffectiveRange: &markerRange, in: lineRange)
+        _ = storage.safeAttribute(.proseListMarker, at: lineRange.location, longestEffectiveRange: &markerRange, in: lineRange)
         let plainAttrs: [NSAttributedString.Key: Any] = [
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor,
             .paragraphStyle: NSParagraphStyle(),
-            .marginaliaBlockSpec: BlockSpecBox(.paragraph)
+            .proseBlockSpec: BlockSpecBox(.paragraph)
         ]
         storage.beginEditing()
         storage.replaceCharacters(in: markerRange, with: "")
@@ -403,7 +403,7 @@ public enum Operations {
         let bodyRange = NSRange(location: lineRange.location, length: bodyLen)
         if bodyRange.length > 0 {
             storage.setAttributes(plainAttrs, range: bodyRange)
-            storage.removeAttribute(.marginaliaListMarker, range: bodyRange)
+            storage.removeAttribute(.proseListMarker, range: bodyRange)
         }
         storage.endEditing()
         return NSRange(location: lineRange.location, length: 0)
@@ -744,7 +744,7 @@ public enum Operations {
             NSAttributedString.Key.font,
             .foregroundColor,
             .paragraphStyle,
-            .marginaliaBlockSpec
+            .proseBlockSpec
         ] {
             if let v = raw[key] { carry[key] = v }
         }

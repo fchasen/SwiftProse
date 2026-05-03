@@ -290,7 +290,7 @@ public final class MarkdownAttributedCompiler {
             attachment.isChecked = segment.isChecked ?? false
             var attachmentAttrs = paragraphAttrs
             attachmentAttrs[.attachment] = attachment
-            attachmentAttrs[.marginaliaListMarker] = true
+            attachmentAttrs[.proseListMarker] = true
             attributed.insert(
                 NSAttributedString(string: "\u{FFFC} ", attributes: attachmentAttrs),
                 at: 0
@@ -300,7 +300,7 @@ public final class MarkdownAttributedCompiler {
             var markerAttrs = paragraphAttrs
             markerAttrs[.attachment] = attachment
             markerAttrs[.foregroundColor] = theme.foregroundColor
-            markerAttrs[.marginaliaListMarker] = true
+            markerAttrs[.proseListMarker] = true
             attributed.insert(
                 NSAttributedString(string: "\u{FFFC} ", attributes: markerAttrs),
                 at: 0
@@ -310,7 +310,7 @@ public final class MarkdownAttributedCompiler {
             let marker = OrderedMarkerFormatter.format(index: segment.orderedIndex ?? 1, style: style)
             var markerAttrs = paragraphAttrs
             markerAttrs[.foregroundColor] = theme.markupColor
-            markerAttrs[.marginaliaListMarker] = true
+            markerAttrs[.proseListMarker] = true
             attributed.insert(
                 NSAttributedString(string: "\(marker) ", attributes: markerAttrs),
                 at: 0
@@ -446,7 +446,7 @@ public final class MarkdownAttributedCompiler {
         ]
         let result = NSMutableAttributedString()
         var markerAttrs = baseAttrs
-        markerAttrs[.marginaliaListMarker] = true
+        markerAttrs[.proseListMarker] = true
         switch kind {
         case .bullet:
             let attachment = BulletGlyphAttachment(level: level, color: theme.foregroundColor)

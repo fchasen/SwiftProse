@@ -44,7 +44,7 @@ public enum InsertNewline {
                 .font: theme.bodyFont,
                 .foregroundColor: theme.foregroundColor,
                 .paragraphStyle: NSParagraphStyle(),
-                .marginaliaBlockSpec: BlockSpecBox(.paragraph)
+                .proseBlockSpec: BlockSpecBox(.paragraph)
             ]
             let replacement = NSAttributedString(string: "\n", attributes: plainAttrs)
             storage.beginEditing()
@@ -80,7 +80,7 @@ public enum InsertNewline {
         }
         var bodyStart = lineRange.location
         var markerRange = NSRange(location: lineRange.location, length: 0)
-        if let flag = storage.safeAttribute(.marginaliaListMarker, at: lineRange.location, longestEffectiveRange: &markerRange, in: lineRange) as? Bool, flag {
+        if let flag = storage.safeAttribute(.proseListMarker, at: lineRange.location, longestEffectiveRange: &markerRange, in: lineRange) as? Bool, flag {
             bodyStart = markerRange.location + markerRange.length
         }
         let bodyEnd = lineRange.location + lineRange.length

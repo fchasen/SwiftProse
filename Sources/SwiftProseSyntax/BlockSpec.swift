@@ -1,7 +1,7 @@
 import Foundation
 
 public extension NSAttributedString.Key {
-    static let marginaliaBlockSpec = NSAttributedString.Key("marginalia.blockSpec")
+    static let proseBlockSpec = NSAttributedString.Key("swiftprose.blockSpec")
 }
 
 public struct BlockSpec: Equatable, Hashable, Sendable {
@@ -86,7 +86,7 @@ public extension BlockSpec {
 
 /// Reference-typed wrapper for storing `BlockSpec` in `NSAttributedString`.
 ///
-/// Why: `enumerateAttribute(.marginaliaBlockSpec, in:)` walks runs by
+/// Why: `enumerateAttribute(.proseBlockSpec, in:)` walks runs by
 /// `isEqual:`. We deliberately keep NSObject's default reference equality
 /// here so each compiler emit produces a distinct run — two consecutive
 /// list items with value-equal specs stay separate and the serializer can
@@ -104,7 +104,7 @@ public final class BlockSpecBox: NSObject, @unchecked Sendable {
 public extension NSAttributedString {
     func blockSpec(at index: Int) -> BlockSpec? {
         guard index >= 0, index < length else { return nil }
-        let raw = attribute(.marginaliaBlockSpec, at: index, effectiveRange: nil)
+        let raw = attribute(.proseBlockSpec, at: index, effectiveRange: nil)
         return (raw as? BlockSpecBox)?.spec
     }
 
@@ -114,7 +114,7 @@ public extension NSAttributedString {
     ) {
         let scan = range ?? NSRange(location: 0, length: length)
         guard scan.length > 0 else { return }
-        enumerateAttribute(.marginaliaBlockSpec, in: scan) { value, subRange, _ in
+        enumerateAttribute(.proseBlockSpec, in: scan) { value, subRange, _ in
             if let box = value as? BlockSpecBox {
                 body(subRange, box.spec)
             }
@@ -127,18 +127,18 @@ public extension NSMutableAttributedString {
         guard range.length > 0,
               range.location >= 0,
               range.location + range.length <= length else { return }
-        addAttribute(.marginaliaBlockSpec, value: BlockSpecBox(spec), range: range)
+        addAttribute(.proseBlockSpec, value: BlockSpecBox(spec), range: range)
     }
 }
 
 public extension Dictionary where Key == NSAttributedString.Key, Value == Any {
-    var marginaliaBlockSpec: BlockSpec? {
-        get { (self[.marginaliaBlockSpec] as? BlockSpecBox)?.spec }
+    var proseBlockSpec: BlockSpec? {
+        get { (self[.proseBlockSpec] as? BlockSpecBox)?.spec }
         set {
             if let v = newValue {
-                self[.marginaliaBlockSpec] = BlockSpecBox(v)
+                self[.proseBlockSpec] = BlockSpecBox(v)
             } else {
-                self[.marginaliaBlockSpec] = nil
+                self[.proseBlockSpec] = nil
             }
         }
     }

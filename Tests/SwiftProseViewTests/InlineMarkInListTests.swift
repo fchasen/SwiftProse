@@ -53,7 +53,7 @@ import UIKit
             let traits = (attrs[.font] as? UIFont)?.fontDescriptor.symbolicTraits
             let isBold = traits?.contains(.traitBold) == true
             #endif
-            let marker = (attrs[.marginaliaListMarker] as? Bool) == true
+            let marker = (attrs[.proseListMarker] as? Bool) == true
             print("  [\(i)] char=0x\(charHex) bold=\(isBold) marker=\(marker)")
         }
     }
