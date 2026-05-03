@@ -48,6 +48,16 @@ public struct ProseTheme: Equatable {
         Self.default(fontScale: 1.0)
     }
 
+    public func headingFont(level: Int) -> PlatformFont {
+        let scale = headingScale[max(1, min(6, level))] ?? 1.0
+        let size = bodyFont.pointSize * scale
+        #if canImport(AppKit) && os(macOS)
+        return NSFont.boldSystemFont(ofSize: size)
+        #else
+        return UIFont.boldSystemFont(ofSize: size)
+        #endif
+    }
+
     public static func `default`(fontScale: CGFloat) -> ProseTheme {
         let baseSize = PlatformFont.systemFontSize * max(fontScale, 0.1)
         let body = PlatformFont.systemFont(ofSize: baseSize)
