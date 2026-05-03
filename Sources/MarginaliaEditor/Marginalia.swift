@@ -14,7 +14,6 @@ public struct Marginalia: View {
     @Binding public var text: String
 
     @Environment(\.marginaliaConfiguration) private var configuration
-    @Environment(\.marginaliaDialect) private var dialect
     @Environment(\.marginaliaTheme) private var theme
     @Environment(\.marginaliaInlineContentProvider) private var inlineProvider
     @Environment(\.marginaliaControllerReady) private var onControllerReady
@@ -62,15 +61,12 @@ public struct Marginalia: View {
             editorBody
         }
         .onAppear {
-            hosting.ensureController(initialText: text, dialect: dialect, theme: theme, mode: mode)
+            hosting.ensureController(initialText: text, theme: theme, mode: mode)
             if let controller = hosting.controller {
                 if controller.markdown() != text { controller.setMarkdown(text) }
                 controller.mode = mode
                 onControllerReady?(controller)
             }
-        }
-        .onChange(of: dialect) { _, newDialect in
-            hosting.controller?.dialect = newDialect
         }
         .onChange(of: theme) { _, newTheme in
             hosting.controller?.theme = newTheme
@@ -265,7 +261,6 @@ final class MarginaliaHosting: ObservableObject {
 
     func ensureController(
         initialText: String,
-        dialect: Dialect,
         theme: MarginaliaTheme,
         mode: Mode
     ) {
@@ -273,7 +268,6 @@ final class MarginaliaHosting: ObservableObject {
             controller = try? EditorController(
                 initialMarkdown: initialText,
                 theme: theme,
-                dialect: dialect,
                 mode: mode
             )
         }

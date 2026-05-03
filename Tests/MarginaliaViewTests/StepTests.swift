@@ -17,14 +17,13 @@ import UIKit
             compiler: compiler,
             serializer: serializer,
             theme: .default,
-            dialect: .commonMark,
             mode: .rich
         )
     }
 
     private func storage(from md: String) throws -> NSTextStorage {
         let env = try env()
-        let attr = env.compiler.compile(md, dialect: .commonMark, mode: .rich, theme: .default)
+        let attr = env.compiler.compile(md, mode: .rich, theme: .default)
         return NSTextStorage(attributedString: attr)
     }
 
@@ -46,7 +45,7 @@ import UIKit
         let lineRange = NSRange(location: 0, length: storage.length)
         let step = Step.setSpec(lineRange: lineRange, BlockSpec(kind: .heading(level: 2)))
         _ = step.apply(to: storage, env: env)
-        #expect(env.serializer.serialize(storage, dialect: .commonMark) == "## hello\n")
+        #expect(env.serializer.serialize(storage) == "## hello\n")
         let spec = storage.blockSpec(at: 0)
         #expect(spec?.kind == .heading(level: 2))
     }
@@ -57,7 +56,7 @@ import UIKit
         let lineRange = NSRange(location: 0, length: storage.length)
         let step = Step.setSpec(lineRange: lineRange, .paragraph)
         _ = step.apply(to: storage, env: env)
-        #expect(env.serializer.serialize(storage, dialect: .commonMark) == "title\n")
+        #expect(env.serializer.serialize(storage) == "title\n")
     }
 
     @Test func setSpecParagraphToBlockquote() throws {
@@ -66,7 +65,7 @@ import UIKit
         let lineRange = NSRange(location: 0, length: storage.length)
         let step = Step.setSpec(lineRange: lineRange, BlockSpec(kind: .paragraph, blockquoteDepth: 1))
         _ = step.apply(to: storage, env: env)
-        #expect(env.serializer.serialize(storage, dialect: .commonMark) == "> hello\n")
+        #expect(env.serializer.serialize(storage) == "> hello\n")
         for i in 0..<storage.length {
             #expect(storage.blockSpec(at: i)?.blockquoteDepth == 1, "char \(i) should have depth 1")
         }
@@ -78,7 +77,7 @@ import UIKit
         let lineRange = NSRange(location: 0, length: storage.length)
         let step = Step.setSpec(lineRange: lineRange, BlockSpec(kind: .unorderedListItem))
         _ = step.apply(to: storage, env: env)
-        #expect(env.serializer.serialize(storage, dialect: .commonMark) == "- alpha\n")
+        #expect(env.serializer.serialize(storage) == "- alpha\n")
     }
 
     @Test func setSpecBulletToParagraph() throws {
@@ -87,19 +86,19 @@ import UIKit
         let lineRange = NSRange(location: 0, length: storage.length)
         let step = Step.setSpec(lineRange: lineRange, .paragraph)
         _ = step.apply(to: storage, env: env)
-        #expect(env.serializer.serialize(storage, dialect: .commonMark) == "alpha\n")
+        #expect(env.serializer.serialize(storage) == "alpha\n")
     }
 
     @Test func setSpecInverseRoundTrips() throws {
         let env = try env()
         let storage = try storage(from: "hello\n")
-        let originalMarkdown = env.serializer.serialize(storage, dialect: .commonMark)
+        let originalMarkdown = env.serializer.serialize(storage)
         let lineRange = NSRange(location: 0, length: storage.length)
         let step = Step.setSpec(lineRange: lineRange, BlockSpec(kind: .heading(level: 1)))
         let applied = step.apply(to: storage, env: env)
-        #expect(env.serializer.serialize(storage, dialect: .commonMark) == "# hello\n")
+        #expect(env.serializer.serialize(storage) == "# hello\n")
         _ = applied.inverse.apply(to: storage, env: env)
-        #expect(env.serializer.serialize(storage, dialect: .commonMark) == originalMarkdown)
+        #expect(env.serializer.serialize(storage) == originalMarkdown)
     }
 
     @Test func transactionAppliesAllStepsInOrder() throws {
@@ -110,7 +109,7 @@ import UIKit
             .setSpec(lineRange: lineRange, BlockSpec(kind: .heading(level: 1)))
         ])
         let applied = transaction.apply(to: storage, env: env)
-        #expect(env.serializer.serialize(storage, dialect: .commonMark) == "# hello\n")
+        #expect(env.serializer.serialize(storage) == "# hello\n")
         _ = applied
     }
 

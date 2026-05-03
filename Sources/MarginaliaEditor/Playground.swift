@@ -12,7 +12,6 @@ import MarginaliaView
 public struct MarginaliaPlayground: View {
     @State private var text: String = MarginaliaPlayground.fixtures[0].source
     @State private var fixture: Int = 0
-    @State private var dialect: Dialect = .commonMark
     @State private var showInspector: Bool = true
 
     public init() {}
@@ -22,13 +21,12 @@ public struct MarginaliaPlayground: View {
             VStack(alignment: .leading, spacing: 8) {
                 fixturePicker
                 Marginalia(text: $text)
-                    .dialect(dialect)
                     .frame(minHeight: 320)
             }
             .padding(12)
             if showInspector {
                 Divider()
-                MarginaliaInspector(source: text, dialect: dialect)
+                MarginaliaInspector(source: text)
                     .frame(width: 320)
             }
         }
@@ -42,21 +40,14 @@ public struct MarginaliaPlayground: View {
     }
 
     private var fixturePicker: some View {
-        HStack {
-            Picker("Fixture", selection: $fixture) {
-                ForEach(MarginaliaPlayground.fixtures.indices, id: \.self) { i in
-                    Text(MarginaliaPlayground.fixtures[i].name).tag(i)
-                }
+        Picker("Fixture", selection: $fixture) {
+            ForEach(MarginaliaPlayground.fixtures.indices, id: \.self) { i in
+                Text(MarginaliaPlayground.fixtures[i].name).tag(i)
             }
-            .pickerStyle(.menu)
-            .onChange(of: fixture) { _, idx in
-                text = MarginaliaPlayground.fixtures[idx].source
-            }
-            Picker("Dialect", selection: $dialect) {
-                Text("CommonMark").tag(Dialect.commonMark)
-                Text("Remarkup").tag(Dialect.remarkup)
-            }
-            .pickerStyle(.segmented)
+        }
+        .pickerStyle(.menu)
+        .onChange(of: fixture) { _, idx in
+            text = MarginaliaPlayground.fixtures[idx].source
         }
     }
 
@@ -70,8 +61,7 @@ public struct MarginaliaPlayground: View {
         Fixture(name: "Kitchen sink", source: kitchenSinkSource),
         Fixture(name: "Empty", source: ""),
         Fixture(name: "Long blockquote", source: longBlockquoteSource),
-        Fixture(name: "Nested list", source: nestedListSource),
-        Fixture(name: "Remarkup snippet", source: remarkupSnippetSource)
+        Fixture(name: "Nested list", source: nestedListSource)
     ]
 
     private static let kitchenSinkSource = """
@@ -120,21 +110,12 @@ public struct MarginaliaPlayground: View {
       1. nested ordered
       2. another
     """
-
-    private static let remarkupSnippetSource = """
-    See D12345 and T999 for context.
-
-    NOTE: this uses //italic// and **bold**.
-
-    {F1234} ships in the next deploy. cc @alice.
-    """
 }
 
 /// Inspector pane: shows the current source size, parsed block regions,
 /// markup ranges, and hidden ranges for whatever's in the editor.
 struct MarginaliaInspector: View {
     let source: String
-    let dialect: Dialect
 
     var body: some View {
         ScrollView {

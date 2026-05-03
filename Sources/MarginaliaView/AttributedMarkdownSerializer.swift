@@ -9,11 +9,9 @@ import UIKit
 
 public final class AttributedMarkdownSerializer {
 
-    public typealias Dialect = MarginaliaView.Dialect
-
     public init() {}
 
-    public func serialize(_ attributed: NSAttributedString, dialect: Dialect) -> String {
+    public func serialize(_ attributed: NSAttributedString) -> String {
         let total = attributed.length
         guard total > 0 else { return "" }
         var out = ""
@@ -33,7 +31,7 @@ public final class AttributedMarkdownSerializer {
             let blockRange = NSRange(location: cursor, length: blockEnd - cursor)
             if let spec {
                 if emittedSomething { out.append("\n") }
-                out.append(emitBlock(spec, attributed: attributed, range: blockRange, dialect: dialect))
+                out.append(emitBlock(spec, attributed: attributed, range: blockRange))
             } else {
                 if emittedSomething { out.append("\n") }
                 let plain = attributed.attributedSubstring(from: blockRange).string
@@ -45,15 +43,12 @@ public final class AttributedMarkdownSerializer {
         return ensureTrailingNewline(out)
     }
 
-    // MARK: - block emission
-
     private func emitBlock(
         _ spec: BlockSpec,
         attributed: NSAttributedString,
-        range: NSRange,
-        dialect: Dialect
+        range: NSRange
     ) -> String {
-        let inner = inlineMarkdown(of: attributed, range: range, dialect: dialect, in: spec)
+        let inner = inlineMarkdown(of: attributed, range: range, in: spec)
         let trimmed = stripOneTrailingNewline(inner)
         let blockquotePrefix = String(repeating: "> ", count: max(0, spec.blockquoteDepth))
         let listIndent = String(repeating: "  ", count: max(0, spec.listLevel))
@@ -88,12 +83,9 @@ public final class AttributedMarkdownSerializer {
         }
     }
 
-    // MARK: - inline run emission
-
     private func inlineMarkdown(
         of attributed: NSAttributedString,
         range: NSRange,
-        dialect: Dialect,
         in spec: BlockSpec
     ) -> String {
         var out = ""
@@ -109,7 +101,7 @@ public final class AttributedMarkdownSerializer {
             let runLen = runRange.length > 0 ? runRange.length : 1
             let actualRange = NSRange(location: cursor, length: min(runLen, end - cursor))
             let runText = (attributed.string as NSString).substring(with: actualRange)
-            out.append(emitInlineRun(text: runText, attrs: attrs, dialect: dialect, in: spec))
+            out.append(emitInlineRun(text: runText, attrs: attrs, in: spec))
             cursor += actualRange.length
         }
         return out
@@ -123,7 +115,6 @@ public final class AttributedMarkdownSerializer {
     private func emitInlineRun(
         text: String,
         attrs: [NSAttributedString.Key: Any],
-        dialect: Dialect,
         in spec: BlockSpec
     ) -> String {
         if text == "\n" { return "\n" }

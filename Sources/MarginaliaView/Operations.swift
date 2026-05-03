@@ -69,12 +69,11 @@ public enum Operations {
         level: Int,
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
-                  env: env(compiler, serializer, theme, dialect, mode)) { current in
+                  env: env(compiler, serializer, theme, mode)) { current in
             if level == 0 {
                 return BlockSpec(kind: .paragraph,
                                  blockquoteDepth: current.blockquoteDepth,
@@ -91,12 +90,11 @@ public enum Operations {
         range: NSRange,
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
-                  env: env(compiler, serializer, theme, dialect, mode)) { current in
+                  env: env(compiler, serializer, theme, mode)) { current in
             if case .unorderedListItem = current.kind {
                 return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
@@ -112,12 +110,11 @@ public enum Operations {
         range: NSRange,
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
-                  env: env(compiler, serializer, theme, dialect, mode)) { current in
+                  env: env(compiler, serializer, theme, mode)) { current in
             if case .orderedListItem = current.kind {
                 return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
@@ -133,12 +130,11 @@ public enum Operations {
         range: NSRange,
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
-                  env: env(compiler, serializer, theme, dialect, mode)) { current in
+                  env: env(compiler, serializer, theme, mode)) { current in
             if case .taskListItem = current.kind {
                 return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
@@ -190,12 +186,11 @@ public enum Operations {
         range: NSRange,
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
-                  env: env(compiler, serializer, theme, dialect, mode)) { current in
+                  env: env(compiler, serializer, theme, mode)) { current in
             if current.blockquoteDepth > 0 {
                 return BlockSpec(kind: current.kind,
                                  blockquoteDepth: current.blockquoteDepth - 1,
@@ -238,12 +233,11 @@ public enum Operations {
         range: NSRange,
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
-                  env: env(compiler, serializer, theme, dialect, mode)) { current in
+                  env: env(compiler, serializer, theme, mode)) { current in
             if case .fencedCode = current.kind {
                 return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
@@ -258,7 +252,6 @@ public enum Operations {
         range: NSRange,
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSRange {
@@ -267,7 +260,7 @@ public enum Operations {
             compiler: compiler, theme: theme
         ) { return result }
         return applySpec(in: storage, range: range,
-                         env: env(compiler, serializer, theme, dialect, mode)) { current in
+                         env: env(compiler, serializer, theme, mode)) { current in
             BlockSpec(kind: current.kind,
                       blockquoteDepth: current.blockquoteDepth,
                       listLevel: current.listLevel + 1)
@@ -280,7 +273,6 @@ public enum Operations {
         range: NSRange,
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSRange {
@@ -289,7 +281,7 @@ public enum Operations {
             compiler: compiler, theme: theme
         ) { return result }
         return applySpec(in: storage, range: range,
-                         env: env(compiler, serializer, theme, dialect, mode)) { current in
+                         env: env(compiler, serializer, theme, mode)) { current in
             BlockSpec(kind: current.kind,
                       blockquoteDepth: current.blockquoteDepth,
                       listLevel: max(0, current.listLevel - 1))
@@ -423,12 +415,11 @@ public enum Operations {
         range: NSRange,
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
-                  env: env(compiler, serializer, theme, dialect, mode)) { _ in
+                  env: env(compiler, serializer, theme, mode)) { _ in
             BlockSpec(kind: .horizontalRule)
         }
     }
@@ -499,10 +490,9 @@ public enum Operations {
         _ compiler: MarkdownAttributedCompiler,
         _ serializer: AttributedMarkdownSerializer,
         _ theme: MarginaliaTheme,
-        _ dialect: Dialect,
         _ mode: Mode
     ) -> StepEnvironment {
-        StepEnvironment(compiler: compiler, serializer: serializer, theme: theme, dialect: dialect, mode: mode)
+        StepEnvironment(compiler: compiler, serializer: serializer, theme: theme, mode: mode)
     }
 
     // MARK: - inline format toggles

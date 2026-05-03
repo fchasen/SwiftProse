@@ -13,12 +13,12 @@ import UIKit
 
     private func storage(from markdown: String) throws -> NSTextStorage {
         let compiler = try MarkdownAttributedCompiler()
-        let attr = compiler.compile(markdown, dialect: .commonMark, mode: .rich, theme: .default)
+        let attr = compiler.compile(markdown, mode: .rich, theme: .default)
         return NSTextStorage(attributedString: attr)
     }
 
     private func serialize(_ storage: NSTextStorage) -> String {
-        AttributedMarkdownSerializer().serialize(storage, dialect: .commonMark)
+        AttributedMarkdownSerializer().serialize(storage)
     }
 
     private func handle(in storage: NSTextStorage, cursor: Int) throws -> NSRange? {
@@ -29,7 +29,6 @@ import UIKit
             cursor: cursor,
             compiler: compiler,
             serializer: serializer,
-            dialect: .commonMark,
             mode: .rich,
             theme: .default
         )
@@ -88,7 +87,7 @@ import UIKit
 
     @Test func nestedOrderedRendersAsAlpha() throws {
         let compiler = try MarkdownAttributedCompiler()
-        let attr = compiler.compile("1. one\n   1. nested\n", dialect: .commonMark, mode: .rich, theme: .default)
+        let attr = compiler.compile("1. one\n   1. nested\n", mode: .rich, theme: .default)
         let storage = NSTextStorage(attributedString: attr)
         let raw = storage.string
         #expect(raw.contains("a. "))
@@ -97,7 +96,7 @@ import UIKit
 
     @Test func bulletStorageHasAttachmentMarker() throws {
         let compiler = try MarkdownAttributedCompiler()
-        let attr = compiler.compile("- one\n", dialect: .commonMark, mode: .rich, theme: .default)
+        let attr = compiler.compile("- one\n", mode: .rich, theme: .default)
         let storage = NSTextStorage(attributedString: attr)
         // The first character should be U+FFFC carrying a BulletGlyphAttachment.
         let firstChar = (storage.string as NSString).character(at: 0)
@@ -115,7 +114,7 @@ import UIKit
         let compiler = try MarkdownAttributedCompiler()
         let attr = compiler.compile(
             "1. one\n   1. nested\n      1. deeper\n",
-            dialect: .commonMark, mode: .rich, theme: .default
+            mode: .rich, theme: .default
         )
         let storage = NSTextStorage(attributedString: attr)
         let raw = storage.string

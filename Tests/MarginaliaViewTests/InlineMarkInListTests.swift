@@ -19,9 +19,9 @@ import UIKit
         let serializer = AttributedMarkdownSerializer()
         let storage = NSTextStorage(attributedString: compiler.compile(
             "- **bold** rest\n",
-            dialect: .commonMark, mode: .rich, theme: .default
+            mode: .rich, theme: .default
         ))
-        let md = serializer.serialize(storage, dialect: .commonMark)
+        let md = serializer.serialize(storage)
         #expect(md == "- **bold** rest\n", "got '\(md)'")
     }
 
@@ -30,9 +30,9 @@ import UIKit
         let serializer = AttributedMarkdownSerializer()
         let storage = NSTextStorage(attributedString: compiler.compile(
             "**bold** rest\n",
-            dialect: .commonMark, mode: .rich, theme: .default
+            mode: .rich, theme: .default
         ))
-        let md = serializer.serialize(storage, dialect: .commonMark)
+        let md = serializer.serialize(storage)
         #expect(md == "**bold** rest\n", "got '\(md)'")
     }
 
@@ -40,7 +40,7 @@ import UIKit
         let compiler = try compiler()
         let storage = compiler.compile(
             "- **bold** rest\n",
-            dialect: .commonMark, mode: .rich, theme: .default
+            mode: .rich, theme: .default
         )
         print("storage='\(storage.string)' length=\(storage.length)")
         for i in 0..<storage.length {

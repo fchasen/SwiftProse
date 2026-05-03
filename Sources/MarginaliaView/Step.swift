@@ -11,20 +11,17 @@ public struct StepEnvironment {
     public let compiler: MarkdownAttributedCompiler
     public let serializer: AttributedMarkdownSerializer
     public let theme: MarginaliaTheme
-    public let dialect: Dialect
     public let mode: Mode
 
     public init(
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         theme: MarginaliaTheme,
-        dialect: Dialect,
         mode: Mode
     ) {
         self.compiler = compiler
         self.serializer = serializer
         self.theme = theme
-        self.dialect = dialect
         self.mode = mode
     }
 }
@@ -116,7 +113,7 @@ public enum Step {
         replacing prior: NSAttributedString,
         env: StepEnvironment
     ) -> NSAttributedString {
-        let priorMarkdown = env.serializer.serialize(prior, dialect: env.dialect)
+        let priorMarkdown = env.serializer.serialize(prior)
         let body = stripBlockMarkup(priorMarkdown)
         let bodyEmpty = body.replacingOccurrences(of: "\n", with: "").trimmingCharacters(in: .whitespaces).isEmpty
         // Tree-sitter's markdown grammar rejects empty list-item / blockquote
@@ -137,7 +134,7 @@ public enum Step {
         }
         let newMarkdown = compose(spec: spec, body: body)
         let normalized = newMarkdown.hasSuffix("\n") ? newMarkdown : newMarkdown + "\n"
-        return env.compiler.compile(normalized, dialect: env.dialect, mode: env.mode, theme: env.theme)
+        return env.compiler.compile(normalized, mode: env.mode, theme: env.theme)
     }
 
     private func renderEmpty(

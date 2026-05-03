@@ -14,12 +14,10 @@ extension Marginalia {
         case custom(id: String, label: String, systemImage: String, shortcut: KeyboardShortcut? = nil, topLevel: Bool = false, action: () -> Void)
     }
 
-    /// One slot in the status bar.
     public enum StatusItem: Sendable {
         case words
         case characters
         case cursor
-        case dialect
     }
 
     /// Item appended to the underlying text view's right-click / context menu.

@@ -15,7 +15,6 @@ public enum InsertNewline {
         cursor: Int,
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSRange? {

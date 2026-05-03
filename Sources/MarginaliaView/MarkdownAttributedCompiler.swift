@@ -9,8 +9,6 @@ import UIKit
 
 public final class MarkdownAttributedCompiler {
 
-    public typealias Dialect = MarginaliaView.Dialect
-
     private let blockParser: MarkdownParser
     private let inlineParser: MarkdownParser
     private let highlighter: HighlightApplier
@@ -23,21 +21,17 @@ public final class MarkdownAttributedCompiler {
 
     public func compile(
         _ markdown: String,
-        dialect: Dialect,
         mode: Mode,
         theme: MarginaliaTheme
     ) -> NSAttributedString {
         switch mode {
-        case .source: return compileSource(markdown, dialect: dialect, theme: theme)
-        case .rich: return compileRich(markdown, dialect: dialect, theme: theme)
+        case .source: return compileSource(markdown, theme: theme)
+        case .rich: return compileRich(markdown, theme: theme)
         }
     }
 
-    // MARK: - source mode
-
     private func compileSource(
         _ markdown: String,
-        dialect: Dialect,
         theme: MarginaliaTheme
     ) -> NSAttributedString {
         let result = NSMutableAttributedString(
@@ -65,11 +59,8 @@ public final class MarkdownAttributedCompiler {
         return result
     }
 
-    // MARK: - rich mode
-
     private func compileRich(
         _ markdown: String,
-        dialect: Dialect,
         theme: MarginaliaTheme
     ) -> NSAttributedString {
         guard !markdown.isEmpty else {
@@ -113,7 +104,6 @@ public final class MarkdownAttributedCompiler {
                 blockHighlights: blockHighlights,
                 inlineHighlights: inlineHighlights,
                 theme: theme,
-                dialect: dialect,
                 into: result
             )
             lastEmittedEnd = segment.range.location + segment.range.length
@@ -153,7 +143,6 @@ public final class MarkdownAttributedCompiler {
         blockHighlights: [HighlightSpan],
         inlineHighlights: [HighlightSpan],
         theme: MarginaliaTheme,
-        dialect: Dialect,
         into out: NSMutableAttributedString
     ) {
         switch segment.tag {
@@ -168,7 +157,6 @@ public final class MarkdownAttributedCompiler {
                 inlineHighlights: inlineHighlights,
                 blockHighlights: blockHighlights,
                 theme: theme,
-                dialect: dialect,
                 into: out
             )
         case .fencedCode, .indentedCode:
@@ -181,16 +169,12 @@ public final class MarkdownAttributedCompiler {
         }
     }
 
-    /// Emit a paragraph-shaped segment (paragraph, heading, blockquote,
-    /// list-item) where inline content is rendered with markup characters
-    /// stripped and inline emphasis/strong/code/link applied as attributes.
     private func appendInlineBlock(
         _ segment: BlockSegment,
         source: String,
         inlineHighlights: [HighlightSpan],
         blockHighlights: [HighlightSpan],
         theme: MarginaliaTheme,
-        dialect: Dialect,
         into out: NSMutableAttributedString
     ) {
         let nsSource = source as NSString

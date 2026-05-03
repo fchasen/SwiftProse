@@ -5,13 +5,11 @@ import MarginaliaSyntax
 
 @Suite(.serialized) struct CompilerSerializerRoundTripTests {
 
-    private func roundTrip(_ markdown: String, dialect: AttributedMarkdownSerializer.Dialect = .commonMark) throws -> String {
+    private func roundTrip(_ markdown: String) throws -> String {
         let compiler = try MarkdownAttributedCompiler()
         let serializer = AttributedMarkdownSerializer()
-        let compilerDialect: MarkdownAttributedCompiler.Dialect =
-            (dialect == .commonMark) ? .commonMark : .remarkup
-        let attributed = compiler.compile(markdown, dialect: compilerDialect, mode: .rich, theme: .default)
-        return serializer.serialize(attributed, dialect: dialect)
+        let attributed = compiler.compile(markdown, mode: .rich, theme: .default)
+        return serializer.serialize(attributed)
     }
 
     @Test func emptyString() throws {
@@ -79,8 +77,4 @@ import MarginaliaSyntax
         #expect(out == "Use `let x = 1` here\n")
     }
 
-    @Test func remarkupItalic() throws {
-        let out = try roundTrip("This is //italic// word\n", dialect: .remarkup)
-        #expect(out.contains("//italic//"))
-    }
 }

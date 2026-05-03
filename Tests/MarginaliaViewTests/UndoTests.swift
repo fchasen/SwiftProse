@@ -17,7 +17,7 @@ import UIKit
     }
 
     private func serialize(_ storage: NSTextStorage) -> String {
-        AttributedMarkdownSerializer().serialize(storage, dialect: .commonMark)
+        AttributedMarkdownSerializer().serialize(storage)
     }
 
     @Test func characterMutationUndoRestoresOriginal() throws {

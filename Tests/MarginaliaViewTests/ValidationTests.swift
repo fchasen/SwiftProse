@@ -16,14 +16,13 @@ import UIKit
             compiler: compiler,
             serializer: AttributedMarkdownSerializer(),
             theme: .default,
-            dialect: .commonMark,
             mode: .rich
         )
     }
 
     @Test func detectsMissingSpec() throws {
         let env = try env()
-        let storage = NSTextStorage(attributedString: env.compiler.compile("hello\n", dialect: .commonMark, mode: .rich, theme: .default))
+        let storage = NSTextStorage(attributedString: env.compiler.compile("hello\n", mode: .rich, theme: .default))
         // Manually corrupt: strip the spec from one char.
         storage.removeAttribute(.marginaliaBlockSpec, range: NSRange(location: 1, length: 1))
         let diagnostics = SpecValidator.validate(in: storage, range: NSRange(location: 0, length: storage.length))
@@ -32,7 +31,7 @@ import UIKit
 
     @Test func detectsInconsistentSpecAcrossParagraph() throws {
         let env = try env()
-        let storage = NSTextStorage(attributedString: env.compiler.compile("hello\n", dialect: .commonMark, mode: .rich, theme: .default))
+        let storage = NSTextStorage(attributedString: env.compiler.compile("hello\n", mode: .rich, theme: .default))
         // Set a different spec on one char.
         storage.addAttribute(.marginaliaBlockSpec,
                              value: BlockSpecBox(BlockSpec(kind: .heading(level: 1))),
@@ -43,14 +42,14 @@ import UIKit
 
     @Test func cleanStorageHasNoDiagnostics() throws {
         let env = try env()
-        let storage = NSTextStorage(attributedString: env.compiler.compile("# Heading\n- bullet\n> quote\n", dialect: .commonMark, mode: .rich, theme: .default))
+        let storage = NSTextStorage(attributedString: env.compiler.compile("# Heading\n- bullet\n> quote\n", mode: .rich, theme: .default))
         let diagnostics = SpecValidator.validate(in: storage, range: NSRange(location: 0, length: storage.length))
         #expect(diagnostics.isEmpty, "compiled storage should be valid; got \(diagnostics)")
     }
 
     @Test func repairFillsMissingSpecFromLine() throws {
         let env = try env()
-        let storage = NSTextStorage(attributedString: env.compiler.compile("hello world\n", dialect: .commonMark, mode: .rich, theme: .default))
+        let storage = NSTextStorage(attributedString: env.compiler.compile("hello world\n", mode: .rich, theme: .default))
         storage.removeAttribute(.marginaliaBlockSpec, range: NSRange(location: 0, length: 5))
         SpecValidator.repair(in: storage, range: NSRange(location: 0, length: storage.length))
         let diagnostics = SpecValidator.validate(in: storage, range: NSRange(location: 0, length: storage.length))
@@ -59,7 +58,7 @@ import UIKit
 
     @Test func repairResolvesInconsistentSpec() throws {
         let env = try env()
-        let storage = NSTextStorage(attributedString: env.compiler.compile("hello world\n", dialect: .commonMark, mode: .rich, theme: .default))
+        let storage = NSTextStorage(attributedString: env.compiler.compile("hello world\n", mode: .rich, theme: .default))
         storage.addAttribute(.marginaliaBlockSpec,
                              value: BlockSpecBox(BlockSpec(kind: .heading(level: 2))),
                              range: NSRange(location: 0, length: 1))

@@ -7,8 +7,6 @@ struct MarginaliaStatusBar: View {
     let text: String
     let selection: NSRange
 
-    @Environment(\.marginaliaDialect) private var dialect
-
     var body: some View {
         HStack(spacing: 12) {
             ForEach(items.indices, id: \.self) { i in
@@ -31,8 +29,6 @@ struct MarginaliaStatusBar: View {
             Text("\(characterCount) chars")
         case .cursor:
             Text("\(line):\(column)")
-        case .dialect:
-            Text(dialectLabel)
         }
     }
 
@@ -53,12 +49,5 @@ struct MarginaliaStatusBar: View {
         let upTo = min(max(0, selection.location), ns.length)
         let lineRange = ns.lineRange(for: NSRange(location: upTo, length: 0))
         return upTo - lineRange.location + 1
-    }
-
-    private var dialectLabel: String {
-        switch dialect {
-        case .commonMark: return "CommonMark"
-        case .remarkup: return "Remarkup"
-        }
     }
 }

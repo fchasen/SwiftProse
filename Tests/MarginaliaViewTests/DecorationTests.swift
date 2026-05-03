@@ -12,7 +12,7 @@ import UIKit
 
     private func compiled(_ md: String) throws -> NSAttributedString {
         let compiler = try MarkdownAttributedCompiler()
-        return compiler.compile(md, dialect: .commonMark, mode: .rich, theme: .default)
+        return compiler.compile(md, mode: .rich, theme: .default)
     }
 
     @Test func singleBlockquoteHasSingleBar() throws {

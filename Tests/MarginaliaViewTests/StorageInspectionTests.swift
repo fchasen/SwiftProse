@@ -13,7 +13,7 @@ import UIKit
 
     private func compile(_ markdown: String) throws -> NSAttributedString {
         let compiler = try MarkdownAttributedCompiler()
-        return compiler.compile(markdown, dialect: .commonMark, mode: .rich, theme: .default)
+        return compiler.compile(markdown, mode: .rich, theme: .default)
     }
 
     /// Documents a limitation: tree-sitter's CommonMark grammar does NOT
@@ -57,7 +57,7 @@ import UIKit
         Operations.toggleUnorderedList(
             in: storage, range: NSRange(location: 0, length: 0),
             compiler: compiler, serializer: serializer,
-            dialect: .commonMark, mode: .rich, theme: .default
+            mode: .rich, theme: .default
         )
         let raw = storage.string
         print("toggle-on-empty result raw='\(raw.replacingOccurrences(of: "\u{FFFC}", with: "[FFFC]"))' length=\(raw.count)")

@@ -9,17 +9,12 @@ import UIKit
 
 public final class EditorController {
 
-    public typealias Dialect = MarginaliaView.Dialect
-
     public let textStorage: NSTextStorage
     public let contentStorage: NSTextContentStorage
     public let layoutManager: NSTextLayoutManager
     public let textContainer: NSTextContainer
 
     public var theme: MarginaliaTheme {
-        didSet { recompile() }
-    }
-    public var dialect: Dialect {
         didSet { recompile() }
     }
     public var mode: Mode {
@@ -42,12 +37,10 @@ public final class EditorController {
     public init(
         initialMarkdown: String = "",
         theme: MarginaliaTheme = .default,
-        dialect: Dialect = .commonMark,
         mode: Mode = .rich,
         containerSize: CGSize = CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
     ) throws {
         self.theme = theme
-        self.dialect = dialect
         self.mode = mode
         self.compiler = try MarkdownAttributedCompiler()
         self.serializer = AttributedMarkdownSerializer()
@@ -224,7 +217,7 @@ public final class EditorController {
     }
 
     public func markdown() -> String {
-        return serializer.serialize(textStorage, dialect: dialect)
+        return serializer.serialize(textStorage)
     }
 
     public func recompile() {
@@ -262,7 +255,6 @@ public final class EditorController {
             compiler: compiler,
             serializer: serializer,
             theme: theme,
-            dialect: dialect,
             mode: mode
         )
     }
@@ -367,7 +359,7 @@ public final class EditorController {
                 Operations.setHeading(
                     in: textStorage, range: range, level: level,
                     compiler: compiler, serializer: serializer,
-                    dialect: dialect, mode: mode, theme: theme
+                    mode: mode, theme: theme
                 )
             }
         case .unorderedList:
@@ -375,7 +367,7 @@ public final class EditorController {
                 Operations.toggleUnorderedList(
                     in: textStorage, range: range,
                     compiler: compiler, serializer: serializer,
-                    dialect: dialect, mode: mode, theme: theme
+                    mode: mode, theme: theme
                 )
             }
         case .orderedList:
@@ -383,7 +375,7 @@ public final class EditorController {
                 Operations.toggleOrderedList(
                     in: textStorage, range: range,
                     compiler: compiler, serializer: serializer,
-                    dialect: dialect, mode: mode, theme: theme
+                    mode: mode, theme: theme
                 )
             }
         case .taskList:
@@ -391,7 +383,7 @@ public final class EditorController {
                 Operations.toggleTaskList(
                     in: textStorage, range: range,
                     compiler: compiler, serializer: serializer,
-                    dialect: dialect, mode: mode, theme: theme
+                    mode: mode, theme: theme
                 )
             }
         case .blockquote:
@@ -399,7 +391,7 @@ public final class EditorController {
                 Operations.toggleBlockquote(
                     in: textStorage, range: range,
                     compiler: compiler, serializer: serializer,
-                    dialect: dialect, mode: mode, theme: theme
+                    mode: mode, theme: theme
                 )
             }
         case .codeBlock:
@@ -407,7 +399,7 @@ public final class EditorController {
                 Operations.insertCodeBlock(
                     in: textStorage, range: range,
                     compiler: compiler, serializer: serializer,
-                    dialect: dialect, mode: mode, theme: theme
+                    mode: mode, theme: theme
                 )
             }
         case .horizontalRule:
@@ -415,7 +407,7 @@ public final class EditorController {
                 Operations.insertHorizontalRule(
                     in: textStorage, range: range,
                     compiler: compiler, serializer: serializer,
-                    dialect: dialect, mode: mode, theme: theme
+                    mode: mode, theme: theme
                 )
             }
         case .indent:
@@ -423,7 +415,7 @@ public final class EditorController {
                 Operations.indent(
                     in: textStorage, range: range,
                     compiler: compiler, serializer: serializer,
-                    dialect: dialect, mode: mode, theme: theme
+                    mode: mode, theme: theme
                 )
             }
         case .outdent:
@@ -431,7 +423,7 @@ public final class EditorController {
                 Operations.outdent(
                     in: textStorage, range: range,
                     compiler: compiler, serializer: serializer,
-                    dialect: dialect, mode: mode, theme: theme
+                    mode: mode, theme: theme
                 )
             }
         }
@@ -724,7 +716,6 @@ public final class EditorController {
                         cursor: cursor,
                         compiler: compiler,
                         serializer: serializer,
-                        dialect: dialect,
                         mode: mode,
                         theme: theme
                     )
@@ -950,7 +941,7 @@ public final class EditorController {
     // MARK: - private
 
     private func compileFor(_ markdown: String) -> NSAttributedString {
-        return compiler.compile(markdown, dialect: dialect, mode: mode, theme: theme)
+        return compiler.compile(markdown, mode: mode, theme: theme)
     }
 
     private func replaceStorage(with attributed: NSAttributedString) {

@@ -12,12 +12,12 @@ import UIKit
 
     private func compile(_ markdown: String) throws -> NSTextStorage {
         let compiler = try MarkdownAttributedCompiler()
-        let attr = compiler.compile(markdown, dialect: .commonMark, mode: .rich, theme: .default)
+        let attr = compiler.compile(markdown, mode: .rich, theme: .default)
         return NSTextStorage(attributedString: attr)
     }
 
     private func serialize(_ storage: NSTextStorage) -> String {
-        AttributedMarkdownSerializer().serialize(storage, dialect: .commonMark)
+        AttributedMarkdownSerializer().serialize(storage)
     }
 
     @Test func toggleBoldAddsStrongRoundtrip() throws {
@@ -90,7 +90,7 @@ import UIKit
             Operations.setHeading(
                 in: storage, range: NSRange(location: 0, length: 5), level: 2,
                 compiler: compiler, serializer: serializer,
-                dialect: .commonMark, mode: .rich, theme: .default
+                mode: .rich, theme: .default
             )
         }
         #expect(serialize(storage) == "## hello\n")
@@ -102,7 +102,7 @@ import UIKit
             Operations.setHeading(
                 in: storage, range: NSRange(location: 0, length: 0), level: 0,
                 compiler: compiler, serializer: serializer,
-                dialect: .commonMark, mode: .rich, theme: .default
+                mode: .rich, theme: .default
             )
         }
         #expect(serialize(storage) == "hello\n")
@@ -114,7 +114,7 @@ import UIKit
             Operations.toggleUnorderedList(
                 in: storage, range: NSRange(location: 0, length: storage.length),
                 compiler: compiler, serializer: serializer,
-                dialect: .commonMark, mode: .rich, theme: .default
+                mode: .rich, theme: .default
             )
         }
         #expect(serialize(storage) == "- apple\n- banana\n")
@@ -126,7 +126,7 @@ import UIKit
             Operations.toggleUnorderedList(
                 in: storage, range: NSRange(location: 0, length: storage.length),
                 compiler: compiler, serializer: serializer,
-                dialect: .commonMark, mode: .rich, theme: .default
+                mode: .rich, theme: .default
             )
         }
         #expect(serialize(storage) == "one\ntwo\n")
@@ -138,7 +138,7 @@ import UIKit
             Operations.toggleBlockquote(
                 in: storage, range: NSRange(location: 0, length: 0),
                 compiler: compiler, serializer: serializer,
-                dialect: .commonMark, mode: .rich, theme: .default
+                mode: .rich, theme: .default
             )
         }
         #expect(serialize(storage) == "> hello\n")
@@ -150,7 +150,7 @@ import UIKit
             Operations.insertHorizontalRule(
                 in: storage, range: NSRange(location: 5, length: 0),
                 compiler: compiler, serializer: serializer,
-                dialect: .commonMark, mode: .rich, theme: .default
+                mode: .rich, theme: .default
             )
         }
         #expect(serialize(storage).contains("---"))
@@ -162,7 +162,7 @@ import UIKit
             Operations.toggleUnorderedList(
                 in: storage, range: NSRange(location: 0, length: 0),
                 compiler: compiler, serializer: serializer,
-                dialect: .commonMark, mode: .rich, theme: .default
+                mode: .rich, theme: .default
             )
         }
         let out = serialize(storage)
@@ -175,7 +175,7 @@ import UIKit
             Operations.toggleTaskList(
                 in: storage, range: NSRange(location: 0, length: 0),
                 compiler: compiler, serializer: serializer,
-                dialect: .commonMark, mode: .rich, theme: .default
+                mode: .rich, theme: .default
             )
         }
         let out = serialize(storage)
@@ -188,7 +188,7 @@ import UIKit
             Operations.toggleOrderedList(
                 in: storage, range: NSRange(location: 0, length: 0),
                 compiler: compiler, serializer: serializer,
-                dialect: .commonMark, mode: .rich, theme: .default
+                mode: .rich, theme: .default
             )
         }
         let out = serialize(storage)
