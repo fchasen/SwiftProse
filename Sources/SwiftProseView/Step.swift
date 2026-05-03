@@ -68,10 +68,8 @@ public enum Step {
         case .codeSpan:
             resulting = Operations.toggleCodeSpan(in: storage, range: range, theme: env.theme)
         }
-        let after = storage.attributedSubstring(from: clamp(resulting, in: storage.length))
         let inverse = Step.replaceText(range: clamp(resulting, in: storage.length), with: prior)
-        _ = after
-        return AppliedStep(inverse: inverse, mappedRange: resulting, affectedLineRange: resulting)
+        return AppliedStep(inverse: inverse, mappedRange: resulting, affectedLineRange: resulting, stepMap: .empty)
     }
 
     private func applyReplaceText(
@@ -86,7 +84,8 @@ public enum Step {
         storage.endEditing()
         let mappedRange = NSRange(location: safe.location, length: attributed.length)
         let inverse = Step.replaceText(range: mappedRange, with: prior)
-        return AppliedStep(inverse: inverse, mappedRange: mappedRange, affectedLineRange: mappedRange)
+        let stepMap = StepMap(oldRange: safe, newLength: attributed.length)
+        return AppliedStep(inverse: inverse, mappedRange: mappedRange, affectedLineRange: mappedRange, stepMap: stepMap)
     }
 
     private func applySetSpec(
@@ -105,7 +104,8 @@ public enum Step {
 
         let mappedRange = NSRange(location: safe.location, length: newAttr.length)
         let inverse = Step.replaceText(range: mappedRange, with: prior)
-        return AppliedStep(inverse: inverse, mappedRange: mappedRange, affectedLineRange: mappedRange)
+        let stepMap = StepMap(oldRange: safe, newLength: newAttr.length)
+        return AppliedStep(inverse: inverse, mappedRange: mappedRange, affectedLineRange: mappedRange, stepMap: stepMap)
     }
 
     private func render(
@@ -245,12 +245,25 @@ public enum Step {
         let remaining = max(0, length - location)
         return NSRange(location: location, length: max(0, min(range.length, remaining)))
     }
+
+    public func mapped(through mapping: Mapping) -> Step {
+        guard !mapping.maps.isEmpty else { return self }
+        switch self {
+        case .replaceText(let range, let attr):
+            return .replaceText(range: mapping.mapRange(range), with: attr)
+        case .setSpec(let lineRange, let spec):
+            return .setSpec(lineRange: mapping.mapRange(lineRange), spec)
+        case .toggleInlineMark(let range, let mark):
+            return .toggleInlineMark(range: mapping.mapRange(range), mark)
+        }
+    }
 }
 
 public struct AppliedStep {
     public let inverse: Step
     public let mappedRange: NSRange
     public let affectedLineRange: NSRange
+    public let stepMap: StepMap
 }
 
 public struct Transaction {
@@ -265,17 +278,25 @@ public struct Transaction {
     @discardableResult
     public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedTransaction {
         var inverses: [Step] = []
+        var mapping = Mapping.empty
         var mappedRange: NSRange = NSRange(location: 0, length: 0)
         for step in steps {
-            let applied = step.apply(to: storage, env: env)
+            let mapped = step.mapped(through: mapping)
+            let applied = mapped.apply(to: storage, env: env)
             inverses.insert(applied.inverse, at: 0)
+            mapping.append(applied.stepMap)
             mappedRange = applied.mappedRange
         }
-        return AppliedTransaction(inverse: Transaction(steps: inverses, label: label), mappedRange: mappedRange)
+        return AppliedTransaction(
+            inverse: Transaction(steps: inverses, label: label),
+            mapping: mapping,
+            mappedRange: mappedRange
+        )
     }
 }
 
 public struct AppliedTransaction {
     public let inverse: Transaction
+    public let mapping: Mapping
     public let mappedRange: NSRange
 }
