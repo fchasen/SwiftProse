@@ -44,6 +44,9 @@ public struct SwiftProseEditor: View {
                                     controller: controller,
                                     text: $text
                                 )
+                            },
+                            canPerform: { action in
+                                hosting.controller?.canPerform(action) ?? true
                             }
                         )
                     }

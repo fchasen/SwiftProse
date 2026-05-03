@@ -6,6 +6,7 @@ import SwiftProseView
 struct ProseToolbar: View {
     let items: [SwiftProseEditor.ToolbarItem]
     let perform: (SwiftProseEditor.Action) -> Void
+    var canPerform: (SwiftProseEditor.Action) -> Bool = { _ in true }
 
     var body: some View {
         let groups = makeGroups(from: items)
@@ -52,6 +53,7 @@ struct ProseToolbar: View {
                 shortcut: shortcut(for: .heading(level: level)),
                 action: { perform(.heading(level: level)) }
             )
+            .disabled(!canPerform(.heading(level: level)))
         case .action(let action):
             ToolbarActionButton(
                 systemImage: label(for: action),
@@ -59,6 +61,7 @@ struct ProseToolbar: View {
                 shortcut: shortcut(for: action),
                 action: { perform(action) }
             )
+            .disabled(!canPerform(action))
         case let .custom(_, label, symbol, shortcut, _, customPerform):
             ToolbarActionButton(
                 systemImage: symbol,
