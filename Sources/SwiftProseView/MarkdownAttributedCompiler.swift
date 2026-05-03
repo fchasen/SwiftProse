@@ -225,13 +225,13 @@ public final class MarkdownAttributedCompiler {
                 styleRuns.append((projected, [
                     .font: theme.monospaceFont,
                     .backgroundColor: subtleBackground(theme: theme),
-                    .marginaliaInline: InlineTag.codeSpan
+                    .proseInline: InlineTag.codeSpan
                 ]))
             case .textURI, .textReference:
                 styleRuns.append((projected, [
                     .foregroundColor: theme.linkColor,
                     .underlineStyle: NSUnderlineStyle.single.rawValue,
-                    .marginaliaInline: InlineTag.link
+                    .proseInline: InlineTag.link
                 ]))
             default:
                 break

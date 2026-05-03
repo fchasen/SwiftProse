@@ -517,7 +517,7 @@ public final class EditorController {
             }
             // Inline-only flags must NOT bleed into typed text.
             attrs.removeValue(forKey: .proseListMarker)
-            attrs.removeValue(forKey: .marginaliaInline)
+            attrs.removeValue(forKey: .proseInline)
             attrs.removeValue(forKey: .attachment)
             attrs.removeValue(forKey: .link)
             attrs.removeValue(forKey: .proseLink)

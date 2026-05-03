@@ -44,7 +44,7 @@ public enum Operations {
         attrs[.proseLink] = url
         attrs[.foregroundColor] = theme.linkColor
         attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
-        attrs[.marginaliaInline] = InlineTag.link
+        attrs[.proseInline] = InlineTag.link
         let attributed = NSMutableAttributedString(string: label, attributes: attrs)
         storage.beginEditing()
         storage.replaceCharacters(in: safe, with: attributed)
@@ -555,22 +555,22 @@ public enum Operations {
             ) { attrs in
                 var a = attrs
                 a[.font] = theme.monospaceFont
-                a[.marginaliaInline] = InlineTag.codeSpan
+                a[.proseInline] = InlineTag.codeSpan
                 a[.backgroundColor] = subtleCodeBackground(theme: theme)
                 return a
             }
         }
         let safe = clampedRange(range, in: storage.length)
-        let allOn = isUniformAttribute(in: storage, range: safe, key: .marginaliaInline) { value in
+        let allOn = isUniformAttribute(in: storage, range: safe, key: .proseInline) { value in
             (value as? InlineTag) == .codeSpan
         }
         storage.beginEditing()
         if allOn {
-            storage.removeAttribute(.marginaliaInline, range: safe)
+            storage.removeAttribute(.proseInline, range: safe)
             storage.removeAttribute(.backgroundColor, range: safe)
             storage.addAttribute(.font, value: theme.bodyFont, range: safe)
         } else {
-            storage.addAttribute(.marginaliaInline, value: InlineTag.codeSpan, range: safe)
+            storage.addAttribute(.proseInline, value: InlineTag.codeSpan, range: safe)
             storage.addAttribute(.font, value: theme.monospaceFont, range: safe)
             storage.addAttribute(.backgroundColor, value: subtleCodeBackground(theme: theme), range: safe)
         }

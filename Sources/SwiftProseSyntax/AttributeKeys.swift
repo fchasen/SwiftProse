@@ -2,7 +2,7 @@ import Foundation
 
 public extension NSAttributedString.Key {
     static let proseLink = NSAttributedString.Key("swiftprose.link")
-    static let marginaliaInline = NSAttributedString.Key("swiftprose.inline")
+    static let proseInline = NSAttributedString.Key("swiftprose.inline")
     /// Flag (Bool=true) on rendered list-marker characters (`•`, `1.`, etc.)
     /// the compiler injects so they aren't part of the markdown round-trip.
     static let proseListMarker = NSAttributedString.Key("swiftprose.listMarker")

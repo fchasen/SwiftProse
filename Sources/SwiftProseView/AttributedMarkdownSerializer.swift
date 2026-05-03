@@ -135,7 +135,7 @@ public final class AttributedMarkdownSerializer {
             return "[\(label)](\(url))"
         }
 
-        if let inline = attrs[.marginaliaInline] as? InlineTag, inline == .codeSpan {
+        if let inline = attrs[.proseInline] as? InlineTag, inline == .codeSpan {
             let label = stripTrailingNewline(content)
             return "`\(label)`"
         }
