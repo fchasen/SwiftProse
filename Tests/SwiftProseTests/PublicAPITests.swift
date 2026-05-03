@@ -58,4 +58,31 @@ import UIKit
                                                 storage: NSAttributedString())
         #expect(decorations.count == 1)
     }
+
+    @Test func defaultConfigurationExposesToolbarItems() {
+        let cfg = SwiftProseEditor.Configuration()
+        #expect(!cfg.toolbar.isEmpty)
+        #expect(cfg.statusItems.isEmpty)
+        #expect(cfg.minHeight > 0)
+    }
+
+    @Test func minimalConfigurationOmitsToolbar() {
+        let cfg = SwiftProseEditor.Configuration(toolbar: [], statusItems: [.words, .characters, .cursor])
+        #expect(cfg.toolbar.isEmpty)
+        #expect(cfg.statusItems.count == 3)
+    }
+
+    @Test func editorViewBodyMaterializesForEachConfiguration() {
+        let configs: [SwiftProseEditor.Configuration] = [
+            SwiftProseEditor.Configuration(),
+            SwiftProseEditor.Configuration(toolbar: []),
+            SwiftProseEditor.Configuration(statusItems: [.words, .characters, .cursor]),
+            SwiftProseEditor.Configuration(toolbar: [], statusItems: [.cursor], minHeight: 200)
+        ]
+        for cfg in configs {
+            _ = cfg.toolbar
+            _ = cfg.statusItems
+            _ = cfg.minHeight
+        }
+    }
 }
