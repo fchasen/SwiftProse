@@ -1,0 +1,492 @@
+import Foundation
+import SwiftProseSyntax
+import SwiftProseRendering
+#if canImport(AppKit) && os(macOS)
+import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
+
+public enum ProseMirrorCodecError: Error {
+    case invalidJSON
+    case unknownNodeType(String)
+}
+
+public struct ProseMirrorCodec {
+    public let schemaMap: SchemaMap
+    public let theme: ProseTheme
+
+    public init(schemaMap: SchemaMap = .basic, theme: ProseTheme = .default) {
+        self.schemaMap = schemaMap
+        self.theme = theme
+    }
+
+    // MARK: decode
+
+    public func decode(_ json: Data) throws -> NSAttributedString {
+        let root = try JSONDecoder().decode(PMNode.self, from: json)
+        let result = NSMutableAttributedString()
+        var ctx = BlockContext()
+        decodeNode(root, into: result, context: &ctx)
+        return result
+    }
+
+    public func decode(_ jsonString: String) throws -> NSAttributedString {
+        guard let data = jsonString.data(using: .utf8) else {
+            throw ProseMirrorCodecError.invalidJSON
+        }
+        return try decode(data)
+    }
+
+    private func decodeNode(_ node: PMNode, into result: NSMutableAttributedString, context: inout BlockContext) {
+        switch node.type {
+        case "doc":
+            for child in node.content ?? [] { decodeNode(child, into: result, context: &context) }
+        case "blockquote":
+            context.blockquoteDepth += 1
+            for child in node.content ?? [] { decodeNode(child, into: result, context: &context) }
+            context.blockquoteDepth -= 1
+        case "bullet_list":
+            context.pushList(.unordered)
+            for child in node.content ?? [] { decodeNode(child, into: result, context: &context) }
+            context.popList()
+        case "ordered_list":
+            let start = node.attrs?["order"]?.intValue ?? 1
+            context.pushList(.ordered(start: start))
+            context.orderedIndex = start
+            for child in node.content ?? [] { decodeNode(child, into: result, context: &context) }
+            context.popList()
+        case "list_item":
+            context.listLevel += 1
+            for child in node.content ?? [] { decodeNode(child, into: result, context: &context) }
+            context.listLevel -= 1
+            context.incrementOrderedIndex()
+        case "paragraph":
+            let detected = detectTaskListPrefix(in: node)
+            if context.listStack.last == .unordered, let detected {
+                let spec = context.makeBlockSpec(kind: .taskListItem(checked: detected.checked))
+                appendTextblock(detected.stripped, spec: spec, into: result)
+            } else {
+                let spec = context.makeBlockSpec(kind: .paragraph)
+                appendTextblock(node, spec: spec, into: result)
+            }
+        case "heading":
+            let level = node.attrs?["level"]?.intValue ?? 1
+            let spec = context.makeBlockSpec(kind: .heading(level: level))
+            appendTextblock(node, spec: spec, into: result)
+        case "code_block":
+            let lang = node.attrs?["params"]?.stringValue
+            let spec = context.makeBlockSpec(kind: .fencedCode(language: (lang?.isEmpty == true) ? nil : lang))
+            appendTextblock(node, spec: spec, into: result)
+        case "horizontal_rule":
+            appendLeafBlock(spec: BlockSpec(kind: .horizontalRule), into: result)
+        default:
+            if node.content != nil {
+                let spec = context.makeBlockSpec(kind: .paragraph)
+                appendTextblock(node, spec: spec, into: result)
+            }
+        }
+    }
+
+    private func detectTaskListPrefix(in node: PMNode) -> (checked: Bool, stripped: PMNode)? {
+        guard let first = node.content?.first,
+              first.type == "text",
+              let text = first.text else { return nil }
+        let checked: Bool
+        let stripLength: Int
+        if text.hasPrefix("[ ] ") { checked = false; stripLength = 4 }
+        else if text.hasPrefix("[x] ") || text.hasPrefix("[X] ") { checked = true; stripLength = 4 }
+        else { return nil }
+        var newContent = node.content ?? []
+        let trimmedText = String(text.dropFirst(stripLength))
+        if trimmedText.isEmpty {
+            newContent.removeFirst()
+        } else {
+            newContent[0] = PMNode(type: "text", attrs: first.attrs, text: trimmedText, marks: first.marks)
+        }
+        return (checked, PMNode(type: node.type, attrs: node.attrs, content: newContent, text: nil, marks: nil))
+    }
+
+    private func appendTextblock(_ node: PMNode, spec: BlockSpec, into result: NSMutableAttributedString) {
+        let line = NSMutableAttributedString()
+        for child in node.content ?? [] {
+            switch child.type {
+            case "text":
+                guard let text = child.text else { continue }
+                var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
+                for mark in child.marks ?? [] {
+                    schemaMap.applyMark(mark, to: &attrs, theme: theme)
+                }
+                attrs[.proseBlockSpec] = BlockSpecBox(spec)
+                line.append(NSAttributedString(string: text, attributes: attrs))
+            case "hard_break":
+                var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
+                attrs[.proseBlockSpec] = BlockSpecBox(spec)
+                line.append(NSAttributedString(string: "\n", attributes: attrs))
+            case "image":
+                let src = child.attrs?["src"]?.stringValue ?? ""
+                let alt = child.attrs?["alt"]?.stringValue ?? ""
+                let title = child.attrs?["title"]?.stringValue
+                var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
+                attrs[.proseBlockSpec] = BlockSpecBox(spec)
+                let label = alt.isEmpty ? src : alt
+                let titleSuffix = title.map { " \"\($0)\"" } ?? ""
+                line.append(NSAttributedString(string: "![\(label)](\(src)\(titleSuffix))", attributes: attrs))
+            default:
+                continue
+            }
+        }
+        if line.length == 0 {
+            var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
+            attrs[.proseBlockSpec] = BlockSpecBox(spec)
+            line.append(NSAttributedString(string: "", attributes: attrs))
+        }
+        if !line.string.hasSuffix("\n") {
+            var nlAttrs = schemaMap.baseAttributes(for: spec, theme: theme)
+            nlAttrs[.proseBlockSpec] = BlockSpecBox(spec)
+            line.append(NSAttributedString(string: "\n", attributes: nlAttrs))
+        }
+        result.append(line)
+    }
+
+    private func appendLeafBlock(spec: BlockSpec, into result: NSMutableAttributedString) {
+        var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
+        attrs[.proseBlockSpec] = BlockSpecBox(spec)
+        result.append(NSAttributedString(string: "\n", attributes: attrs))
+    }
+
+    // MARK: encode
+
+    public func encode(_ storage: NSAttributedString) -> PMNode {
+        let blocks = extractFlatBlocks(from: storage)
+        let children = buildPMTree(from: blocks)
+        return PMNode(type: "doc", content: children)
+    }
+
+    public func encodeToJSON(_ storage: NSAttributedString) throws -> Data {
+        try JSONEncoder().encode(encode(storage))
+    }
+
+    private func extractFlatBlocks(from storage: NSAttributedString) -> [FlatBlock] {
+        var blocks: [FlatBlock] = []
+        let ns = storage.string as NSString
+        var cursor = 0
+        while cursor < ns.length {
+            let lineRange = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
+            let spec = storage.blockSpec(at: lineRange.location) ?? .paragraph
+            let inlineNodes = extractInlineNodes(from: storage, range: lineRange)
+            blocks.append(FlatBlock(spec: spec, range: lineRange, inlineNodes: inlineNodes))
+            cursor = lineRange.location + lineRange.length
+        }
+        return blocks
+    }
+
+    private func extractInlineNodes(from storage: NSAttributedString, range: NSRange) -> [PMNode] {
+        var nodes: [PMNode] = []
+        storage.enumerateAttributes(in: range) { attrs, subRange, _ in
+            let text = (storage.string as NSString).substring(with: subRange)
+            let cleaned = text.replacingOccurrences(of: "\n", with: "")
+                .replacingOccurrences(of: "\u{FFFC}", with: "")
+            guard !cleaned.isEmpty else { return }
+            if (attrs[.proseListMarker] as? Bool) == true { return }
+            let marks = schemaMap.extractMarks(from: attrs)
+            var node = PMNode(type: "text", text: cleaned)
+            if !marks.isEmpty { node.marks = marks }
+            nodes.append(node)
+        }
+        return nodes
+    }
+
+    private func buildPMTree(from blocks: [FlatBlock]) -> [PMNode] {
+        var result: [PMNode] = []
+        var i = 0
+        while i < blocks.count {
+            let block = blocks[i]
+            if block.spec.blockquoteDepth > 0 {
+                let (node, consumed) = wrapBlockquote(blocks, from: i, atDepth: 1)
+                result.append(node)
+                i += consumed
+            } else if block.spec.isListItem {
+                let (node, consumed) = wrapList(blocks, from: i)
+                result.append(node)
+                i += consumed
+            } else {
+                result.append(blockToPMNode(block))
+                i += 1
+            }
+        }
+        return result
+    }
+
+    private func wrapBlockquote(_ blocks: [FlatBlock], from start: Int, atDepth: Int) -> (PMNode, Int) {
+        var consumed = 0
+        var children: [FlatBlock] = []
+        while start + consumed < blocks.count, blocks[start + consumed].spec.blockquoteDepth >= atDepth {
+            let original = blocks[start + consumed]
+            children.append(FlatBlock(
+                spec: BlockSpec(kind: original.spec.kind, blockquoteDepth: original.spec.blockquoteDepth - 1, listLevel: original.spec.listLevel),
+                range: original.range,
+                inlineNodes: original.inlineNodes
+            ))
+            consumed += 1
+        }
+        let inner = buildPMTree(from: children)
+        return (PMNode(type: "blockquote", content: inner), consumed)
+    }
+
+    private func wrapList(_ blocks: [FlatBlock], from start: Int) -> (PMNode, Int) {
+        let firstKind = blocks[start].spec.kind
+        let listType: String
+        switch firstKind {
+        case .orderedListItem: listType = "ordered_list"
+        default: listType = "bullet_list"
+        }
+        var items: [PMNode] = []
+        var i = start
+        while i < blocks.count, blocks[i].spec.isListItem {
+            let block = blocks[i]
+            var inlineNodes = block.inlineNodes
+            if case .taskListItem(let checked) = block.spec.kind {
+                let prefix = checked ? "[x] " : "[ ] "
+                inlineNodes.insert(PMNode(type: "text", text: prefix), at: 0)
+            }
+            let inner = PMNode(
+                type: "paragraph",
+                content: inlineNodes.isEmpty ? nil : inlineNodes
+            )
+            items.append(PMNode(type: "list_item", content: [inner]))
+            i += 1
+        }
+        var attrs: [String: PMValue]? = nil
+        if listType == "ordered_list" {
+            if case .orderedListItem(let idx) = firstKind, idx != 1 {
+                attrs = ["order": .int(idx)]
+            }
+        }
+        return (PMNode(type: listType, attrs: attrs, content: items), i - start)
+    }
+
+    private func blockToPMNode(_ block: FlatBlock) -> PMNode {
+        switch block.spec.kind {
+        case .paragraph:
+            return PMNode(type: "paragraph", content: block.inlineNodes.isEmpty ? nil : block.inlineNodes)
+        case .heading(let level):
+            return PMNode(
+                type: "heading",
+                attrs: ["level": .int(level)],
+                content: block.inlineNodes.isEmpty ? nil : block.inlineNodes
+            )
+        case .fencedCode(let lang):
+            return PMNode(
+                type: "code_block",
+                attrs: ["params": .string(lang ?? "")],
+                content: block.inlineNodes.isEmpty ? nil : block.inlineNodes
+            )
+        case .indentedCode:
+            return PMNode(
+                type: "code_block",
+                attrs: ["params": .string("")],
+                content: block.inlineNodes.isEmpty ? nil : block.inlineNodes
+            )
+        case .horizontalRule:
+            return PMNode(type: "horizontal_rule")
+        default:
+            return PMNode(type: "paragraph", content: block.inlineNodes.isEmpty ? nil : block.inlineNodes)
+        }
+    }
+}
+
+// MARK: - context, supporting types
+
+struct BlockContext {
+    var blockquoteDepth = 0
+    var listLevel = 0
+    var listStack: [ListKind] = []
+    var orderedIndex = 1
+
+    enum ListKind: Equatable {
+        case unordered
+        case ordered(start: Int)
+    }
+
+    mutating func pushList(_ kind: ListKind) { listStack.append(kind) }
+    mutating func popList() { listStack.removeLast() }
+
+    mutating func incrementOrderedIndex() {
+        if case .ordered = listStack.last { orderedIndex += 1 }
+    }
+
+    func makeBlockSpec(kind: BlockSpec.Kind) -> BlockSpec {
+        var finalKind = kind
+        if case .paragraph = kind, let listKind = listStack.last {
+            switch listKind {
+            case .unordered:
+                finalKind = .unorderedListItem
+            case .ordered:
+                finalKind = .orderedListItem(index: orderedIndex)
+            }
+        }
+        return BlockSpec(kind: finalKind, blockquoteDepth: blockquoteDepth, listLevel: listLevel)
+    }
+}
+
+struct FlatBlock {
+    let spec: BlockSpec
+    let range: NSRange
+    let inlineNodes: [PMNode]
+}
+
+// MARK: - SchemaMap
+
+public struct SchemaMap {
+    public typealias MarkApplier = (PMMark, inout [NSAttributedString.Key: Any], ProseTheme) -> Void
+    public typealias MarkExtractor = ([NSAttributedString.Key: Any]) -> PMMark?
+
+    var markAppliers: [String: MarkApplier] = [:]
+    var markExtractors: [String: MarkExtractor] = [:]
+
+    public init() {}
+
+    public mutating func registerMark(
+        _ name: String,
+        apply: @escaping MarkApplier,
+        extract: @escaping MarkExtractor
+    ) {
+        markAppliers[name] = apply
+        markExtractors[name] = extract
+    }
+
+    public func applyMark(_ mark: PMMark, to attrs: inout [NSAttributedString.Key: Any], theme: ProseTheme) {
+        markAppliers[mark.type]?(mark, &attrs, theme)
+    }
+
+    public func extractMarks(from attrs: [NSAttributedString.Key: Any]) -> [PMMark] {
+        markExtractors.compactMap { (_, extractor) in extractor(attrs) }
+    }
+
+    public func baseAttributes(for spec: BlockSpec, theme: ProseTheme) -> [NSAttributedString.Key: Any] {
+        var attrs: [NSAttributedString.Key: Any] = [
+            .font: theme.bodyFont,
+            .foregroundColor: theme.foregroundColor
+        ]
+        switch spec.kind {
+        case .heading(let level):
+            attrs[.font] = theme.headingFont(level: level)
+        case .fencedCode, .indentedCode:
+            attrs[.font] = theme.monospaceFont
+        default:
+            break
+        }
+        return attrs
+    }
+
+    public static var basic: SchemaMap {
+        var map = SchemaMap()
+        map.registerMark(
+            "strong",
+            apply: { _, attrs, theme in
+                let font = (attrs[.font] as? PlatformFont) ?? theme.bodyFont
+                attrs[.font] = font.addingBoldTrait()
+            },
+            extract: { attrs in
+                guard let font = attrs[.font] as? PlatformFont, font.hasBoldTrait else { return nil }
+                return PMMark(type: "strong")
+            }
+        )
+        map.registerMark(
+            "em",
+            apply: { _, attrs, theme in
+                let font = (attrs[.font] as? PlatformFont) ?? theme.bodyFont
+                attrs[.font] = font.addingItalicTrait()
+            },
+            extract: { attrs in
+                guard let font = attrs[.font] as? PlatformFont, font.hasItalicTrait else { return nil }
+                return PMMark(type: "em")
+            }
+        )
+        map.registerMark(
+            "link",
+            apply: { mark, attrs, theme in
+                guard let href = mark.attrs?["href"]?.stringValue else { return }
+                attrs[.link] = href
+                attrs[.proseLink] = href
+                attrs[.foregroundColor] = theme.linkColor
+                attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            },
+            extract: { attrs in
+                guard let href = attrs[.proseLink] as? String else { return nil }
+                return PMMark(type: "link", attrs: ["href": .string(href)])
+            }
+        )
+        map.registerMark(
+            "code",
+            apply: { _, attrs, theme in
+                attrs[.font] = theme.monospaceFont
+                attrs[.proseInline] = InlineTag.codeSpan
+            },
+            extract: { attrs in
+                guard (attrs[.proseInline] as? InlineTag) == .codeSpan else { return nil }
+                return PMMark(type: "code")
+            }
+        )
+        map.registerMark(
+            "strike",
+            apply: { _, attrs, _ in
+                attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            },
+            extract: { attrs in
+                guard let v = attrs[.strikethroughStyle] as? Int, v != 0 else { return nil }
+                return PMMark(type: "strike")
+            }
+        )
+        return map
+    }
+}
+
+// MARK: - PlatformFont trait helpers
+
+extension PlatformFont {
+    var hasBoldTrait: Bool {
+        #if canImport(AppKit) && os(macOS)
+        return fontDescriptor.symbolicTraits.contains(.bold)
+        #else
+        return fontDescriptor.symbolicTraits.contains(.traitBold)
+        #endif
+    }
+
+    var hasItalicTrait: Bool {
+        #if canImport(AppKit) && os(macOS)
+        return fontDescriptor.symbolicTraits.contains(.italic)
+        #else
+        return fontDescriptor.symbolicTraits.contains(.traitItalic)
+        #endif
+    }
+
+    func addingBoldTrait() -> PlatformFont {
+        #if canImport(AppKit) && os(macOS)
+        var traits = fontDescriptor.symbolicTraits
+        traits.insert(.bold)
+        let desc = fontDescriptor.withSymbolicTraits(traits)
+        return NSFont(descriptor: desc, size: pointSize) ?? self
+        #else
+        var traits = fontDescriptor.symbolicTraits
+        traits.insert(.traitBold)
+        guard let desc = fontDescriptor.withSymbolicTraits(traits) else { return self }
+        return UIFont(descriptor: desc, size: pointSize)
+        #endif
+    }
+
+    func addingItalicTrait() -> PlatformFont {
+        #if canImport(AppKit) && os(macOS)
+        var traits = fontDescriptor.symbolicTraits
+        traits.insert(.italic)
+        let desc = fontDescriptor.withSymbolicTraits(traits)
+        return NSFont(descriptor: desc, size: pointSize) ?? self
+        #else
+        var traits = fontDescriptor.symbolicTraits
+        traits.insert(.traitItalic)
+        guard let desc = fontDescriptor.withSymbolicTraits(traits) else { return self }
+        return UIFont(descriptor: desc, size: pointSize)
+        #endif
+    }
+}
