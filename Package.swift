@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "MarginaliaEditor",
+    name: "SwiftProse",
     platforms: [
         .macOS("26.0"),
         .iOS("26.0")
     ],
     products: [
-        .library(name: "MarginaliaEditor", targets: ["MarginaliaEditor"]),
-        .library(name: "MarginaliaSyntax", targets: ["MarginaliaSyntax"])
+        .library(name: "SwiftProse", targets: ["SwiftProse"]),
+        .library(name: "SwiftProseSyntax", targets: ["SwiftProseSyntax"])
     ],
     dependencies: [
         .package(url: "https://github.com/tree-sitter/swift-tree-sitter", from: "0.10.0"),
@@ -17,35 +17,35 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "MarginaliaSyntax",
+            name: "SwiftProseSyntax",
             dependencies: [
                 .product(name: "SwiftTreeSitter", package: "swift-tree-sitter"),
                 .product(name: "TreeSitterMarkdown", package: "tree-sitter-markdown"),
             ]
         ),
         .target(
-            name: "MarginaliaRendering",
-            dependencies: ["MarginaliaSyntax"]
+            name: "SwiftProseRendering",
+            dependencies: ["SwiftProseSyntax"]
         ),
         .target(
-            name: "MarginaliaView",
-            dependencies: ["MarginaliaSyntax", "MarginaliaRendering"]
+            name: "SwiftProseView",
+            dependencies: ["SwiftProseSyntax", "SwiftProseRendering"]
         ),
         .target(
-            name: "MarginaliaEditor",
-            dependencies: ["MarginaliaSyntax", "MarginaliaRendering", "MarginaliaView"]
+            name: "SwiftProse",
+            dependencies: ["SwiftProseSyntax", "SwiftProseRendering", "SwiftProseView"]
         ),
         .testTarget(
-            name: "MarginaliaSyntaxTests",
-            dependencies: ["MarginaliaSyntax"]
+            name: "SwiftProseSyntaxTests",
+            dependencies: ["SwiftProseSyntax"]
         ),
         .testTarget(
-            name: "MarginaliaViewTests",
-            dependencies: ["MarginaliaView", "MarginaliaSyntax"]
+            name: "SwiftProseViewTests",
+            dependencies: ["SwiftProseView", "SwiftProseSyntax"]
         ),
         .testTarget(
-            name: "MarginaliaEditorTests",
-            dependencies: ["MarginaliaEditor", "MarginaliaView", "MarginaliaSyntax"]
+            name: "SwiftProseTests",
+            dependencies: ["SwiftProse", "SwiftProseView", "SwiftProseSyntax"]
         )
     ]
 )
