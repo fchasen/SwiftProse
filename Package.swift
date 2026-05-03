@@ -12,14 +12,14 @@ let package = Package(
         .library(name: "SwiftProseSyntax", targets: ["SwiftProseSyntax"])
     ],
     dependencies: [
-        .package(url: "https://github.com/tree-sitter/swift-tree-sitter", from: "0.10.0"),
+        .package(name: "SwiftTreeSitter", url: "https://github.com/tree-sitter/swift-tree-sitter", from: "0.10.0"),
         .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-markdown", from: "0.5.3")
     ],
     targets: [
         .target(
             name: "SwiftProseSyntax",
             dependencies: [
-                .product(name: "SwiftTreeSitter", package: "swift-tree-sitter"),
+                .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
                 .product(name: "TreeSitterMarkdown", package: "tree-sitter-markdown"),
             ]
         ),
