@@ -14,7 +14,7 @@ public final class EditorController {
     public let layoutManager: NSTextLayoutManager
     public let textContainer: NSTextContainer
 
-    public var theme: MarginaliaTheme {
+    public var theme: ProseTheme {
         didSet { recompile() }
     }
     public var mode: Mode {
@@ -36,7 +36,7 @@ public final class EditorController {
 
     public init(
         initialMarkdown: String = "",
-        theme: MarginaliaTheme = .default,
+        theme: ProseTheme = .default,
         mode: Mode = .rich,
         containerSize: CGSize = CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
     ) throws {

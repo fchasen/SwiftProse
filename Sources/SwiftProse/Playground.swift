@@ -9,8 +9,8 @@ import SwiftProseView
 /// Embed in a host app's debug menu, or instantiate from a `#Preview` to
 /// validate visual regressions while iterating. **Not part of the editor's
 /// production UX surface.**
-public struct MarginaliaPlayground: View {
-    @State private var text: String = MarginaliaPlayground.fixtures[0].source
+public struct ProsePlayground: View {
+    @State private var text: String = ProsePlayground.fixtures[0].source
     @State private var fixture: Int = 0
     @State private var showInspector: Bool = true
 
@@ -20,13 +20,13 @@ public struct MarginaliaPlayground: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 fixturePicker
-                Marginalia(text: $text)
+                SwiftProseEditor(text: $text)
                     .frame(minHeight: 320)
             }
             .padding(12)
             if showInspector {
                 Divider()
-                MarginaliaInspector(source: text)
+                ProseInspector(source: text)
                     .frame(width: 320)
             }
         }
@@ -41,13 +41,13 @@ public struct MarginaliaPlayground: View {
 
     private var fixturePicker: some View {
         Picker("Fixture", selection: $fixture) {
-            ForEach(MarginaliaPlayground.fixtures.indices, id: \.self) { i in
-                Text(MarginaliaPlayground.fixtures[i].name).tag(i)
+            ForEach(ProsePlayground.fixtures.indices, id: \.self) { i in
+                Text(ProsePlayground.fixtures[i].name).tag(i)
             }
         }
         .pickerStyle(.menu)
         .onChange(of: fixture) { _, idx in
-            text = MarginaliaPlayground.fixtures[idx].source
+            text = ProsePlayground.fixtures[idx].source
         }
     }
 
@@ -114,7 +114,7 @@ public struct MarginaliaPlayground: View {
 
 /// Inspector pane: shows the current source size, parsed block regions,
 /// markup ranges, and hidden ranges for whatever's in the editor.
-struct MarginaliaInspector: View {
+struct ProseInspector: View {
     let source: String
 
     var body: some View {
@@ -197,7 +197,7 @@ struct MarginaliaInspector: View {
     }
 }
 
-#Preview("Marginalia playground") {
-    MarginaliaPlayground()
+#Preview("SwiftProseEditor playground") {
+    ProsePlayground()
         .frame(width: 1000, height: 600)
 }

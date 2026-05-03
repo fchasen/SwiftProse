@@ -22,7 +22,7 @@ public final class MarkdownAttributedCompiler {
     public func compile(
         _ markdown: String,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSAttributedString {
         switch mode {
         case .source: return compileSource(markdown, theme: theme)
@@ -32,7 +32,7 @@ public final class MarkdownAttributedCompiler {
 
     private func compileSource(
         _ markdown: String,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSAttributedString {
         let result = NSMutableAttributedString(
             string: markdown,
@@ -61,7 +61,7 @@ public final class MarkdownAttributedCompiler {
 
     private func compileRich(
         _ markdown: String,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSAttributedString {
         guard !markdown.isEmpty else {
             return NSAttributedString(string: "", attributes: baseAttributes(theme: theme))
@@ -142,7 +142,7 @@ public final class MarkdownAttributedCompiler {
         source: String,
         blockHighlights: [HighlightSpan],
         inlineHighlights: [HighlightSpan],
-        theme: MarginaliaTheme,
+        theme: ProseTheme,
         into out: NSMutableAttributedString
     ) {
         switch segment.tag {
@@ -174,7 +174,7 @@ public final class MarkdownAttributedCompiler {
         source: String,
         inlineHighlights: [HighlightSpan],
         blockHighlights: [HighlightSpan],
-        theme: MarginaliaTheme,
+        theme: ProseTheme,
         into out: NSMutableAttributedString
     ) {
         let nsSource = source as NSString
@@ -325,7 +325,7 @@ public final class MarkdownAttributedCompiler {
     private func appendCodeBlock(
         _ segment: BlockSegment,
         source: String,
-        theme: MarginaliaTheme,
+        theme: ProseTheme,
         into out: NSMutableAttributedString
     ) {
         let nsSource = source as NSString
@@ -351,7 +351,7 @@ public final class MarkdownAttributedCompiler {
     private func appendHorizontalRule(
         _ segment: BlockSegment,
         source: String,
-        theme: MarginaliaTheme,
+        theme: ProseTheme,
         into out: NSMutableAttributedString
     ) {
         let attrs: [NSAttributedString.Key: Any] = [
@@ -371,7 +371,7 @@ public final class MarkdownAttributedCompiler {
     private func appendOpaqueBlock(
         _ segment: BlockSegment,
         source: String,
-        theme: MarginaliaTheme,
+        theme: ProseTheme,
         into out: NSMutableAttributedString
     ) {
         let nsSource = source as NSString
@@ -391,7 +391,7 @@ public final class MarkdownAttributedCompiler {
     private func appendVerbatim(
         in range: NSRange,
         source: String,
-        theme: MarginaliaTheme,
+        theme: ProseTheme,
         into out: NSMutableAttributedString
     ) {
         guard range.length > 0 else { return }
@@ -424,7 +424,7 @@ public final class MarkdownAttributedCompiler {
         orderedIndex: Int? = nil,
         isChecked: Bool? = nil,
         content: String = "",
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSAttributedString {
         let blockTag: BlockTag
         switch kind {
@@ -476,14 +476,14 @@ public final class MarkdownAttributedCompiler {
         return result
     }
 
-    public func paragraphStyle(forListLevel level: Int, theme: MarginaliaTheme) -> NSParagraphStyle {
+    public func paragraphStyle(forListLevel level: Int, theme: ProseTheme) -> NSParagraphStyle {
         paragraphStyleFor(tag: .unorderedListItem, level: 0, blockquoteDepth: 0, listLevel: level, theme: theme)
     }
 
     public func makeBlockquoteLine(
         depth: Int = 1,
         content: String = "",
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSAttributedString {
         let paragraphStyle = paragraphStyleFor(
             tag: .paragraph,
@@ -508,7 +508,7 @@ public final class MarkdownAttributedCompiler {
         level: Int,
         blockquoteDepth: Int,
         listLevel: Int,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.lineBreakMode = .byWordWrapping
@@ -541,14 +541,14 @@ public final class MarkdownAttributedCompiler {
 
     // MARK: - helpers
 
-    private func baseAttributes(theme: MarginaliaTheme) -> [NSAttributedString.Key: Any] {
+    private func baseAttributes(theme: ProseTheme) -> [NSAttributedString.Key: Any] {
         [
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor
         ]
     }
 
-    private func subtleBackground(theme: MarginaliaTheme) -> PlatformColor {
+    private func subtleBackground(theme: ProseTheme) -> PlatformColor {
         #if canImport(AppKit) && os(macOS)
         return NSColor.tertiaryLabelColor.withAlphaComponent(0.12)
         #else

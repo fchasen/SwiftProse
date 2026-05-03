@@ -2,8 +2,8 @@ import Foundation
 import SwiftUI
 import SwiftProseView
 
-struct MarginaliaStatusBar: View {
-    let items: [Marginalia.StatusItem]
+struct ProseStatusBar: View {
+    let items: [SwiftProseEditor.StatusItem]
     let text: String
     let selection: NSRange
 
@@ -21,7 +21,7 @@ struct MarginaliaStatusBar: View {
     }
 
     @ViewBuilder
-    private func view(for item: Marginalia.StatusItem) -> some View {
+    private func view(for item: SwiftProseEditor.StatusItem) -> some View {
         switch item {
         case .words:
             Text("\(wordCount) words")

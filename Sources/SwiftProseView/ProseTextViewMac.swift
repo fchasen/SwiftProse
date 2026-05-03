@@ -4,19 +4,19 @@ import SwiftUI
 import SwiftProseSyntax
 import SwiftProseRendering
 
-public struct MarginaliaTextViewMac: NSViewRepresentable {
+public struct ProseTextViewMac: NSViewRepresentable {
     @Binding public var text: String
     public let controller: EditorController
     public let sizing: EditorSizing
     public let minHeight: CGFloat
-    public let contextMenuItems: [MarginaliaContextMenuItem]
+    public let contextMenuItems: [ProseContextMenuItem]
 
     public init(
         controller: EditorController,
         text: Binding<String>,
         sizing: EditorSizing = .fitsContent,
         minHeight: CGFloat = 96,
-        contextMenuItems: [MarginaliaContextMenuItem] = []
+        contextMenuItems: [ProseContextMenuItem] = []
     ) {
         self.controller = controller
         self._text = text
@@ -109,11 +109,11 @@ public struct MarginaliaTextViewMac: NSViewRepresentable {
     }
 
     public final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: MarginaliaTextViewMac
+        var parent: ProseTextViewMac
         weak var textView: NSTextView?
         var lastAppliedMarkdown: String
 
-        init(_ parent: MarginaliaTextViewMac) {
+        init(_ parent: ProseTextViewMac) {
             self.parent = parent
             self.lastAppliedMarkdown = parent.text
         }
@@ -217,7 +217,7 @@ final class MarginaliaNSTextView: NSTextView {
         didSet { invalidateIntrinsicContentSize() }
     }
 
-    /// The owning controller. Set in `MarginaliaTextViewMac.makeNSView`. The
+    /// The owning controller. Set in `ProseTextViewMac.makeNSView`. The
     /// `@objc` action methods read it to dispatch to `Operations`. Held weak
     /// so SwiftUI can tear down the text view without leaking the controller.
     weak var marginaliaController: EditorController?

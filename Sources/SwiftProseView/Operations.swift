@@ -36,7 +36,7 @@ public enum Operations {
         replacing range: NSRange,
         label: String,
         url: String,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         let safe = clampedRange(range, in: storage.length)
         var attrs = inheritedAttributes(in: storage, at: safe.location)
@@ -70,7 +70,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
                   env: env(compiler, serializer, theme, mode)) { current in
@@ -91,7 +91,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
                   env: env(compiler, serializer, theme, mode)) { current in
@@ -111,7 +111,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
                   env: env(compiler, serializer, theme, mode)) { current in
@@ -131,7 +131,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
                   env: env(compiler, serializer, theme, mode)) { current in
@@ -153,7 +153,7 @@ public enum Operations {
         range: NSRange,
         kind: ListItemKind,
         compiler: MarkdownAttributedCompiler,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange? {
         let safe = clampedRange(range, in: storage.length)
         let ns = storage.string as NSString
@@ -187,7 +187,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
                   env: env(compiler, serializer, theme, mode)) { current in
@@ -206,7 +206,7 @@ public enum Operations {
         in storage: NSTextStorage,
         range: NSRange,
         compiler: MarkdownAttributedCompiler,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange? {
         let safe = clampedRange(range, in: storage.length)
         let ns = storage.string as NSString
@@ -234,7 +234,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
                   env: env(compiler, serializer, theme, mode)) { current in
@@ -253,7 +253,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         if let result = adjustListLevelIfApplicable(
             in: storage, range: range, delta: 1,
@@ -274,7 +274,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         if let result = adjustListLevelIfApplicable(
             in: storage, range: range, delta: -1,
@@ -298,7 +298,7 @@ public enum Operations {
         range: NSRange,
         delta: Int,
         compiler: MarkdownAttributedCompiler,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange? {
         guard storage.length > 0 else { return nil }
         let safe = clampedRange(range, in: storage.length)
@@ -382,7 +382,7 @@ public enum Operations {
     private static func demoteListItemToPlain(
         in storage: NSTextStorage,
         lineRange: NSRange,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         guard lineRange.length > 0,
               lineRange.location + lineRange.length <= storage.length,
@@ -416,7 +416,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         applySpec(in: storage, range: range,
                   env: env(compiler, serializer, theme, mode)) { _ in
@@ -489,7 +489,7 @@ public enum Operations {
     private static func env(
         _ compiler: MarkdownAttributedCompiler,
         _ serializer: AttributedMarkdownSerializer,
-        _ theme: MarginaliaTheme,
+        _ theme: ProseTheme,
         _ mode: Mode
     ) -> StepEnvironment {
         StepEnvironment(compiler: compiler, serializer: serializer, theme: theme, mode: mode)
@@ -501,7 +501,7 @@ public enum Operations {
     public static func toggleBold(
         in storage: NSTextStorage,
         range: NSRange,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         toggleFontTrait(in: storage, range: range, trait: .bold, theme: theme, placeholder: "bold")
     }
@@ -510,7 +510,7 @@ public enum Operations {
     public static func toggleItalic(
         in storage: NSTextStorage,
         range: NSRange,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         toggleFontTrait(in: storage, range: range, trait: .italic, theme: theme, placeholder: "italic")
     }
@@ -519,7 +519,7 @@ public enum Operations {
     public static func toggleStrikethrough(
         in storage: NSTextStorage,
         range: NSRange,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         if range.length == 0 {
             return insertStyledPlaceholder(
@@ -551,7 +551,7 @@ public enum Operations {
     public static func toggleCodeSpan(
         in storage: NSTextStorage,
         range: NSRange,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange {
         if range.length == 0 {
             return insertStyledPlaceholder(
@@ -593,7 +593,7 @@ public enum Operations {
         in storage: NSTextStorage,
         range: NSRange,
         trait: FontTrait,
-        theme: MarginaliaTheme,
+        theme: ProseTheme,
         placeholder: String
     ) -> NSRange {
         if range.length == 0 {
@@ -625,7 +625,7 @@ public enum Operations {
         in storage: NSTextStorage,
         at location: Int,
         placeholder: String,
-        theme: MarginaliaTheme,
+        theme: ProseTheme,
         styling: (inout [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any]
     ) -> NSRange {
         let safe = max(0, min(location, storage.length))
@@ -674,7 +674,7 @@ public enum Operations {
         return sawAny && allOn
     }
 
-    private static func subtleCodeBackground(theme: MarginaliaTheme) -> PlatformColor {
+    private static func subtleCodeBackground(theme: ProseTheme) -> PlatformColor {
         #if canImport(AppKit) && os(macOS)
         return NSColor.tertiaryLabelColor.withAlphaComponent(0.12)
         #else

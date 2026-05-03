@@ -4,7 +4,7 @@ import SwiftUI
 import SwiftProseSyntax
 import SwiftProseRendering
 
-public struct MarginaliaTextViewIOS: UIViewRepresentable {
+public struct ProseTextViewIOS: UIViewRepresentable {
     public typealias EditMenuBuilder = @MainActor (NSRange, [UIMenuElement]) -> UIMenu?
 
     @Binding public var text: String
@@ -75,11 +75,11 @@ public struct MarginaliaTextViewIOS: UIViewRepresentable {
     public func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     public final class Coordinator: NSObject, UITextViewDelegate {
-        var parent: MarginaliaTextViewIOS
+        var parent: ProseTextViewIOS
         weak var textView: UITextView?
         var lastAppliedMarkdown: String
 
-        init(_ parent: MarginaliaTextViewIOS) {
+        init(_ parent: ProseTextViewIOS) {
             self.parent = parent
             self.lastAppliedMarkdown = parent.text
         }

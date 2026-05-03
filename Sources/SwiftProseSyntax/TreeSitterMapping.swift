@@ -1,7 +1,7 @@
 import Foundation
 import SwiftTreeSitter
 
-/// Bridges the two coordinate systems that meet inside a Marginalia editor.
+/// Bridges the two coordinate systems that meet inside a SwiftProseEditor editor.
 ///
 /// `SwiftTreeSitter.Parser` defaults to `String.nativeUTF16Encoding`, so the
 /// byte offsets and `Point.column` values it emits are **UTF-16 byte offsets**

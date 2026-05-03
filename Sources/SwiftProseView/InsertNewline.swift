@@ -16,7 +16,7 @@ public enum InsertNewline {
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
         mode: Mode,
-        theme: MarginaliaTheme
+        theme: ProseTheme
     ) -> NSRange? {
         let ns = storage.string as NSString
         guard cursor >= 0, cursor <= ns.length, ns.length > 0 else { return nil }

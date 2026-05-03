@@ -10,7 +10,7 @@ import AppKit
 import UIKit
 #endif
 
-public struct Marginalia: View {
+public struct SwiftProseEditor: View {
     @Binding public var text: String
 
     @Environment(\.marginaliaConfiguration) private var configuration
@@ -20,7 +20,7 @@ public struct Marginalia: View {
 
     @AppStorage("marginalia.toolbarVisible") private var toolbarVisible = true
     @AppStorage("marginalia.mode") private var modeRawValue: String = Mode.rich.rawValue
-    @StateObject private var hosting = MarginaliaHosting()
+    @StateObject private var hosting = ProseHosting()
 
     private var mode: Mode {
         Mode(rawValue: modeRawValue) ?? .rich
@@ -35,11 +35,11 @@ public struct Marginalia: View {
             if toolbarVisible, !configuration.toolbar.isEmpty || !configuration.statusItems.isEmpty {
                 HStack(spacing: 12) {
                     if !configuration.toolbar.isEmpty {
-                        MarginaliaToolbar(
+                        ProseToolbar(
                             items: configuration.toolbar + [.spacer, modeToggleItem],
                             perform: { action in
                                 guard let controller = hosting.controller else { return }
-                                MarginaliaToolbarActions.perform(
+                                ProseToolbarActions.perform(
                                     action,
                                     controller: controller,
                                     text: $text
@@ -49,7 +49,7 @@ public struct Marginalia: View {
                     }
                     if !configuration.statusItems.isEmpty {
                         Spacer()
-                        MarginaliaStatusBar(
+                        ProseStatusBar(
                             items: configuration.statusItems,
                             text: text,
                             selection: NSRange(location: 0, length: 0)
@@ -76,7 +76,7 @@ public struct Marginalia: View {
         }
     }
 
-    private var modeToggleItem: Marginalia.ToolbarItem {
+    private var modeToggleItem: SwiftProseEditor.ToolbarItem {
         let label = mode == .source ? "Show rendered" : "Show source"
         let symbol = mode == .source ? "eye" : "doc.plaintext"
         return .custom(
@@ -96,7 +96,7 @@ public struct Marginalia: View {
     private var editorBody: some View {
         if let controller = hosting.controller {
             #if os(macOS)
-            MarginaliaTextViewMac(
+            ProseTextViewMac(
                 controller: controller,
                 text: $text,
                 sizing: configuration.sizing,
@@ -105,7 +105,7 @@ public struct Marginalia: View {
             )
             .modifier(SizingFrame(sizing: configuration.sizing))
             #else
-            MarginaliaTextViewIOS(
+            ProseTextViewIOS(
                 controller: controller,
                 text: $text,
                 sizing: configuration.sizing,
@@ -121,11 +121,11 @@ public struct Marginalia: View {
     }
 
     #if os(macOS)
-    private func macContextMenuItems() -> [MarginaliaContextMenuItem] {
-        var items: [MarginaliaContextMenuItem] = []
+    private func macContextMenuItems() -> [ProseContextMenuItem] {
+        var items: [ProseContextMenuItem] = []
         if !configuration.toolbar.isEmpty {
             let visible = toolbarVisible
-            items.append(MarginaliaContextMenuItem(
+            items.append(ProseContextMenuItem(
                 title: "Show Toolbar",
                 systemImage: "richtext.page",
                 isOn: visible,
@@ -133,7 +133,7 @@ public struct Marginalia: View {
             ))
         }
         items.append(contentsOf: configuration.contextMenuItems.map { item in
-            MarginaliaContextMenuItem(
+            ProseContextMenuItem(
                 title: item.title,
                 systemImage: item.systemImage,
                 isOn: item.isOn,
@@ -145,7 +145,7 @@ public struct Marginalia: View {
     #endif
 
     #if os(iOS)
-    private func makeIOSEditMenuBuilder(controller: EditorController) -> MarginaliaTextViewIOS.EditMenuBuilder? {
+    private func makeIOSEditMenuBuilder(controller: EditorController) -> ProseTextViewIOS.EditMenuBuilder? {
         let toolbar = configuration.toolbar
         guard !toolbar.isEmpty else { return nil }
         let textBinding = $text
@@ -166,7 +166,7 @@ public struct Marginalia: View {
                         title: editMenuTitle(for: action),
                         image: UIImage(systemName: editMenuSymbol(for: action))
                     ) { _ in
-                        MarginaliaToolbarActions.perform(
+                        ProseToolbarActions.perform(
                             action,
                             controller: controller,
                             text: textBinding
@@ -205,7 +205,7 @@ public struct Marginalia: View {
 }
 
 #if os(iOS)
-private func editMenuTitle(for action: Marginalia.Action) -> String {
+private func editMenuTitle(for action: SwiftProseEditor.Action) -> String {
     switch action {
     case .bold: return "Bold"
     case .italic: return "Italic"
@@ -224,7 +224,7 @@ private func editMenuTitle(for action: Marginalia.Action) -> String {
     }
 }
 
-private func editMenuSymbol(for action: Marginalia.Action) -> String {
+private func editMenuSymbol(for action: SwiftProseEditor.Action) -> String {
     switch action {
     case .bold: return "bold"
     case .italic: return "italic"
@@ -256,12 +256,12 @@ private struct SizingFrame: ViewModifier {
     }
 }
 
-final class MarginaliaHosting: ObservableObject {
+final class ProseHosting: ObservableObject {
     @Published var controller: EditorController?
 
     func ensureController(
         initialText: String,
-        theme: MarginaliaTheme,
+        theme: ProseTheme,
         mode: Mode
     ) {
         if controller == nil {

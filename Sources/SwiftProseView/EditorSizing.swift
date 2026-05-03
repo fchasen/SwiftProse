@@ -1,6 +1,6 @@
 import Foundation
 
-/// How the Marginalia text view sizes itself within its SwiftUI parent.
+/// How the SwiftProseEditor text view sizes itself within its SwiftUI parent.
 ///
 /// - `fitsContent`: the editor's height tracks its content (no internal
 ///   scrolling). Use this when the editor lives inside a scrollable
@@ -21,7 +21,7 @@ public enum EditorSizing: Sendable {
 /// right-clicking inside the text body still surfaces caller-supplied
 /// commands (the SwiftUI `.contextMenu` modifier is shadowed by the
 /// native text view's own menu).
-public struct MarginaliaContextMenuItem {
+public struct ProseContextMenuItem {
     public var title: String
     public var systemImage: String?
     public var isOn: Bool

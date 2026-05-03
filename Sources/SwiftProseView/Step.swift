@@ -10,13 +10,13 @@ import UIKit
 public struct StepEnvironment {
     public let compiler: MarkdownAttributedCompiler
     public let serializer: AttributedMarkdownSerializer
-    public let theme: MarginaliaTheme
+    public let theme: ProseTheme
     public let mode: Mode
 
     public init(
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        theme: MarginaliaTheme,
+        theme: ProseTheme,
         mode: Mode
     ) {
         self.compiler = compiler

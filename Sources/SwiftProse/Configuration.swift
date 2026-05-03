@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import SwiftProseView
 
-extension Marginalia {
+extension SwiftProseEditor {
 
     public typealias Action = EditorAction
 
@@ -95,8 +95,8 @@ extension Marginalia {
     }
 }
 
-public extension Array where Element == Marginalia.ToolbarItem {
-    func replacing(_ action: Marginalia.Action, with replacement: Marginalia.ToolbarItem) -> [Marginalia.ToolbarItem] {
+public extension Array where Element == SwiftProseEditor.ToolbarItem {
+    func replacing(_ action: SwiftProseEditor.Action, with replacement: SwiftProseEditor.ToolbarItem) -> [SwiftProseEditor.ToolbarItem] {
         map { item in
             if case .action(let existing) = item, existing == action {
                 return replacement

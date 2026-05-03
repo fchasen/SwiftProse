@@ -6,15 +6,15 @@ import SwiftProseRendering
 // MARK: - environment values
 
 private struct ThemeKey: EnvironmentKey {
-    static let defaultValue: MarginaliaTheme = .default
+    static let defaultValue: ProseTheme = .default
 }
 
 private struct ConfigurationKey: EnvironmentKey {
-    static let defaultValue = Marginalia.Configuration()
+    static let defaultValue = SwiftProseEditor.Configuration()
 }
 
 private struct InlineContentProviderKey: EnvironmentKey {
-    static let defaultValue: ((MarginaliaInlineContent) -> NSTextAttachment?)? = nil
+    static let defaultValue: ((ProseInlineContent) -> NSTextAttachment?)? = nil
 }
 
 private struct ControllerReadyKey: EnvironmentKey {
@@ -22,17 +22,17 @@ private struct ControllerReadyKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    public var marginaliaTheme: MarginaliaTheme {
+    public var marginaliaTheme: ProseTheme {
         get { self[ThemeKey.self] }
         set { self[ThemeKey.self] = newValue }
     }
 
-    public var marginaliaConfiguration: Marginalia.Configuration {
+    public var marginaliaConfiguration: SwiftProseEditor.Configuration {
         get { self[ConfigurationKey.self] }
         set { self[ConfigurationKey.self] = newValue }
     }
 
-    public var marginaliaInlineContentProvider: ((MarginaliaInlineContent) -> NSTextAttachment?)? {
+    public var marginaliaInlineContentProvider: ((ProseInlineContent) -> NSTextAttachment?)? {
         get { self[InlineContentProviderKey.self] }
         set { self[InlineContentProviderKey.self] = newValue }
     }
@@ -44,16 +44,16 @@ extension EnvironmentValues {
 }
 
 extension View {
-    public func theme(_ theme: MarginaliaTheme) -> some View {
+    public func theme(_ theme: ProseTheme) -> some View {
         environment(\.marginaliaTheme, theme)
     }
 
-    public func configuration(_ configuration: Marginalia.Configuration) -> some View {
+    public func configuration(_ configuration: SwiftProseEditor.Configuration) -> some View {
         environment(\.marginaliaConfiguration, configuration)
     }
 
     public func inlineContentProvider(
-        _ provider: @escaping (MarginaliaInlineContent) -> NSTextAttachment?
+        _ provider: @escaping (ProseInlineContent) -> NSTextAttachment?
     ) -> some View {
         environment(\.marginaliaInlineContentProvider, provider)
     }

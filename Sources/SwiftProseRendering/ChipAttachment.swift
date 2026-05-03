@@ -8,11 +8,11 @@ import UIKit
 /// Builds an `NSTextAttachment` whose backing view is a SwiftUI-styled "chip"
 /// (rounded pill with a label and SF Symbol) for inline rich content.
 ///
-/// The host wires `MarginaliaInlineContent` through
-/// `.inlineContentProvider(_:)`; Marginalia turns each one into one
+/// The host wires `ProseInlineContent` through
+/// `.inlineContentProvider(_:)`; SwiftProseEditor turns each one into one
 /// of these attachments.
 public enum ChipAttachment {
-    public static func make(for content: MarginaliaInlineContent) -> NSTextAttachment {
+    public static func make(for content: ProseInlineContent) -> NSTextAttachment {
         let label: String
         let symbolName: String
         switch content {
@@ -45,7 +45,7 @@ public enum ChipAttachment {
 public final class ChipTextAttachment: NSTextAttachment {
     public var chipLabel: String = ""
     public var chipSymbol: String = "link"
-    public var content: MarginaliaInlineContent?
+    public var content: ProseInlineContent?
 
     public override func attachmentBounds(
         for textContainer: NSTextContainer?,

@@ -3,9 +3,9 @@ import SwiftUI
 import SwiftProseSyntax
 import SwiftProseView
 
-struct MarginaliaToolbar: View {
-    let items: [Marginalia.ToolbarItem]
-    let perform: (Marginalia.Action) -> Void
+struct ProseToolbar: View {
+    let items: [SwiftProseEditor.ToolbarItem]
+    let perform: (SwiftProseEditor.Action) -> Void
 
     var body: some View {
         let groups = makeGroups(from: items)
@@ -43,7 +43,7 @@ struct MarginaliaToolbar: View {
     }
 
     @ViewBuilder
-    private func button(for item: Marginalia.ToolbarItem) -> some View {
+    private func button(for item: SwiftProseEditor.ToolbarItem) -> some View {
         switch item {
         case .action(.heading(let level)):
             ToolbarLabelButton(
@@ -71,7 +71,7 @@ struct MarginaliaToolbar: View {
         }
     }
 
-    private func label(for action: Marginalia.Action) -> String {
+    private func label(for action: SwiftProseEditor.Action) -> String {
         switch action {
         case .bold: return "bold"
         case .italic: return "italic"
@@ -90,7 +90,7 @@ struct MarginaliaToolbar: View {
         }
     }
 
-    private func help(for action: Marginalia.Action) -> String {
+    private func help(for action: SwiftProseEditor.Action) -> String {
         switch action {
         case .bold: return "Bold (⌘B)"
         case .italic: return "Italic (⌘I)"
@@ -110,11 +110,11 @@ struct MarginaliaToolbar: View {
     }
 
     /// SwiftUI `.keyboardShortcut` is window-scoped, so attaching one to a
-    /// toolbar button broadcasts the shortcut to every Marginalia in the
+    /// toolbar button broadcasts the shortcut to every SwiftProseEditor in the
     /// scene. Keyboard shortcuts are handled inside the focused text view's
     /// `keyDown` (mac) and `keyCommands` (iOS) instead. Toolbar buttons
     /// activate the action they're bound to without an explicit shortcut.
-    private func shortcut(for action: Marginalia.Action) -> KeyboardShortcut? {
+    private func shortcut(for action: SwiftProseEditor.Action) -> KeyboardShortcut? {
         nil
     }
 }
@@ -124,13 +124,13 @@ struct MarginaliaToolbar: View {
 /// actions becomes one `ControlGroup` in the rendered toolbar so the buttons
 /// read as related clusters rather than a single flat row.
 private enum ToolbarGroup {
-    case items([Marginalia.ToolbarItem])
+    case items([SwiftProseEditor.ToolbarItem])
     case spacer
 }
 
-private func makeGroups(from items: [Marginalia.ToolbarItem]) -> [ToolbarGroup] {
+private func makeGroups(from items: [SwiftProseEditor.ToolbarItem]) -> [ToolbarGroup] {
     var groups: [ToolbarGroup] = []
-    var current: [Marginalia.ToolbarItem] = []
+    var current: [SwiftProseEditor.ToolbarItem] = []
 
     func flush() {
         if !current.isEmpty {
@@ -211,9 +211,9 @@ private struct OptionalShortcut: ViewModifier {
     }
 }
 
-enum MarginaliaToolbarActions {
+enum ProseToolbarActions {
     static func perform(
-        _ action: Marginalia.Action,
+        _ action: SwiftProseEditor.Action,
         controller: EditorController,
         text: Binding<String>
     ) {
