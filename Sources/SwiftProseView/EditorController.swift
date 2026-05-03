@@ -27,6 +27,7 @@ public final class EditorController {
     public weak var hostTextView: AnyObject?
     public var intrinsicSizeInvalidator: (() -> Void)?
     public var onDiagnostic: ((SpecDiagnostic) -> Void)?
+    public let commands: CommandRegistry
 
     private(set) var compiler: MarkdownAttributedCompiler
     private(set) var serializer: AttributedMarkdownSerializer
@@ -38,10 +39,12 @@ public final class EditorController {
         initialMarkdown: String = "",
         theme: ProseTheme = .default,
         mode: Mode = .rich,
+        commands: CommandRegistry = .makeDefault(),
         containerSize: CGSize = CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
     ) throws {
         self.theme = theme
         self.mode = mode
+        self.commands = commands
         self.compiler = try MarkdownAttributedCompiler()
         self.serializer = AttributedMarkdownSerializer()
 
@@ -325,187 +328,42 @@ public final class EditorController {
         return NSRange(location: lo, length: hi - lo)
     }
 
-    /// Apply an editor action against the host text view's current
-    /// selection. The text view owns the selection; this is the path the
-    /// `@objc` action methods call from the responder chain.
+    public func canPerform(_ action: EditorAction) -> Bool {
+        commands.canExecute(action, storage: textStorage, selection: currentSelection)
+    }
+
     @discardableResult
     public func perform(_ action: EditorAction) -> NSRange {
-        let range = currentSelection
         defer { refreshTypingAttributes(at: currentSelection.location) }
-        let resulting: NSRange
-        switch action {
-        case .bold:
-            resulting = wrappedToggleBold(range: range)
-        case .italic:
-            resulting = wrappedToggleItalic(range: range)
-        case .strikethrough:
-            resulting = wrappedToggleStrikethrough(range: range)
-        case .codeSpan:
-            resulting = wrappedToggleCodeSpan(range: range)
-        case .link(let url, let label):
-            var out = NSRange(location: range.location, length: 0)
-            withCharacterMutation(range: range) {
-                out = Operations.insertLink(
-                    in: textStorage,
-                    replacing: range,
-                    label: label ?? "label",
-                    url: url ?? "url",
-                    theme: theme
-                )
-            }
-            resulting = out
-        case .heading(let level):
-            resulting = wrappedBlockOp(range: range) {
-                Operations.setHeading(
-                    in: textStorage, range: range, level: level,
-                    compiler: compiler, serializer: serializer,
-                    mode: mode, theme: theme
-                )
-            }
-        case .unorderedList:
-            resulting = wrappedBlockOp(range: range) {
-                Operations.toggleUnorderedList(
-                    in: textStorage, range: range,
-                    compiler: compiler, serializer: serializer,
-                    mode: mode, theme: theme
-                )
-            }
-        case .orderedList:
-            resulting = wrappedBlockOp(range: range) {
-                Operations.toggleOrderedList(
-                    in: textStorage, range: range,
-                    compiler: compiler, serializer: serializer,
-                    mode: mode, theme: theme
-                )
-            }
-        case .taskList:
-            resulting = wrappedBlockOp(range: range) {
-                Operations.toggleTaskList(
-                    in: textStorage, range: range,
-                    compiler: compiler, serializer: serializer,
-                    mode: mode, theme: theme
-                )
-            }
-        case .blockquote:
-            resulting = wrappedBlockOp(range: range) {
-                Operations.toggleBlockquote(
-                    in: textStorage, range: range,
-                    compiler: compiler, serializer: serializer,
-                    mode: mode, theme: theme
-                )
-            }
-        case .codeBlock:
-            resulting = wrappedBlockOp(range: range) {
-                Operations.insertCodeBlock(
-                    in: textStorage, range: range,
-                    compiler: compiler, serializer: serializer,
-                    mode: mode, theme: theme
-                )
-            }
-        case .horizontalRule:
-            resulting = wrappedBlockOp(range: range) {
-                Operations.insertHorizontalRule(
-                    in: textStorage, range: range,
-                    compiler: compiler, serializer: serializer,
-                    mode: mode, theme: theme
-                )
-            }
-        case .indent:
-            resulting = wrappedBlockOp(range: range) {
-                Operations.indent(
-                    in: textStorage, range: range,
-                    compiler: compiler, serializer: serializer,
-                    mode: mode, theme: theme
-                )
-            }
-        case .outdent:
-            resulting = wrappedBlockOp(range: range) {
-                Operations.outdent(
-                    in: textStorage, range: range,
-                    compiler: compiler, serializer: serializer,
-                    mode: mode, theme: theme
-                )
-            }
+        if case .link(let url, let label) = action {
+            return performLink(url: url, label: label)
         }
-        setHostSelection(resulting)
-        return resulting
+        guard let command = commands.command(for: action) else {
+            return currentSelection
+        }
+        guard let tx = command.transaction(
+            storage: textStorage,
+            selection: currentSelection,
+            env: makeStepEnvironment()
+        ) else {
+            return currentSelection
+        }
+        return apply(tx)
     }
 
-    private func wrappedBlockOp(range: NSRange, _ body: () -> NSRange) -> NSRange {
-        let safe = clamp(range, in: textStorage.length)
-        let lineRange = (textStorage.string as NSString).paragraphRange(for: safe)
-        var out = NSRange(location: lineRange.location, length: 0)
-        withCharacterMutation(range: lineRange) {
-            applyingMarkdown = true
-            out = body()
-            applyingMarkdown = false
-            resegment()
-            intrinsicSizeInvalidator?()
+    private func performLink(url: String?, label: String?) -> NSRange {
+        let range = currentSelection
+        var out = NSRange(location: range.location, length: 0)
+        withCharacterMutation(range: range) {
+            out = Operations.insertLink(
+                in: textStorage,
+                replacing: range,
+                label: label ?? "label",
+                url: url ?? "url",
+                theme: theme
+            )
         }
-        return out
-    }
-
-    private func wrappedToggleBold(range: NSRange) -> NSRange {
-        if range.length == 0 {
-            var out = NSRange(location: range.location, length: 0)
-            withCharacterMutation(range: NSRange(location: range.location, length: 0)) {
-                out = Operations.toggleBold(in: textStorage, range: range, theme: theme)
-            }
-            return out
-        }
-        let safe = clamp(range, in: textStorage.length)
-        var out = safe
-        withAttributeMutation(range: safe) {
-            out = Operations.toggleBold(in: textStorage, range: range, theme: theme)
-        }
-        return out
-    }
-
-    private func wrappedToggleItalic(range: NSRange) -> NSRange {
-        if range.length == 0 {
-            var out = NSRange(location: range.location, length: 0)
-            withCharacterMutation(range: NSRange(location: range.location, length: 0)) {
-                out = Operations.toggleItalic(in: textStorage, range: range, theme: theme)
-            }
-            return out
-        }
-        let safe = clamp(range, in: textStorage.length)
-        var out = safe
-        withAttributeMutation(range: safe) {
-            out = Operations.toggleItalic(in: textStorage, range: range, theme: theme)
-        }
-        return out
-    }
-
-    private func wrappedToggleStrikethrough(range: NSRange) -> NSRange {
-        if range.length == 0 {
-            var out = NSRange(location: range.location, length: 0)
-            withCharacterMutation(range: NSRange(location: range.location, length: 0)) {
-                out = Operations.toggleStrikethrough(in: textStorage, range: range, theme: theme)
-            }
-            return out
-        }
-        let safe = clamp(range, in: textStorage.length)
-        var out = safe
-        withAttributeMutation(range: safe) {
-            out = Operations.toggleStrikethrough(in: textStorage, range: range, theme: theme)
-        }
-        return out
-    }
-
-    private func wrappedToggleCodeSpan(range: NSRange) -> NSRange {
-        if range.length == 0 {
-            var out = NSRange(location: range.location, length: 0)
-            withCharacterMutation(range: NSRange(location: range.location, length: 0)) {
-                out = Operations.toggleCodeSpan(in: textStorage, range: range, theme: theme)
-            }
-            return out
-        }
-        let safe = clamp(range, in: textStorage.length)
-        var out = safe
-        withAttributeMutation(range: safe) {
-            out = Operations.toggleCodeSpan(in: textStorage, range: range, theme: theme)
-        }
+        setHostSelection(out)
         return out
     }
 

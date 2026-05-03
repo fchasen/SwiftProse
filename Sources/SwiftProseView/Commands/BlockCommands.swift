@@ -6,6 +6,27 @@ import AppKit
 import UIKit
 #endif
 
+func transformParagraphs(
+    storage: NSAttributedString,
+    selection: NSRange,
+    label: String,
+    transform: (BlockSpec) -> BlockSpec
+) -> Transaction {
+    let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
+    if lineRanges.isEmpty {
+        return Transaction(
+            steps: [.setSpec(lineRange: NSRange(location: 0, length: 0), transform(.paragraph))],
+            label: label
+        )
+    }
+    var steps: [Step] = []
+    for lineRange in lineRanges {
+        let current = storage.blockSpec(at: lineRange.location) ?? .paragraph
+        steps.append(.setSpec(lineRange: lineRange, transform(current)))
+    }
+    return Transaction(steps: steps, label: label)
+}
+
 public struct SetHeadingCommand: Command {
     public let level: Int
     public var id: String { "heading:\(level)" }
@@ -14,19 +35,12 @@ public struct SetHeadingCommand: Command {
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
 
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
-        var steps: [Step] = []
-        for lineRange in lineRanges {
-            let current = storage.blockSpec(at: lineRange.location) ?? .paragraph
-            let newSpec: BlockSpec
+        transformParagraphs(storage: storage, selection: selection, label: level == 0 ? "Paragraph" : "Heading \(level)") { current in
             if level == 0 {
-                newSpec = BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
-            } else {
-                newSpec = BlockSpec(kind: .heading(level: level), blockquoteDepth: current.blockquoteDepth)
+                return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
-            steps.append(.setSpec(lineRange: lineRange, newSpec))
+            return BlockSpec(kind: .heading(level: level), blockquoteDepth: current.blockquoteDepth)
         }
-        return Transaction(steps: steps, label: level == 0 ? "Paragraph" : "Heading \(level)")
     }
 }
 
@@ -35,19 +49,12 @@ public struct ToggleUnorderedListCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
-        var steps: [Step] = []
-        for lineRange in lineRanges {
-            let current = storage.blockSpec(at: lineRange.location) ?? .paragraph
-            let newSpec: BlockSpec
+        transformParagraphs(storage: storage, selection: selection, label: "Bullet List") { current in
             if case .unorderedListItem = current.kind {
-                newSpec = BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
-            } else {
-                newSpec = BlockSpec(kind: .unorderedListItem, blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
+                return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
-            steps.append(.setSpec(lineRange: lineRange, newSpec))
+            return BlockSpec(kind: .unorderedListItem, blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
         }
-        return Transaction(steps: steps, label: "Bullet List")
     }
 }
 
@@ -56,19 +63,12 @@ public struct ToggleOrderedListCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
-        var steps: [Step] = []
-        for lineRange in lineRanges {
-            let current = storage.blockSpec(at: lineRange.location) ?? .paragraph
-            let newSpec: BlockSpec
+        transformParagraphs(storage: storage, selection: selection, label: "Ordered List") { current in
             if case .orderedListItem = current.kind {
-                newSpec = BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
-            } else {
-                newSpec = BlockSpec(kind: .orderedListItem(index: 1), blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
+                return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
-            steps.append(.setSpec(lineRange: lineRange, newSpec))
+            return BlockSpec(kind: .orderedListItem(index: 1), blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
         }
-        return Transaction(steps: steps, label: "Ordered List")
     }
 }
 
@@ -77,19 +77,12 @@ public struct ToggleTaskListCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
-        var steps: [Step] = []
-        for lineRange in lineRanges {
-            let current = storage.blockSpec(at: lineRange.location) ?? .paragraph
-            let newSpec: BlockSpec
+        transformParagraphs(storage: storage, selection: selection, label: "Task List") { current in
             if case .taskListItem = current.kind {
-                newSpec = BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
-            } else {
-                newSpec = BlockSpec(kind: .taskListItem(checked: false), blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
+                return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
-            steps.append(.setSpec(lineRange: lineRange, newSpec))
+            return BlockSpec(kind: .taskListItem(checked: false), blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
         }
-        return Transaction(steps: steps, label: "Task List")
     }
 }
 
@@ -98,15 +91,10 @@ public struct ToggleBlockquoteCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
-        var steps: [Step] = []
-        for lineRange in lineRanges {
-            let current = storage.blockSpec(at: lineRange.location) ?? .paragraph
+        transformParagraphs(storage: storage, selection: selection, label: "Blockquote") { current in
             let nextDepth = current.blockquoteDepth > 0 ? current.blockquoteDepth - 1 : current.blockquoteDepth + 1
-            let newSpec = BlockSpec(kind: current.kind, blockquoteDepth: nextDepth, listLevel: current.listLevel)
-            steps.append(.setSpec(lineRange: lineRange, newSpec))
+            return BlockSpec(kind: current.kind, blockquoteDepth: nextDepth, listLevel: current.listLevel)
         }
-        return Transaction(steps: steps, label: "Blockquote")
     }
 }
 
@@ -115,19 +103,12 @@ public struct ToggleCodeBlockCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
-        var steps: [Step] = []
-        for lineRange in lineRanges {
-            let current = storage.blockSpec(at: lineRange.location) ?? .paragraph
-            let newSpec: BlockSpec
+        transformParagraphs(storage: storage, selection: selection, label: "Code Block") { current in
             if case .fencedCode = current.kind {
-                newSpec = BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
-            } else {
-                newSpec = BlockSpec(kind: .fencedCode(language: nil), blockquoteDepth: current.blockquoteDepth)
+                return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
-            steps.append(.setSpec(lineRange: lineRange, newSpec))
+            return BlockSpec(kind: .fencedCode(language: nil), blockquoteDepth: current.blockquoteDepth)
         }
-        return Transaction(steps: steps, label: "Code Block")
     }
 }
 
@@ -137,7 +118,7 @@ public struct InsertHorizontalRuleCommand: Command {
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
         let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
-        guard let lineRange = lineRanges.first else { return nil }
+        let lineRange = lineRanges.first ?? NSRange(location: 0, length: 0)
         return Transaction(steps: [.setSpec(lineRange: lineRange, BlockSpec(kind: .horizontalRule))], label: "Horizontal Rule")
     }
 }
@@ -147,14 +128,9 @@ public struct IndentCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
-        var steps: [Step] = []
-        for lineRange in lineRanges {
-            let current = storage.blockSpec(at: lineRange.location) ?? .paragraph
-            let newSpec = BlockSpec(kind: current.kind, blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel + 1)
-            steps.append(.setSpec(lineRange: lineRange, newSpec))
+        transformParagraphs(storage: storage, selection: selection, label: "Indent") { current in
+            BlockSpec(kind: current.kind, blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel + 1)
         }
-        return Transaction(steps: steps, label: "Indent")
     }
 }
 
@@ -168,13 +144,8 @@ public struct OutdentCommand: Command {
         return spec.listLevel > 0 || spec.blockquoteDepth > 0
     }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
-        var steps: [Step] = []
-        for lineRange in lineRanges {
-            let current = storage.blockSpec(at: lineRange.location) ?? .paragraph
-            let newSpec = BlockSpec(kind: current.kind, blockquoteDepth: current.blockquoteDepth, listLevel: max(0, current.listLevel - 1))
-            steps.append(.setSpec(lineRange: lineRange, newSpec))
+        transformParagraphs(storage: storage, selection: selection, label: "Outdent") { current in
+            BlockSpec(kind: current.kind, blockquoteDepth: current.blockquoteDepth, listLevel: max(0, current.listLevel - 1))
         }
-        return Transaction(steps: steps, label: "Outdent")
     }
 }
