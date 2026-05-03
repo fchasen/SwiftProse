@@ -3,7 +3,7 @@ import SwiftUI
 import SwiftProseSyntax
 import SwiftProseView
 
-/// A debug surface for poking at a `Marginalia` editor: the editor itself,
+/// A debug surface for poking at a `SwiftProseEditor`: the editor itself,
 /// a fixture picker, and an inspector that shows the parser/highlighter state.
 ///
 /// Embed in a host app's debug menu, or instantiate from a `#Preview` to

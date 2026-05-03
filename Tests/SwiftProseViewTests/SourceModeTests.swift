@@ -19,7 +19,7 @@ import SwiftProseSyntax
         let attributed = compiler.compile(md, mode: .source, theme: .default)
         let out = serializer.serialize(attributed)
         // In source mode storage is verbatim source; serializer walks it
-        // as plain runs (no marginaliaBlock attribute). Result should
+        // as plain runs (no proseBlockSpec attribute). Result should
         // match the input.
         #expect(out == md || out + "\n" == md || out == md + "\n")
     }

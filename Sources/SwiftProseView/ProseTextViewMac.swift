@@ -26,7 +26,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
     }
 
     public func makeNSView(context: Context) -> NSView {
-        let textView = MarginaliaNSTextView(
+        let textView = ProseNSTextView(
             frame: .zero,
             textContainer: controller.textContainer
         )
@@ -49,7 +49,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
 
         context.coordinator.textView = textView
         controller.hostTextView = textView
-        textView.marginaliaController = controller
+        textView.proseController = controller
 
         switch sizing {
         case .fitsContent:
@@ -78,7 +78,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
         guard let textView = textView(in: nsView) else { return }
         let coordinator = context.coordinator
         coordinator.parent = self
-        if let mtv = textView as? MarginaliaNSTextView,
+        if let mtv = textView as? ProseNSTextView,
            mtv.minimumIntrinsicHeight != minHeight {
             mtv.minimumIntrinsicHeight = minHeight
         }
@@ -209,7 +209,7 @@ private final class ContextMenuActionBox {
     init(_ action: @escaping () -> Void) { self.action = action }
 }
 
-final class MarginaliaNSTextView: NSTextView {
+final class ProseNSTextView: NSTextView {
     var fitsContent: Bool = false {
         didSet { invalidateIntrinsicContentSize() }
     }
@@ -220,7 +220,7 @@ final class MarginaliaNSTextView: NSTextView {
     /// The owning controller. Set in `ProseTextViewMac.makeNSView`. The
     /// `@objc` action methods read it to dispatch to `Operations`. Held weak
     /// so SwiftUI can tear down the text view without leaking the controller.
-    weak var marginaliaController: EditorController?
+    weak var proseController: EditorController?
 
     override func mouseDown(with event: NSEvent) {
         // Single click without modifiers on a task-list checkbox toggles it
@@ -233,7 +233,7 @@ final class MarginaliaNSTextView: NSTextView {
             let charIndex = characterIndexForInsertion(at: point)
             for probe in [charIndex, charIndex - 1] where probe >= 0 && probe < storage.length {
                 if storage.safeAttribute(.attachment, at: probe) is CheckboxAttachment {
-                    if marginaliaController?.toggleCheckbox(at: probe) == true { return }
+                    if proseController?.toggleCheckbox(at: probe) == true { return }
                 }
             }
         }
@@ -241,16 +241,16 @@ final class MarginaliaNSTextView: NSTextView {
     }
 
     @objc func toggleBold(_ sender: Any?) {
-        marginaliaController?.perform(.bold)
+        proseController?.perform(.bold)
     }
     @objc func toggleItalic(_ sender: Any?) {
-        marginaliaController?.perform(.italic)
+        proseController?.perform(.italic)
     }
     @objc func toggleStrikethrough(_ sender: Any?) {
-        marginaliaController?.perform(.strikethrough)
+        proseController?.perform(.strikethrough)
     }
     @objc func toggleCodeSpan(_ sender: Any?) {
-        marginaliaController?.perform(.codeSpan)
+        proseController?.perform(.codeSpan)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -259,7 +259,7 @@ final class MarginaliaNSTextView: NSTextView {
            let chars = event.charactersIgnoringModifiers?.lowercased(),
            let action = shortcutAction(forCommandKey: chars,
                                        shift: event.modifierFlags.contains(.shift)) {
-            marginaliaController?.perform(action)
+            proseController?.perform(action)
             return
         }
         super.keyDown(with: event)

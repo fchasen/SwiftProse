@@ -28,8 +28,8 @@ public struct ProseTextViewIOS: UIViewRepresentable {
     }
 
     public func makeUIView(context: Context) -> UITextView {
-        let textView = MarginaliaUITextView(frame: .zero, textContainer: controller.textContainer)
-        textView.marginaliaController = controller
+        let textView = ProseUITextView(frame: .zero, textContainer: controller.textContainer)
+        textView.proseController = controller
         textView.delegate = context.coordinator
         textView.font = controller.theme.bodyFont
         textView.smartQuotesType = .no
@@ -139,11 +139,11 @@ private func isCursorInListItem(controller: EditorController) -> Bool {
     return storage.blockSpec(at: probe)?.isListItem ?? false
 }
 
-final class MarginaliaUITextView: UITextView {
-    weak var marginaliaController: EditorController?
+final class ProseUITextView: UITextView {
+    weak var proseController: EditorController?
 
     override func deleteBackward() {
-        if marginaliaController?.handleBackspace() == true { return }
+        if proseController?.handleBackspace() == true { return }
         super.deleteBackward()
     }
 
@@ -158,7 +158,7 @@ final class MarginaliaUITextView: UITextView {
     }
 
     @objc private func handleShiftTab(_ sender: UIKeyCommand) {
-        guard let controller = marginaliaController else { return }
+        guard let controller = proseController else { return }
         if isCursorInListItem(controller: controller) {
             controller.perform(.outdent)
         }
