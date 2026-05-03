@@ -223,6 +223,23 @@ public final class EditorController {
         return serializer.serialize(textStorage)
     }
 
+    public func loadProseMirrorJSON(_ json: String, schemaMap: SchemaMap = .basic) throws {
+        let codec = ProseMirrorCodec(schemaMap: schemaMap, theme: theme)
+        let compiled = try codec.decode(json)
+        replaceStorage(with: compiled)
+    }
+
+    public func loadProseMirrorJSON(_ data: Data, schemaMap: SchemaMap = .basic) throws {
+        let codec = ProseMirrorCodec(schemaMap: schemaMap, theme: theme)
+        let compiled = try codec.decode(data)
+        replaceStorage(with: compiled)
+    }
+
+    public func exportProseMirrorJSON(schemaMap: SchemaMap = .basic) throws -> Data {
+        let codec = ProseMirrorCodec(schemaMap: schemaMap, theme: theme)
+        return try codec.encodeToJSON(textStorage)
+    }
+
     public func recompile() {
         let md = markdown()
         setMarkdown(md)
