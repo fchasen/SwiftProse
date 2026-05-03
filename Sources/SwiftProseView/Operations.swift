@@ -437,28 +437,22 @@ public enum Operations {
         let safe = clampedRange(range, in: storage.length)
         let lineRanges = paragraphRanges(in: storage, covering: safe)
         guard !lineRanges.isEmpty else {
-            // Empty storage: apply to a zero-length range at 0.
             let step = Step.setSpec(lineRange: NSRange(location: 0, length: 0), transform(.paragraph))
             let applied = step.apply(to: storage, env: env)
-            let cursor = max(applied.mappedRange.location,
-                             applied.mappedRange.location + applied.mappedRange.length - 1)
-            return NSRange(location: cursor, length: 0)
+            return cursorAt(applied.mappedRange)
         }
-        // Iterate from last to first so prior step's range remains valid for
-        // the next iteration without re-computing offsets.
-        var lastMappedRange = NSRange(location: lineRanges.last!.location, length: 0)
-        for lineRange in lineRanges.reversed() {
+        var steps: [Step] = []
+        for lineRange in lineRanges {
             let probe = max(0, min(lineRange.location, max(0, storage.length - 1)))
             let currentSpec = storage.blockSpec(at: probe) ?? .paragraph
-            let newSpec = transform(currentSpec)
-            let step = Step.setSpec(lineRange: lineRange, newSpec)
-            let applied = step.apply(to: storage, env: env)
-            // Cursor lands at end of the FIRST applied line (which, since
-            // we iterate in reverse, is the last iteration of the loop).
-            lastMappedRange = applied.mappedRange
+            steps.append(.setSpec(lineRange: lineRange, transform(currentSpec)))
         }
-        let cursor = max(lastMappedRange.location,
-                         lastMappedRange.location + lastMappedRange.length - 1)
+        let applied = Transaction(steps: steps).apply(to: storage, env: env)
+        return cursorAt(applied.mappedRange)
+    }
+
+    private static func cursorAt(_ range: NSRange) -> NSRange {
+        let cursor = max(range.location, range.location + range.length - 1)
         return NSRange(location: cursor, length: 0)
     }
 
