@@ -456,9 +456,8 @@ public enum Operations {
         return NSRange(location: cursor, length: 0)
     }
 
-    /// Enumerate each paragraph (line) range that intersects `range`.
-    private static func paragraphRanges(
-        in storage: NSTextStorage,
+    static func paragraphRanges(
+        in storage: NSAttributedString,
         covering range: NSRange
     ) -> [NSRange] {
         guard storage.length > 0 else { return [] }
