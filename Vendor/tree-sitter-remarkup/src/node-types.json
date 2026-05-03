@@ -1,0 +1,130 @@
+[
+  {
+    "type": "callout",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "document",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "callout",
+          "named": true
+        },
+        {
+          "type": "file_embed",
+          "named": true
+        },
+        {
+          "type": "heading",
+          "named": true
+        },
+        {
+          "type": "italic",
+          "named": true
+        },
+        {
+          "type": "newline",
+          "named": true
+        },
+        {
+          "type": "paste_embed",
+          "named": true
+        },
+        {
+          "type": "revision_link",
+          "named": true
+        },
+        {
+          "type": "task_link",
+          "named": true
+        },
+        {
+          "type": "text",
+          "named": true
+        },
+        {
+          "type": "user_mention",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "file_embed",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "paste_embed",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "text",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "IMPORTANT",
+    "named": false
+  },
+  {
+    "type": "NOTE",
+    "named": false
+  },
+  {
+    "type": "TODO",
+    "named": false
+  },
+  {
+    "type": "WARNING",
+    "named": false
+  },
+  {
+    "type": "heading",
+    "named": true
+  },
+  {
+    "type": "italic",
+    "named": true
+  },
+  {
+    "type": "newline",
+    "named": true
+  },
+  {
+    "type": "revision_link",
+    "named": true
+  },
+  {
+    "type": "task_link",
+    "named": true
+  },
+  {
+    "type": "user_mention",
+    "named": true
+  },
+  {
+    "type": "{F",
+    "named": false
+  },
+  {
+    "type": "{P",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]
