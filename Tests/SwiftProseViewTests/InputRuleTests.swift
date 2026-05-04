@@ -110,6 +110,83 @@ import UIKit
         #expect(spec?.blockquoteDepth == 1)
     }
 
+    /// Bug: typing `> ` produces a blockquote, but the resulting line
+    /// contains extra trailing newlines so the next typed character lands
+    /// several lines below the quote marker. The line should be a single
+    /// `> \n` (length 3) — one blockquote line ready for content.
+    @Test func typingGreaterThanSpaceProducesSingleLine() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        type("> ", in: controller)
+        let storage = controller.textStorage
+        let text = storage.string
+        // The line count (number of newlines) should be exactly one.
+        let newlines = text.filter { $0 == "\n" }.count
+        #expect(newlines == 1, "expected one trailing newline, got \(newlines) in \(String(reflecting: text))")
+        // The body should be a single blockquote line, not a stack of them.
+        let firstLineRange = (text as NSString).paragraphRange(for: NSRange(location: 0, length: 0))
+        let everyLineSameSpec = storage.blockSpec(at: 0)?.blockquoteDepth == 1
+        #expect(everyLineSameSpec)
+        #expect(firstLineRange.length == storage.length, "first paragraph should span the whole storage; instead lineLength=\(firstLineRange.length) total=\(storage.length)")
+    }
+
+    /// Bug regression: after `> ` fires, typing another character should
+    /// land on the same line (one row down from the empty state, NOT three
+    /// rows down).
+    @Test func typingAfterBlockquoteRuleStaysOnSameLine() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        type("> ", in: controller)
+        type("h", in: controller)
+        let storage = controller.textStorage
+        // Storage should be `> h\n` — one paragraph, one newline.
+        let text = storage.string
+        let newlines = text.filter { $0 == "\n" }.count
+        #expect(newlines == 1, "expected one newline after `> h`, got \(newlines) in \(String(reflecting: text))")
+        // The `h` should be on the same line as the `> ` marker.
+        let ns = text as NSString
+        let lineCovering = ns.paragraphRange(for: NSRange(location: ns.length - 1, length: 0))
+        // Whole content should be one paragraph.
+        #expect(lineCovering.length == ns.length, "expected `h` on same line as `>`; got line range \(lineCovering) total=\(ns.length)")
+    }
+
+    /// After the blockquote rule fires, the cursor returned by `apply`
+    /// must land at the start of the new blockquote line — position 0 in
+    /// the empty-storage case. If it lands elsewhere (past the `\n`, or at
+    /// some pre-rule offset), subsequent typing goes on the wrong line.
+    @Test func blockquoteRuleLandsCursorAtStartOfBlockquoteLine() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        type("> ", in: controller)
+        // Storage is `\n` length 1; the blockquote line is the only paragraph.
+        let storage = controller.textStorage
+        #expect(storage.length == 1)
+        // Cursor (testSelection, which our test helper updates from apply's
+        // returned range) should be at position 0 — before the trailing
+        // newline that terminates the empty blockquote line.
+        let cursor = controller.testSelection
+        #expect(cursor?.location == 0, "expected cursor at start of blockquote line; got \(String(describing: cursor))")
+    }
+
+    /// `> ` typed after existing content should produce a blockquote line
+    /// with no extra blank paragraphs between it and the previous line.
+    @Test func blockquoteRuleAfterExistingContentProducesAdjacentLine() throws {
+        let controller = try EditorController(initialMarkdown: "Hello\n")
+        // Place cursor at end of storage (after the trailing \n).
+        let initialLength = controller.textStorage.length
+        controller.testSelection = NSRange(location: initialLength, length: 0)
+        type("> ", in: controller)
+        let storage = controller.textStorage
+        let text = storage.string
+        // Two newlines: end-of-line for "Hello" plus end-of-line for the
+        // empty blockquote line. NOT four (which would indicate extra
+        // blank lines were inserted).
+        let newlines = text.filter { $0 == "\n" }.count
+        #expect(newlines == 2, "expected 2 newlines after Hello+blockquote, got \(newlines) in \(String(reflecting: text))")
+        // First line is paragraph; second line is blockquote.
+        #expect(storage.blockSpec(at: 0)?.kind == .paragraph)
+        #expect(storage.blockSpec(at: 0)?.blockquoteDepth == 0)
+        let secondLineStart = (text as NSString).range(of: "\n").location + 1
+        #expect(storage.blockSpec(at: secondLineStart)?.blockquoteDepth == 1)
+    }
+
     @Test func typingDashSpaceProducesUnorderedList() throws {
         let controller = try EditorController(initialMarkdown: "")
         type("- ", in: controller)
