@@ -293,11 +293,7 @@ public struct ProseMirrorCodec {
                     content: inner
                 )
             case "table":
-                // Tree-native table emit lands with Phase 6. Until then the
-                // storage tree only carries a `table` envelope without
-                // row/cell breakdown, so we delegate to the storage path
-                // for tables by signalling a fallback.
-                return nil
+                return encodeTableFromTree(kids)
             default:
                 return nil
             }
@@ -314,6 +310,158 @@ public struct ProseMirrorCodec {
             // Top-level inline — wrap in a paragraph.
             return PMNode(type: "paragraph", content: encodeInlines([node]).orNilIfEmpty())
         }
+    }
+
+    /// Walk a table envelope's flat paragraph children, parse pipe content
+    /// while tracking inline marks per character, and emit a PM table with
+    /// row/cell structure. Marks survive into cell text — the output of
+    /// `**bold**` inside a cell becomes a `text` node carrying a `strong`
+    /// mark, which the existing storage-path encoder loses by joining
+    /// inline runs to a flat string before parsing.
+    private func encodeTableFromTree(_ kids: [TreeNode]) -> PMNode? {
+        let lineRuns: [[(text: String, marks: MarkSet)]] = kids.compactMap { kid in
+            guard case .structural(let pn, let inlines) = kid, pn.type == "paragraph" else { return nil }
+            return inlines.compactMap { node -> (String, MarkSet)? in
+                if case .inline(let text, let marks) = node { return (text, marks) }
+                return nil
+            }
+        }
+        guard lineRuns.count >= 2 else { return nil }
+        // Identify alignment row by scanning line cells for `:?-+:?`.
+        var alignmentLineIdx: Int? = nil
+        for (idx, runs) in lineRuns.enumerated() {
+            let cellTexts = splitLineByPipes(runs).map { runsToText($0) }
+            if !cellTexts.isEmpty,
+               cellTexts.allSatisfy({ PipeTableAlignment(alignmentRowCell: $0.trimmingCharacters(in: .whitespaces)) != nil }) {
+                alignmentLineIdx = idx
+                break
+            }
+        }
+        guard let alignIdx = alignmentLineIdx, alignIdx > 0 else { return nil }
+        let alignmentTexts = splitLineByPipes(lineRuns[alignIdx]).map { runsToText($0) }
+        let alignments: [PipeTableAlignment] = alignmentTexts.map {
+            PipeTableAlignment(alignmentRowCell: $0.trimmingCharacters(in: .whitespaces)) ?? .none
+        }
+        // Header row — line before alignment.
+        let headerCells = splitLineByPipes(lineRuns[alignIdx - 1])
+        // Body rows — lines after alignment.
+        let bodyCellsByRow: [[[(text: String, marks: MarkSet)]]] = lineRuns
+            .dropFirst(alignIdx + 1)
+            .map { splitLineByPipes($0) }
+        let columnCount = max(
+            headerCells.count,
+            alignments.count,
+            bodyCellsByRow.map(\.count).max() ?? 0
+        )
+        var rows: [PMNode] = []
+        rows.append(makeTableRowFromTreeRuns(
+            cells: headerCells,
+            alignments: alignments,
+            columnCount: columnCount,
+            isHeader: true
+        ))
+        for body in bodyCellsByRow {
+            rows.append(makeTableRowFromTreeRuns(
+                cells: body,
+                alignments: alignments,
+                columnCount: columnCount,
+                isHeader: false
+            ))
+        }
+        return PMNode(type: "table", content: rows)
+    }
+
+    private func makeTableRowFromTreeRuns(
+        cells: [[(text: String, marks: MarkSet)]],
+        alignments: [PipeTableAlignment],
+        columnCount: Int,
+        isHeader: Bool
+    ) -> PMNode {
+        var cellNodes: [PMNode] = []
+        for col in 0..<columnCount {
+            let runs = (col < cells.count) ? cells[col] : []
+            let alignment = (col < alignments.count) ? alignments[col] : .none
+            var attrs: [String: PMValue] = [
+                "colspan": .int(1),
+                "rowspan": .int(1)
+            ]
+            if let alignString = pmAlignString(for: alignment) {
+                attrs["align"] = .string(alignString)
+            }
+            let textNodes = runs.compactMap { run -> PMNode? in
+                guard !run.text.isEmpty else { return nil }
+                var pm = PMNode(type: "text", text: run.text)
+                if !run.marks.isEmpty {
+                    pm.marks = run.marks.marks.map { PMMark(type: $0.type, attrs: nil) }
+                }
+                return pm
+            }
+            let paragraph = PMNode(type: "paragraph", content: textNodes.isEmpty ? nil : textNodes)
+            cellNodes.append(PMNode(
+                type: isHeader ? "table_header" : "table_cell",
+                attrs: attrs,
+                content: [paragraph]
+            ))
+        }
+        return PMNode(type: "table_row", content: cellNodes)
+    }
+
+    /// Split a line's inline runs into cells by walking unescaped `|`. Each
+    /// cell preserves the (text, marks) shape of the runs that fall within
+    /// it, with leading/trailing whitespace trimmed and empty leading/
+    /// trailing cells (from outer pipes) dropped.
+    private func splitLineByPipes(
+        _ runs: [(text: String, marks: MarkSet)]
+    ) -> [[(text: String, marks: MarkSet)]] {
+        // Char-stream representation: each character with its source marks.
+        var stream: [(Character, MarkSet)] = []
+        for run in runs {
+            for ch in run.text {
+                stream.append((ch, run.marks))
+            }
+        }
+        var cells: [[(Character, MarkSet)]] = []
+        var current: [(Character, MarkSet)] = []
+        var prevEscape = false
+        for (ch, marks) in stream {
+            if ch == "|", !prevEscape {
+                cells.append(current)
+                current = []
+            } else {
+                current.append((ch, marks))
+            }
+            prevEscape = (ch == "\\" && !prevEscape)
+        }
+        cells.append(current)
+        // Drop optional empty leading/trailing cells from outer pipes.
+        if cells.first?.isEmpty == true { cells.removeFirst() }
+        if cells.last?.isEmpty == true { cells.removeLast() }
+        // Trim each cell's leading/trailing whitespace.
+        let trimmed: [[(Character, MarkSet)]] = cells.map { cell in
+            var c = cell
+            while let first = c.first, first.0.isWhitespace { c.removeFirst() }
+            while let last = c.last, last.0.isWhitespace { c.removeLast() }
+            return c
+        }
+        // Group consecutive same-mark characters into runs.
+        return trimmed.map { cell in
+            var out: [(text: String, marks: MarkSet)] = []
+            var i = 0
+            while i < cell.count {
+                let marks = cell[i].1
+                var text = ""
+                while i < cell.count, cell[i].1 == marks {
+                    text.append(cell[i].0)
+                    i += 1
+                }
+                out.append((text, marks))
+            }
+            return out
+        }
+    }
+
+    private func runsToText(_ runs: [(text: String, marks: MarkSet)]) -> String {
+        runs.map(\.text).joined()
     }
 
     private func encodeInlines(_ nodes: [TreeNode]) -> [PMNode] {

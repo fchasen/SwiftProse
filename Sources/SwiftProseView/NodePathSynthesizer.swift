@@ -70,17 +70,37 @@ public struct NodePathSynthesizer {
         var openLists: [OpenList] = []
         storage.beginEditing()
         storage.enumerateBlockSpecs { blockRange, spec in
-            // Decide the table envelope: consecutive pipe-table paragraphs
-            // share a single table ancestor.
             if case .pipeTable = spec.kind {
                 if !lastWasPipeTable || tableRunNode == nil {
                     tableRunNode = ProseNode(type: "table")
                 }
                 lastWasPipeTable = true
-            } else {
-                tableRunNode = nil
-                lastWasPipeTable = false
+                // Pipe-table block ranges cover multiple source lines under
+                // a single BlockSpecBox. Walk lines so each row stamps its
+                // own paragraph leaf — without this the tree would collapse
+                // every row into one paragraph child of `table`.
+                let ns = storage.string as NSString
+                var cursor = blockRange.location
+                let end = blockRange.location + blockRange.length
+                while cursor < end {
+                    let lineRange = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
+                    let clipped = NSIntersectionRange(lineRange, blockRange)
+                    guard clipped.length > 0 else { break }
+                    let path = nodePath(
+                        for: spec,
+                        doc: docNode,
+                        tableNode: tableRunNode,
+                        openLists: &openLists
+                    )
+                    storage.setNodePath(path, in: clipped)
+                    stampMarks(in: storage, blockRange: clipped, blockKind: spec.kind)
+                    let next = lineRange.location + lineRange.length
+                    cursor = (next > cursor) ? next : cursor + 1
+                }
+                return
             }
+            tableRunNode = nil
+            lastWasPipeTable = false
             let path = nodePath(
                 for: spec,
                 doc: docNode,
