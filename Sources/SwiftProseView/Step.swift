@@ -191,12 +191,24 @@ public enum Step {
         return stripped.joined(separator: "\n")
     }
 
+    private static let blockMarkupLeadRegex: NSRegularExpression = {
+        // The grammar's recompile loop tolerates only NSRegularExpression
+        // syntax — using `try!` on a literal is fine because the pattern is
+        // a static constant.
+        try! NSRegularExpression(
+            pattern: #"^\s*(>\s?|#{1,6}\s+|\d+[.)]\s+|[-*+]\s+(\[[ xX]\]\s+)?)"#
+        )
+    }()
+
     private func stripBlockMarkupFromLine(_ line: String) -> String {
-        var s = line
-        while let leadMatch = s.range(of: #"^\s*(>\s?|#{1,6}\s+|\d+[.)]\s+|[-*+]\s+(\[[ xX]\]\s+)?)"#,
-                                       options: .regularExpression) {
-            s = String(s[leadMatch.upperBound...])
+        let regex = Step.blockMarkupLeadRegex
+        var ns = line as NSString
+        while true {
+            let match = regex.firstMatch(in: ns as String, range: NSRange(location: 0, length: ns.length))
+            guard let match, match.range.location == 0, match.range.length > 0 else { break }
+            ns = ns.substring(from: match.range.length) as NSString
         }
+        let s = ns as String
         if s.hasPrefix("```") || s.hasPrefix("~~~") { return "" }
         return s
     }
