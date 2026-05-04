@@ -36,7 +36,7 @@ struct ProseStatusBar: View {
         text.split { $0.isWhitespace || $0.isNewline }.filter { !$0.isEmpty }.count
     }
 
-    private var characterCount: Int { (text as NSString).length }
+    private var characterCount: Int { text.count }
 
     private var line: Int {
         let ns = text as NSString
