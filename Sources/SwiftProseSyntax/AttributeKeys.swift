@@ -6,6 +6,15 @@ public extension NSAttributedString.Key {
     /// Flag (Bool=true) on rendered list-marker characters (`•`, `1.`, etc.)
     /// the compiler injects so they aren't part of the markdown round-trip.
     static let proseListMarker = NSAttributedString.Key("swiftprose.listMarker")
+    /// Flag (Bool=true) on every character of a pipe-table alignment row
+    /// paragraph (e.g. `| :--- | --: |`). The layout fragment reads this to
+    /// suppress drawing of the literal dashes when the table is rendered;
+    /// raw mode skips the suppression and the row prints normally.
+    static let proseTableAlignmentRow = NSAttributedString.Key("swiftprose.tableAlignmentRow")
+    /// Flag (Bool=true) on every character of a pipe-table header row
+    /// paragraph. Layout fragment uses it to paint a tinted background
+    /// stripe behind the header.
+    static let proseTableHeader = NSAttributedString.Key("swiftprose.tableHeader")
 }
 
 public enum BlockTag: String, Sendable, Hashable, CaseIterable {

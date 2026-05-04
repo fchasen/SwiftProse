@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProseSyntax
 
 public enum EditorAction: Sendable, Equatable {
     case bold
@@ -15,8 +16,17 @@ public enum EditorAction: Sendable, Equatable {
     case horizontalRule
     case indent
     case outdent
+    case insertTable(rows: Int, columns: Int)
+    case insertTableRowAbove
+    case insertTableRowBelow
+    case insertTableColumnBefore
+    case insertTableColumnAfter
+    case deleteTableRow
+    case deleteTableColumn
+    case setTableColumnAlignment(PipeTableAlignment)
 
     public static let link: EditorAction = .link(url: nil, label: nil)
+    public static let insertTable: EditorAction = .insertTable(rows: 2, columns: 3)
 }
 
 extension EditorAction {
@@ -36,6 +46,14 @@ extension EditorAction {
         case .horizontalRule: return "horizontalRule"
         case .indent: return "indent"
         case .outdent: return "outdent"
+        case .insertTable: return "insertTable"
+        case .insertTableRowAbove: return "insertTableRowAbove"
+        case .insertTableRowBelow: return "insertTableRowBelow"
+        case .insertTableColumnBefore: return "insertTableColumnBefore"
+        case .insertTableColumnAfter: return "insertTableColumnAfter"
+        case .deleteTableRow: return "deleteTableRow"
+        case .deleteTableColumn: return "deleteTableColumn"
+        case .setTableColumnAlignment: return "setTableColumnAlignment"
         }
     }
 }

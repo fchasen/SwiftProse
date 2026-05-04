@@ -114,7 +114,9 @@ public final class MarkdownAttributedCompiler {
             appendCodeBlock(segment, source: source, theme: theme, into: out)
         case .horizontalRule:
             appendHorizontalRule(segment, source: source, theme: theme, into: out)
-        case .htmlBlock, .linkReferenceDefinition, .pipeTable:
+        case .pipeTable:
+            appendPipeTableSegment(segment, source: source, theme: theme, into: out)
+        case .htmlBlock, .linkReferenceDefinition:
             // Emit verbatim with block tag so the serializer can round-trip.
             appendOpaqueBlock(segment, source: source, theme: theme, into: out)
         }
@@ -399,7 +401,7 @@ public final class MarkdownAttributedCompiler {
     ) {
         let nsSource = source as NSString
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: segment.tag == .pipeTable ? theme.monospaceFont : theme.bodyFont,
+            .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor
         ]
         var content = nsSource.substring(with: segment.range)
@@ -409,6 +411,58 @@ public final class MarkdownAttributedCompiler {
             spec: BlockSpec(blockSegment: segment),
             into: out
         )
+    }
+
+    /// Compile a `.pipeTable` segment. The segment's source range covers all
+    /// table lines (one block per pipe-table run, since `BlockSegmenter` emits
+    /// the whole `pipe_table` node as a single segment). We split the source
+    /// into per-line paragraphs, parse the structure with `PipeTableModel` to
+    /// know which line is header / alignment / body, and tag accordingly:
+    ///
+    /// - Header line gets bold font + `.proseTableHeader` flag (layout
+    ///   fragment paints a tinted backdrop).
+    /// - Alignment line gets `.proseTableAlignmentRow` flag (layout fragment
+    ///   suppresses drawing in rendered mode; raw mode prints normally).
+    /// - Body lines get plain monospace.
+    ///
+    /// Per-column horizontal alignment is **not** projected onto cell text
+    /// today — the renderer would need to subdivide each line into per-cell
+    /// text containers, which TextKit 2 doesn't natively offer for a single
+    /// paragraph. The alignment is preserved in the source and surfaced via
+    /// the layout fragment's column metrics for chrome (border ticks etc.).
+    private func appendPipeTableSegment(
+        _ segment: BlockSegment,
+        source: String,
+        theme: ProseTheme,
+        into out: NSMutableAttributedString
+    ) {
+        let nsSource = source as NSString
+        var content = nsSource.substring(with: segment.range)
+        if !content.hasSuffix("\n") { content.append("\n") }
+        // Parse the source so we know which absolute line is which kind.
+        let model = PipeTableModel.parse(source: content, sourceLocation: 0)
+        let baseAttrs: [NSAttributedString.Key: Any] = [
+            .font: theme.monospaceFont,
+            .foregroundColor: theme.foregroundColor
+        ]
+        let result = NSMutableAttributedString(string: content, attributes: baseAttrs)
+        if let model {
+            for (lineIndex, lineRange) in model.lineRanges.enumerated() {
+                guard lineRange.length > 0 else { continue }
+                guard lineRange.upperBound <= result.length else { continue }
+                let kind = model.lineKinds[lineIndex]
+                switch kind {
+                case .header:
+                    result.addAttribute(.proseTableHeader, value: true, range: lineRange)
+                    result.addAttribute(.font, value: theme.monospaceFont.withProseTraits(.bold), range: lineRange)
+                case .alignment:
+                    result.addAttribute(.proseTableAlignmentRow, value: true, range: lineRange)
+                case .body:
+                    break
+                }
+            }
+        }
+        appendStyled(result, spec: BlockSpec(blockSegment: segment), into: out)
     }
 
     private func appendVerbatim(

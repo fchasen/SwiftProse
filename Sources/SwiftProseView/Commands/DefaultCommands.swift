@@ -18,6 +18,13 @@ extension CommandRegistry {
         registry.register(InsertHorizontalRuleCommand())
         registry.register(IndentCommand())
         registry.register(OutdentCommand())
+        registry.register(InsertTableCommand())
+        registry.register(InsertTableRowAboveCommand())
+        registry.register(InsertTableRowBelowCommand())
+        registry.register(InsertTableColumnBeforeCommand())
+        registry.register(InsertTableColumnAfterCommand())
+        registry.register(DeleteTableRowCommand())
+        registry.register(DeleteTableColumnCommand())
         return registry
     }
 }

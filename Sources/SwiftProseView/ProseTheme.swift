@@ -25,6 +25,7 @@ public struct ProseTheme: Equatable {
     public var blockquoteBarColor: PlatformColor
     public var headingScale: [Int: CGFloat]
     public var codePalette: CodePalette
+    public var tablePalette: TablePalette
 
     public init(
         bodyFont: PlatformFont,
@@ -35,7 +36,8 @@ public struct ProseTheme: Equatable {
         linkURLColor: PlatformColor,
         blockquoteBarColor: PlatformColor,
         headingScale: [Int: CGFloat] = [1: 1.6, 2: 1.4, 3: 1.25, 4: 1.15, 5: 1.05, 6: 1.0],
-        codePalette: CodePalette = .default
+        codePalette: CodePalette = .default,
+        tablePalette: TablePalette = .default
     ) {
         self.bodyFont = bodyFont
         self.monospaceFont = monospaceFont
@@ -46,6 +48,7 @@ public struct ProseTheme: Equatable {
         self.blockquoteBarColor = blockquoteBarColor
         self.headingScale = headingScale
         self.codePalette = codePalette
+        self.tablePalette = tablePalette
     }
 
     public static var `default`: ProseTheme {
@@ -166,6 +169,39 @@ public struct ProseTheme: Equatable {
         case .textTitle, .textLiteral, .textEmphasis, .textStrong,
              .textURI, .textReference, .none, .unknown:
             return nil
+        }
+    }
+
+    /// Per-component colors for rendered pipe tables.
+    public struct TablePalette: Equatable {
+        /// Background tint stripe behind the header row.
+        public var headerBackground: PlatformColor
+        /// Stroke color for cell borders.
+        public var border: PlatformColor
+        /// Color of the small "raw / rendered" toggle drawn in the table's
+        /// top-right corner.
+        public var toggle: PlatformColor
+
+        public init(headerBackground: PlatformColor, border: PlatformColor, toggle: PlatformColor) {
+            self.headerBackground = headerBackground
+            self.border = border
+            self.toggle = toggle
+        }
+
+        public static var `default`: TablePalette {
+            #if canImport(AppKit) && os(macOS)
+            return TablePalette(
+                headerBackground: NSColor.tertiaryLabelColor.withAlphaComponent(0.10),
+                border: NSColor.tertiaryLabelColor,
+                toggle: NSColor.secondaryLabelColor
+            )
+            #else
+            return TablePalette(
+                headerBackground: UIColor.tertiaryLabel.withAlphaComponent(0.10),
+                border: UIColor.tertiaryLabel,
+                toggle: UIColor.secondaryLabel
+            )
+            #endif
         }
     }
 

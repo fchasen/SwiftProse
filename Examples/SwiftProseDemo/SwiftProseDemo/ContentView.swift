@@ -59,6 +59,22 @@ struct ContentView: View {
                 Button { perform(.horizontalRule) } label: {
                     Label("Horizontal Rule", systemImage: "minus")
                 }
+                Divider()
+                Button { perform(.insertTable(rows: 2, columns: 3)) } label: {
+                    Label("Insert Table", systemImage: "tablecells")
+                }
+                Button { perform(.insertTableRowBelow) } label: {
+                    Label("Insert Row Below", systemImage: "rectangle.stack.badge.plus")
+                }
+                Button { perform(.insertTableColumnAfter) } label: {
+                    Label("Insert Column Right", systemImage: "rectangle.split.3x1")
+                }
+                Button { perform(.deleteTableRow) } label: {
+                    Label("Delete Row", systemImage: "rectangle.stack.badge.minus")
+                }
+                Button { perform(.deleteTableColumn) } label: {
+                    Label("Delete Column", systemImage: "rectangle.split.3x1")
+                }
             } label: {
                 Label("Format", systemImage: "textformat")
             }

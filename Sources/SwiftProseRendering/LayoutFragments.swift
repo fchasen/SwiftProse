@@ -159,18 +159,59 @@ public final class FencedCodeBlockLayoutFragment: CodeBlockLayoutFragment {
 
 public final class IndentedCodeBlockLayoutFragment: CodeBlockLayoutFragment {}
 
-/// Paints cell borders for a pipe table. Each row of the table is its own
-/// layout fragment; outer-edge segments are drawn so consecutive fragments
-/// stitch into a continuous bordered grid. Internal column borders come from
-/// detecting pipe character positions within each line fragment.
+/// Paints chrome for one source line of a rendered GFM pipe table.
+///
+/// One fragment per source line. Vertical column dividers and outer borders
+/// are computed from `PipeTableModel.columnXs` (so they line up across rows
+/// even when cell text widths differ), not by glyph-hunting `|` positions
+/// like the original implementation. The header line gets a tinted backdrop
+/// and bold text (the bold is applied by the compiler). The alignment line
+/// is suppressed — neither text nor borders are drawn so the literal
+/// `:--- | --- | ---:` doesn't appear.
 public final class PipeTableLayoutFragment: NSTextLayoutFragment {
+    public enum LineRole: Equatable {
+        case header
+        case alignment
+        case body
+    }
+
     public var borderColor: PlatformColor = .pipeTableDefaultBorder
     public var borderWidth: CGFloat = 0.5
+    public var headerBackgroundColor: PlatformColor = .pipeTableHeaderDefaultBackground
+    public var toggleColor: PlatformColor = .pipeTableToggleDefault
     public var horizontalInset: CGFloat = 0
     public var isFirstLine: Bool = false
     public var isLastLine: Bool = false
+    public var role: LineRole = .body
+    /// Column boundary x-positions including outer edges, in fragment-local
+    /// coordinates. `[xLeft, x1, x2, ..., xRight]` so `count == columnCount + 1`.
+    /// When empty, vertical dividers fall back to the bounding rect edges.
+    public var columnXs: [CGFloat] = []
+    /// True when the table is in the controller's `expandedTablesTracker`
+    /// — meaning the user has flipped this table to raw monospace mode and
+    /// we should skip ALL chrome and let the literal source draw normally.
+    public var isRawMode: Bool = false
+    /// Body row index for `role == .body`. Header is `-1`; `.alignment` is
+    /// `-2`. Set by the layout manager delegate so cell hit-testing can map
+    /// clicks back to the model.
+    public var bodyRowIndex: Int = 0
+    /// Offset of the toggle button (top-right of the first table line) in
+    /// fragment-local coordinates. The host text view reads `toggleHitRect`
+    /// and dispatches clicks to the controller.
+    public var toggleHitRect: CGRect = .zero
 
     public override func draw(at point: CGPoint, in context: CGContext) {
+        if isRawMode {
+            super.draw(at: point, in: context)
+            return
+        }
+        if role == .alignment {
+            // Suppress drawing entirely — the literal dashes shouldn't appear
+            // and we don't draw borders here either since the alignment row
+            // has been collapsed to a near-zero line height by the compiler.
+            return
+        }
+
         let bounds = layoutFragmentFrame
         let rect = CGRect(
             x: horizontalInset,
@@ -181,43 +222,77 @@ public final class PipeTableLayoutFragment: NSTextLayoutFragment {
 
         context.saveGState()
         context.translateBy(x: point.x, y: point.y)
+
+        if role == .header {
+            context.setFillColor(headerBackgroundColor.cgColor)
+            context.fill(rect)
+        }
+
         context.setStrokeColor(borderColor.cgColor)
         context.setLineWidth(borderWidth)
-
         let path = CGMutablePath()
         if isFirstLine {
             path.move(to: CGPoint(x: rect.minX, y: rect.minY))
             path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
         }
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-
-        for line in textLineFragments {
-            let lineBounds = line.typographicBounds
-            let s = line.attributedString.string
-            var idx = 0
-            for ch in s {
-                if ch == "|" {
-                    let pos = line.locationForCharacter(at: idx)
-                    let x = lineBounds.minX + pos.x
-                    if x > rect.minX + 0.5, x < rect.maxX - 0.5 {
-                        path.move(to: CGPoint(x: x, y: lineBounds.minY))
-                        path.addLine(to: CGPoint(x: x, y: lineBounds.maxY))
-                    }
-                }
-                idx += 1
-            }
+        if isLastLine {
+            path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
         }
-
+        // Verticals: from columnXs (computed model) so internal dividers line
+        // up across rows even when individual cells wrap or differ in width.
+        let xs = columnXs.isEmpty ? [rect.minX, rect.maxX] : columnXs
+        for x in xs {
+            path.move(to: CGPoint(x: x, y: rect.minY))
+            path.addLine(to: CGPoint(x: x, y: rect.maxY))
+        }
         context.addPath(path)
         context.strokePath()
-        context.restoreGState()
 
+        if isFirstLine, !toggleHitRect.isEmpty {
+            drawToggleIcon(in: toggleHitRect, context: context)
+        }
+
+        context.restoreGState()
         super.draw(at: point, in: context)
+    }
+
+    private func drawToggleIcon(in rect: CGRect, context: CGContext) {
+        // Three short stacked horizontal lines — a classic "edit raw" glyph.
+        context.setStrokeColor(toggleColor.cgColor)
+        context.setLineWidth(1)
+        context.setLineCap(.round)
+        let lineCount = 3
+        let inset: CGFloat = 3
+        let usable = rect.insetBy(dx: inset, dy: inset)
+        let spacing = usable.height / CGFloat(lineCount + 1)
+        for i in 1...lineCount {
+            let y = usable.minY + spacing * CGFloat(i)
+            context.move(to: CGPoint(x: usable.minX, y: y))
+            context.addLine(to: CGPoint(x: usable.maxX, y: y))
+        }
+        context.strokePath()
+    }
+
+    /// Map a click in fragment-local coordinates to a (row, column) cell
+    /// index, where `row == -1` denotes the header. Returns nil for clicks
+    /// outside the table's drawn area or in the alignment row. Used by the
+    /// host text view to surface the cell-edit sheet.
+    public func cellHitTest(at point: CGPoint) -> (row: Int, column: Int)? {
+        guard !isRawMode, role != .alignment else { return nil }
+        guard !columnXs.isEmpty else { return nil }
+        let bounds = layoutFragmentFrame
+        guard point.y >= 0, point.y <= bounds.height else { return nil }
+        var col: Int?
+        for i in 0..<(columnXs.count - 1) {
+            if point.x >= columnXs[i], point.x < columnXs[i + 1] {
+                col = i
+                break
+            }
+        }
+        guard let col else { return nil }
+        let row = (role == .header) ? -1 : bodyRowIndex
+        return (row, col)
     }
 }
 
@@ -320,6 +395,22 @@ extension PlatformColor {
         return NSColor.tertiaryLabelColor
         #else
         return UIColor.tertiaryLabel
+        #endif
+    }
+
+    static var pipeTableHeaderDefaultBackground: PlatformColor {
+        #if canImport(AppKit) && os(macOS)
+        return NSColor.tertiaryLabelColor.withAlphaComponent(0.10)
+        #else
+        return UIColor.tertiaryLabel.withAlphaComponent(0.10)
+        #endif
+    }
+
+    static var pipeTableToggleDefault: PlatformColor {
+        #if canImport(AppKit) && os(macOS)
+        return NSColor.secondaryLabelColor
+        #else
+        return UIColor.secondaryLabel
         #endif
     }
 }

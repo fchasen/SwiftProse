@@ -29,6 +29,20 @@ public final class EditorController {
     /// sync without polling. Forwarded by the platform coordinators in
     /// `ProseTextViewMac` / `ProseTextViewIOS`.
     public var onSelectionChanged: ((NSRange) -> Void)?
+
+    /// Fires when the host text view detects a click inside a rendered
+    /// pipe-table cell. The SwiftUI surface presents an editing sheet bound
+    /// to the cell. `row == -1` is the header; otherwise it's the body row
+    /// index in the parsed `PipeTableModel`.
+    public var onTableCellTapped: ((PipeTableCellHit) -> Void)?
+
+    /// Source ranges of pipe tables the user has flipped to raw monospace
+    /// mode via the per-table toggle. Lives on the controller (presentation
+    /// state, not part of the markdown round-trip). Range is in
+    /// `textStorage` coordinates and represents the table's run at the time
+    /// the toggle was set; `isTableExpanded` looks up by overlap so a
+    /// recompile that shifts ranges still resolves correctly.
+    private var expandedTableRanges: [NSRange] = []
     public let commands: CommandRegistry
     public let inputRules: InputRuleRunner
 
@@ -488,6 +502,17 @@ public final class EditorController {
         if case .link(let url, let label) = action {
             return performLink(url: url, label: label)
         }
+        // Parameterized table actions don't fit the registry's
+        // stableID-based dispatch (rows/columns/alignment payloads aren't
+        // carried by the id). Build a fresh command per call.
+        if case .insertTable(let rows, let columns) = action {
+            let cmd = InsertTableCommand(rows: rows, columns: columns)
+            return runCommand(cmd)
+        }
+        if case .setTableColumnAlignment(let alignment) = action {
+            let cmd = SetTableColumnAlignmentCommand(alignment: alignment)
+            return runCommand(cmd)
+        }
         if currentSelection.length == 0, let mark = inlineMark(for: action) {
             toggleStoredInlineMark(mark)
             return currentSelection
@@ -495,9 +520,36 @@ public final class EditorController {
         guard let command = commands.command(for: action) else {
             return currentSelection
         }
+        return runCommand(command)
+    }
+
+    private func runCommand(_ command: Command) -> NSRange {
         guard let tx = command.transaction(
             storage: textStorage,
             selection: currentSelection,
+            env: makeStepEnvironment()
+        ) else {
+            return currentSelection
+        }
+        return apply(tx)
+    }
+
+    /// Apply a single-cell edit dispatched from the SwiftUI sheet. Builds a
+    /// transaction that swaps the entire table source for the re-rendered
+    /// version with the cell text updated. Returns the affected range.
+    @discardableResult
+    public func applyTableCellEdit(
+        tableRange: NSRange,
+        row: Int,
+        column: Int,
+        text: String
+    ) -> NSRange {
+        guard let tx = makeSetTableCellTextTransaction(
+            storage: textStorage,
+            tableRange: tableRange,
+            row: row,
+            column: column,
+            text: text,
             env: makeStepEnvironment()
         ) else {
             return currentSelection
@@ -1094,5 +1146,79 @@ public final class EditorController {
     private func isCheckedFor(spec: BlockSpec) -> Bool? {
         if case .taskListItem(let checked) = spec.kind { return checked }
         return nil
+    }
+
+    // MARK: - Pipe-table presentation state
+
+    /// Returns true if any of `expandedTableRanges` overlaps `tableRange`.
+    /// Overlap (rather than equality) so a recompile that shifts the table's
+    /// source range by inserting characters above doesn't lose the user's
+    /// "raw mode" selection.
+    public func isTableExpanded(tableRange: NSRange) -> Bool {
+        let qEnd = tableRange.location + tableRange.length
+        for r in expandedTableRanges {
+            let rEnd = r.location + r.length
+            if r.location < qEnd, tableRange.location < rEnd { return true }
+        }
+        return false
+    }
+
+    /// Toggle a table between rendered chrome and raw monospace source.
+    /// `tableRange` is whatever the host knows about the table at the click
+    /// site; we store it as-is and compare by overlap on next paint.
+    public func toggleTableExpansion(tableRange: NSRange) {
+        if let i = expandedTableRanges.firstIndex(where: {
+            let qEnd = tableRange.location + tableRange.length
+            let rEnd = $0.location + $0.length
+            return $0.location < qEnd && tableRange.location < rEnd
+        }) {
+            expandedTableRanges.remove(at: i)
+        } else {
+            expandedTableRanges.append(tableRange)
+        }
+        // Force the affected layout range to re-fragment so the chrome
+        // appears or disappears immediately.
+        let elementRange = textElementRange(for: tableRange)
+        layoutManager.invalidateLayout(for: elementRange ?? layoutManager.documentRange)
+    }
+
+    /// Drop any expansion entries whose stored range no longer overlaps a
+    /// pipeTable run. Called after large recompiles (e.g. setMarkdown) so
+    /// stale state doesn't persist when the user replaces the document.
+    public func compactExpandedTableRanges() {
+        expandedTableRanges = expandedTableRanges.filter { range in
+            let probe = min(max(0, range.location), max(0, textStorage.length - 1))
+            guard probe < textStorage.length else { return false }
+            guard let spec = textStorage.blockSpec(at: probe) else { return false }
+            if case .pipeTable = spec.kind { return true }
+            return false
+        }
+    }
+
+    private func textElementRange(for storageRange: NSRange) -> NSTextRange? {
+        guard let start = contentStorage.location(contentStorage.documentRange.location, offsetBy: storageRange.location),
+              let end = contentStorage.location(start, offsetBy: storageRange.length) else { return nil }
+        return NSTextRange(location: start, end: end)
+    }
+}
+
+/// Hit information for a click inside a rendered pipe-table cell. Surfaced
+/// to the SwiftUI surface via `EditorController.onTableCellTapped`.
+public struct PipeTableCellHit: Equatable, Sendable {
+    /// Source range of the entire table (so the caller can dispatch a
+    /// `Step.setTableCellText` against the right table even after recompiles
+    /// shift offsets).
+    public let tableRange: NSRange
+    /// `-1` for the header row; otherwise the body row index.
+    public let row: Int
+    public let column: Int
+    /// Current text of the cell at hit time, for prefilling the editor.
+    public let cellText: String
+
+    public init(tableRange: NSRange, row: Int, column: Int, cellText: String) {
+        self.tableRange = tableRange
+        self.row = row
+        self.column = column
+        self.cellText = cellText
     }
 }

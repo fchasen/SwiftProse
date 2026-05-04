@@ -90,6 +90,14 @@ struct ProseToolbar: View {
         case .horizontalRule: return "minus"
         case .indent: return "increase.indent"
         case .outdent: return "decrease.indent"
+        case .insertTable: return "tablecells"
+        case .insertTableRowAbove: return "rectangle.stack.badge.plus"
+        case .insertTableRowBelow: return "rectangle.stack.badge.plus"
+        case .insertTableColumnBefore: return "rectangle.split.3x1"
+        case .insertTableColumnAfter: return "rectangle.split.3x1"
+        case .deleteTableRow: return "rectangle.stack.badge.minus"
+        case .deleteTableColumn: return "rectangle.split.3x1"
+        case .setTableColumnAlignment: return "text.alignleft"
         }
     }
 
@@ -109,6 +117,14 @@ struct ProseToolbar: View {
         case .horizontalRule: return "Horizontal rule"
         case .indent: return "Indent (⌘])"
         case .outdent: return "Outdent (⌘[)"
+        case .insertTable: return "Insert Table"
+        case .insertTableRowAbove: return "Insert Row Above"
+        case .insertTableRowBelow: return "Insert Row Below"
+        case .insertTableColumnBefore: return "Insert Column Left"
+        case .insertTableColumnAfter: return "Insert Column Right"
+        case .deleteTableRow: return "Delete Row"
+        case .deleteTableColumn: return "Delete Column"
+        case .setTableColumnAlignment: return "Column Alignment"
         }
     }
 

@@ -292,7 +292,60 @@ final class ProseNSTextView: NSTextView {
                 }
             }
         }
+        // Pipe-table click handling: route to the controller for cell edit
+        // sheet (single click on cell) or raw-mode toggle (top-right button).
+        if event.modifierFlags.intersection([.command, .option, .control]).isEmpty {
+            if handleTableClick(at: event) { return }
+        }
         super.mouseDown(with: event)
+    }
+
+    private func handleTableClick(at event: NSEvent) -> Bool {
+        guard let controller = proseController,
+              let layoutManager = textLayoutManager else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        // Translate from text-view coordinates to layout-manager coordinates.
+        let containerOrigin = textContainerOrigin
+        let lmPoint = CGPoint(x: point.x - containerOrigin.x, y: point.y - containerOrigin.y)
+        guard let frag = layoutManager.textLayoutFragment(for: lmPoint) as? PipeTableLayoutFragment else { return false }
+        let fragOrigin = frag.layoutFragmentFrame.origin
+        let local = CGPoint(x: lmPoint.x - fragOrigin.x, y: lmPoint.y - fragOrigin.y)
+        // Toggle button hit (only valid on the first table line).
+        if frag.isFirstLine, !frag.toggleHitRect.isEmpty, frag.toggleHitRect.contains(local) {
+            // Resolve table source range from the fragment's element range.
+            guard let elementRange = frag.textElement?.elementRange,
+                  let tcs = textLayoutManager?.textContentManager as? NSTextContentStorage else { return false }
+            let start = tcs.offset(from: tcs.documentRange.location, to: elementRange.location)
+            let probe = max(0, min(start, controller.textStorage.length - 1))
+            let runRange = PipeTableModel.pipeTableRunRange(at: probe, in: controller.textStorage)
+                ?? NSRange(location: start, length: 0)
+            controller.toggleTableExpansion(tableRange: runRange)
+            needsDisplay = true
+            return true
+        }
+        // Cell edit hit.
+        guard let hit = frag.cellHitTest(at: local) else { return false }
+        guard let elementRange = frag.textElement?.elementRange,
+              let tcs = textLayoutManager?.textContentManager as? NSTextContentStorage else { return false }
+        let start = tcs.offset(from: tcs.documentRange.location, to: elementRange.location)
+        let probe = max(0, min(start, controller.textStorage.length - 1))
+        guard let model = PipeTableModel.parse(at: probe, in: controller.textStorage) else { return false }
+        let cellText: String
+        if hit.row == -1 {
+            cellText = model.headerCells.indices.contains(hit.column) ? model.headerCells[hit.column] : ""
+        } else if model.bodyRows.indices.contains(hit.row),
+                  model.bodyRows[hit.row].indices.contains(hit.column) {
+            cellText = model.bodyRows[hit.row][hit.column]
+        } else {
+            cellText = ""
+        }
+        controller.onTableCellTapped?(PipeTableCellHit(
+            tableRange: model.sourceRange,
+            row: hit.row,
+            column: hit.column,
+            cellText: cellText
+        ))
+        return true
     }
 
     @objc func toggleBold(_ sender: Any?) {

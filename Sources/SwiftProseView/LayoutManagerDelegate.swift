@@ -88,7 +88,11 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                 textElement: textElement,
                 range: textElement.elementRange
             )
-            // Approximate run position by walking neighbors directly.
+            // Resolve the table's source range by walking adjacent .pipeTable
+            // paragraphs, then parse it once with PipeTableModel so the
+            // fragment can dispatch by line role and place column dividers.
+            let tableRange = PipeTableModel.pipeTableRunRange(at: elementStart, in: controller.textStorage)
+                ?? NSRange(location: elementStart, length: elementEnd - elementStart)
             let prevPipe = (elementStart > 0
                             ? (controller.textStorage.blockSpec(at: elementStart - 1).map { if case .pipeTable = $0.kind { return true } else { return false } } ?? false)
                             : false)
@@ -97,9 +101,60 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                             : false)
             fragment.isFirstLine = !prevPipe
             fragment.isLastLine = !nextPipe
+            // Apply theme palette so callers can switch palettes per editor.
+            let palette = controller.theme.tablePalette
+            fragment.borderColor = palette.border
+            fragment.headerBackgroundColor = palette.headerBackground
+            fragment.toggleColor = palette.toggle
+            // Raw mode: skip role/columnXs computation; the fragment falls
+            // through to default super.draw and the literal source prints.
+            if controller.isTableExpanded(tableRange: tableRange) {
+                fragment.isRawMode = true
+                return fragment
+            }
+            // Resolve role + bodyRowIndex by parsing the table source.
+            if let model = PipeTableModel.parse(at: elementStart, in: controller.textStorage),
+               let lineIdx = model.lineRanges.firstIndex(where: { $0.location <= elementStart && elementStart < $0.location + max(1, $0.length) }) {
+                switch model.lineKinds[lineIdx] {
+                case .header:
+                    fragment.role = .header
+                case .alignment:
+                    fragment.role = .alignment
+                case .body(let row):
+                    fragment.role = .body
+                    fragment.bodyRowIndex = row
+                }
+                fragment.columnXs = computeColumnXs(model: model, lineWidth: textContainer(controller).size.width)
+            }
+            // Top-right toggle hit rect (only the first table line draws it).
+            if fragment.isFirstLine {
+                fragment.toggleHitRect = CGRect(x: max(0, controller.textContainer.size.width - 22), y: 2, width: 16, height: 16)
+            }
             return fragment
         }
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+    }
+
+    private func textContainer(_ controller: EditorController) -> NSTextContainer {
+        controller.textContainer
+    }
+
+    /// Distribute available width evenly across the table's columns. Markdown
+    /// has no column-width metadata so equal widths are the natural default
+    /// — the rendered chrome lines up cleanly while cell text inside still
+    /// wraps within its container as one paragraph.
+    private func computeColumnXs(model: PipeTableModel, lineWidth: CGFloat) -> [CGFloat] {
+        let cols = max(1, model.columnCount)
+        // Subtract the standard text-container padding TextKit applies.
+        let padding: CGFloat = 5
+        let usable = max(40, lineWidth - 2 * padding)
+        let step = usable / CGFloat(cols)
+        var xs: [CGFloat] = []
+        xs.reserveCapacity(cols + 1)
+        for i in 0...cols {
+            xs.append(CGFloat(i) * step)
+        }
+        return xs
     }
 
     private func paragraphSpec(in storage: NSAttributedString, from lo: Int, to hi: Int) -> BlockSpec? {
