@@ -112,26 +112,76 @@ public struct ProseTextViewMac: NSViewRepresentable {
         var parent: ProseTextViewMac
         weak var textView: NSTextView?
         var lastAppliedMarkdown: String
+        var pendingTextPush: DispatchWorkItem?
+
+        /// Coalescing window for `parent.text = controller.markdown()` writes
+        /// triggered by `textDidChange`. Serializing the whole storage on
+        /// every keystroke is wasted work when the user is mid-burst; one
+        /// push per ~80 ms tail-edge feels instant and lets the host's
+        /// save-on-change observers see a single update per word.
+        public static var debounceInterval: DispatchTimeInterval = .milliseconds(80)
 
         init(_ parent: ProseTextViewMac) {
             self.parent = parent
             self.lastAppliedMarkdown = parent.text
         }
 
+        deinit {
+            pendingTextPush?.cancel()
+        }
+
         /// Push an external markdown change into the controller (and storage).
         /// Triggered by SwiftUI binding updates from sources outside the
         /// editor (e.g. the host loaded a different bug's text). Internal
         /// edits flow back via `textDidChange` and update the watermark.
+        ///
+        /// We don't flush a pending debounced push here — `controller.markdown()`
+        /// reads from storage, not from the binding, so the comparison is
+        /// always fresh. Flushing would overwrite a deliberate external set
+        /// with the user's mid-typing content.
         func applyExternalText(_ md: String, to: NSTextView) {
             if md != lastAppliedMarkdown {
                 if parent.controller.markdown() != md {
                     parent.controller.setMarkdown(md)
                 }
                 lastAppliedMarkdown = md
+                // External set wins; cancel any pending push since the
+                // post-setMarkdown textDidChange will re-schedule one if
+                // needed.
+                pendingTextPush?.cancel()
+                pendingTextPush = nil
             }
         }
 
         public func textDidChange(_ notification: Notification) {
+            scheduleTextPush()
+        }
+
+        /// Cancel + run any pending push immediately on the current thread.
+        /// Called from external-text / programmatic paths that need the
+        /// binding to be in sync before they read it.
+        func flushPendingTextPush() {
+            guard let work = pendingTextPush else { return }
+            pendingTextPush = nil
+            work.cancel()
+            performTextPush()
+        }
+
+        private func scheduleTextPush() {
+            pendingTextPush?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.pendingTextPush = nil
+                self.performTextPush()
+            }
+            pendingTextPush = work
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Self.debounceInterval,
+                execute: work
+            )
+        }
+
+        private func performTextPush() {
             let md = parent.controller.markdown()
             if parent.text != md {
                 parent.text = md

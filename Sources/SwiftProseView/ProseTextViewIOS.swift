@@ -78,10 +78,20 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         var parent: ProseTextViewIOS
         weak var textView: UITextView?
         var lastAppliedMarkdown: String
+        var pendingTextPush: DispatchWorkItem?
+
+        /// Coalescing window for `parent.text = controller.markdown()` writes
+        /// triggered by `textViewDidChange`. See ProseTextViewMac.swift for
+        /// the rationale — same debounce on iOS.
+        public static var debounceInterval: DispatchTimeInterval = .milliseconds(80)
 
         init(_ parent: ProseTextViewIOS) {
             self.parent = parent
             self.lastAppliedMarkdown = parent.text
+        }
+
+        deinit {
+            pendingTextPush?.cancel()
         }
 
         func applyExternalText(_ md: String, to: UITextView) {
@@ -90,15 +100,13 @@ public struct ProseTextViewIOS: UIViewRepresentable {
                     parent.controller.setMarkdown(md)
                 }
                 lastAppliedMarkdown = md
+                pendingTextPush?.cancel()
+                pendingTextPush = nil
             }
         }
 
         public func textViewDidChange(_ textView: UITextView) {
-            let md = parent.controller.markdown()
-            if parent.text != md {
-                parent.text = md
-            }
-            lastAppliedMarkdown = md
+            scheduleTextPush()
         }
 
         public func textViewDidChangeSelection(_ textView: UITextView) {
@@ -116,20 +124,47 @@ public struct ProseTextViewIOS: UIViewRepresentable {
                              replacementText text: String) -> Bool {
             if text == "\n" {
                 if parent.controller.handleNewline() {
-                    let md = parent.controller.markdown()
-                    if parent.text != md { parent.text = md }
-                    lastAppliedMarkdown = md
+                    pushTextNow()
                     return false
                 }
             }
             if text == "\t", isCursorInListItem(controller: parent.controller) {
                 parent.controller.perform(.indent)
-                let md = parent.controller.markdown()
-                if parent.text != md { parent.text = md }
-                lastAppliedMarkdown = md
+                pushTextNow()
                 return false
             }
             return true
+        }
+
+        /// Cancel any pending debounced push and run one synchronously now.
+        /// Used by handlers that have just mutated storage and need the
+        /// SwiftUI binding in sync before they return.
+        func pushTextNow() {
+            pendingTextPush?.cancel()
+            pendingTextPush = nil
+            performTextPush()
+        }
+
+        private func scheduleTextPush() {
+            pendingTextPush?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.pendingTextPush = nil
+                self.performTextPush()
+            }
+            pendingTextPush = work
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Self.debounceInterval,
+                execute: work
+            )
+        }
+
+        private func performTextPush() {
+            let md = parent.controller.markdown()
+            if parent.text != md {
+                parent.text = md
+            }
+            lastAppliedMarkdown = md
         }
     }
 }
