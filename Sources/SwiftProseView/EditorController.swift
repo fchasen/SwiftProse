@@ -52,6 +52,11 @@ public final class EditorController {
     private(set) var storedInlineMarks: Set<InlineMark> = []
     private var storedMarksAnchor: Int? = nil
 
+    /// Single-flight flag for the keystroke-path `resegment()` deferral. We
+    /// rebuild `blocks` on every typed character; coalescing rapid bursts to
+    /// one rebuild per main-runloop tick is a real win on long documents.
+    private var resegmentScheduled = false
+
     public init(
         initialMarkdown: String = "",
         theme: ProseTheme = .default,
@@ -96,7 +101,16 @@ public final class EditorController {
                 self.scrubTypedAttributes()
                 self.repairEditedLine()
                 self.demoteEmptyStyledLines()
-                self.resegment()
+                // Defer `resegment()` to the next runloop tick when a host
+                // text view is attached so rapid typing rebuilds `blocks`
+                // once instead of per character. Headless callers (tests,
+                // programmatic users) keep the synchronous path so reads of
+                // `controller.blocks` after a storage edit see fresh data.
+                if self.hostTextView != nil {
+                    self.scheduleResegment()
+                } else {
+                    self.resegment()
+                }
                 self.intrinsicSizeInvalidator?()
                 // The typed character already received our storedMarks via
                 // typingAttributes; further typing should inherit naturally
@@ -473,6 +487,21 @@ public final class EditorController {
     private func clearStoredInlineMarks() {
         storedInlineMarks.removeAll()
         storedMarksAnchor = nil
+    }
+
+    /// Coalesce rapid keystroke-path resegment requests onto the next main-
+    /// runloop tick. Multiple keystrokes within a tick share one rebuild.
+    /// Internal (not private) so tests can drive it directly without going
+    /// through the storage-observer flow, which has its own repair-induced
+    /// amplification of resegment counts.
+    func scheduleResegment() {
+        guard !resegmentScheduled else { return }
+        resegmentScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.resegmentScheduled = false
+            self.resegment()
+        }
     }
 
     private var isComposingIME: Bool {
@@ -949,7 +978,13 @@ public final class EditorController {
         resegment()
     }
 
+    /// Test-only invocation counter; bumped at the start of every
+    /// resegmentation pass so tests can verify coalescing behavior without
+    /// stubbing out the work itself.
+    var resegmentRunCount: Int = 0
+
     private func resegment() {
+        resegmentRunCount += 1
         var segs: [BlockSegment] = []
         let total = textStorage.length
         guard total > 0 else { self.blocks = []; return }
