@@ -83,8 +83,8 @@ public final class InputRuleRunner {
             )
             guard let tx = rule.handler(context) else { continue }
             isApplying = true
+            defer { isApplying = false }
             apply(tx)
-            isApplying = false
             return true
         }
         return false
