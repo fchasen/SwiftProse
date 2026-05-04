@@ -17,9 +17,6 @@ public final class EditorController {
     public var theme: ProseTheme {
         didSet { recompile() }
     }
-    public var mode: Mode {
-        didSet { recompile() }
-    }
 
     public private(set) var blocks: [BlockSegment] = []
 
@@ -80,14 +77,12 @@ public final class EditorController {
     public init(
         initialMarkdown: String = "",
         theme: ProseTheme = .default,
-        mode: Mode = .rich,
         commands: CommandRegistry = .makeDefault(),
         inputRules: InputRuleRunner = .makeDefault(),
         codeBlockHighlighter: CodeBlockHighlighter? = nil,
         containerSize: CGSize = CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
     ) throws {
         self.theme = theme
-        self.mode = mode
         self.commands = commands
         self.inputRules = inputRules
         self.compiler = try MarkdownAttributedCompiler(codeBlockHighlighter: codeBlockHighlighter)

@@ -12,10 +12,4 @@ final class ToolbarTests: XCTestCase {
         XCTAssertTrue(bold.waitForExistence(timeout: 10))
     }
 
-    func testToolbarHasModeToggle() {
-        let app = XCUIApplication()
-        app.launchAndOpenNewDocument()
-        let toggle = app.buttons["mode-toggle"].firstMatch
-        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
-    }
 }

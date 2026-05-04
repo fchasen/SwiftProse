@@ -20,12 +20,7 @@ public struct SwiftProseEditor: View {
     @Environment(\.proseCodeBlockHighlighter) private var codeBlockHighlighter
 
     @AppStorage("swiftprose.toolbarVisible") private var toolbarVisible = true
-    @AppStorage("swiftprose.mode") private var modeRawValue: String = Mode.rich.rawValue
     @StateObject private var hosting = ProseHosting()
-
-    private var mode: Mode {
-        Mode(rawValue: modeRawValue) ?? .rich
-    }
 
     public init(text: Binding<String>) {
         self._text = text
@@ -37,7 +32,7 @@ public struct SwiftProseEditor: View {
                 HStack(spacing: 12) {
                     if !configuration.toolbar.isEmpty {
                         ProseToolbar(
-                            items: configuration.toolbar + [.spacer, modeToggleItem],
+                            items: configuration.toolbar,
                             perform: { action in
                                 guard let controller = hosting.controller else { return }
                                 ProseToolbarActions.perform(
@@ -68,12 +63,10 @@ public struct SwiftProseEditor: View {
             hosting.ensureController(
                 initialText: text,
                 theme: theme,
-                mode: mode,
                 codeBlockHighlighter: codeBlockHighlighter
             )
             if let controller = hosting.controller {
                 if controller.markdown() != text { controller.setMarkdown(text) }
-                controller.mode = mode
                 hosting.bindSelection(from: controller)
                 onControllerReady?(controller)
             }
@@ -81,25 +74,6 @@ public struct SwiftProseEditor: View {
         .onChange(of: theme) { _, newTheme in
             hosting.controller?.theme = newTheme
         }
-        .onChange(of: modeRawValue) { _, _ in
-            hosting.controller?.mode = mode
-        }
-    }
-
-    private var modeToggleItem: SwiftProseEditor.ToolbarItem {
-        let label = mode == .source ? "Show rendered" : "Show source"
-        let symbol = mode == .source ? "eye" : "doc.plaintext"
-        return .custom(
-            id: "swiftprose.modeToggle",
-            label: label,
-            systemImage: symbol,
-            shortcut: nil,
-            topLevel: true,
-            action: {
-                let next: Mode = (mode == .source) ? .rich : .source
-                modeRawValue = next.rawValue
-            }
-        )
     }
 
     @ViewBuilder
@@ -273,14 +247,12 @@ final class ProseHosting: ObservableObject {
     func ensureController(
         initialText: String,
         theme: ProseTheme,
-        mode: Mode,
         codeBlockHighlighter: CodeBlockHighlighter? = nil
     ) {
         if controller == nil {
             controller = try? EditorController(
                 initialMarkdown: initialText,
                 theme: theme,
-                mode: mode,
                 codeBlockHighlighter: codeBlockHighlighter
             )
         }

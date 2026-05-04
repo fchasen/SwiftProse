@@ -4,11 +4,7 @@ import SwiftProse
 struct ContentView: View {
     @Binding var document: MarkdownDocument
     @State private var controller: EditorController?
-    @AppStorage("swiftprose.mode") private var modeRawValue: String = Mode.rich.rawValue
     private static let codeHighlighter: CodeBlockHighlighter? = DemoCodeHighlighter.make()
-
-    private var mode: Mode { Mode(rawValue: modeRawValue) ?? .rich }
-    private var isSourceMode: Bool { mode == .source }
 
     var body: some View {
         SwiftProseEditor(text: $document.text)
@@ -29,17 +25,6 @@ struct ContentView: View {
         ToolbarItem { actionButton(.italic, systemImage: "italic", label: "Italic", id: "italic") }
         ToolbarItem { actionButton(.strikethrough, systemImage: "strikethrough", label: "Strikethrough", id: "strikethrough") }
         ToolbarItem { actionButton(.link, systemImage: "link", label: "Link", id: "link") }
-        ToolbarItem {
-            Button {
-                modeRawValue = (isSourceMode ? Mode.rich : .source).rawValue
-            } label: {
-                Label(
-                    isSourceMode ? "Show Rendered" : "Show Source",
-                    systemImage: isSourceMode ? "eye" : "doc.plaintext"
-                )
-            }
-            .accessibilityIdentifier("mode-toggle")
-        }
         ToolbarItem {
             Menu {
                 Button { perform(.heading(level: 1)) } label: {
@@ -78,7 +63,7 @@ struct ContentView: View {
                 Label("Format", systemImage: "textformat")
             }
             .accessibilityIdentifier("format-menu")
-            .disabled(controller == nil || isSourceMode)
+            .disabled(controller == nil)
         }
     }
 
@@ -94,7 +79,7 @@ struct ContentView: View {
             Label(label, systemImage: systemImage)
         }
         .accessibilityIdentifier(id)
-        .disabled(controller == nil || isSourceMode)
+        .disabled(controller == nil)
     }
 
     private func perform(_ action: EditorAction) {
