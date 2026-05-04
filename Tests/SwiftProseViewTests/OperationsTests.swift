@@ -33,12 +33,33 @@ import UIKit
         #expect(serialize(storage) == "hello world\n")
     }
 
-    @Test func toggleBoldEmptySelectionInsertsPlaceholder() throws {
+    @Test func toggleBoldEmptySelectionLeavesStorageUntouched() throws {
         let storage = try compile("ready\n")
-        // Cursor before "ready"
+        let before = serialize(storage)
         let new = Operations.toggleBold(in: storage, range: NSRange(location: 0, length: 0), theme: .default)
-        #expect(new == NSRange(location: 0, length: 4))
-        #expect(serialize(storage) == "**bold**ready\n")
+        #expect(new == NSRange(location: 0, length: 0))
+        #expect(serialize(storage) == before)
+    }
+
+    @Test func toggleItalicEmptySelectionLeavesStorageUntouched() throws {
+        let storage = try compile("ready\n")
+        let before = serialize(storage)
+        _ = Operations.toggleItalic(in: storage, range: NSRange(location: 0, length: 0), theme: .default)
+        #expect(serialize(storage) == before)
+    }
+
+    @Test func toggleStrikethroughEmptySelectionLeavesStorageUntouched() throws {
+        let storage = try compile("ready\n")
+        let before = serialize(storage)
+        _ = Operations.toggleStrikethrough(in: storage, range: NSRange(location: 0, length: 0), theme: .default)
+        #expect(serialize(storage) == before)
+    }
+
+    @Test func toggleCodeSpanEmptySelectionLeavesStorageUntouched() throws {
+        let storage = try compile("ready\n")
+        let before = serialize(storage)
+        _ = Operations.toggleCodeSpan(in: storage, range: NSRange(location: 0, length: 0), theme: .default)
+        #expect(serialize(storage) == before)
     }
 
     @Test func toggleItalicAddsEmphasis() throws {

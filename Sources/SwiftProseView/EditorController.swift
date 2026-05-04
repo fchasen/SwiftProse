@@ -35,6 +35,13 @@ public final class EditorController {
     private var storageObserver: NSObjectProtocol?
     private var applyingMarkdown = false
 
+    /// Marks queued for the next typed character. ProseMirror's storedMarks:
+    /// click bold with no selection, then the next char you type is bold.
+    /// Anchored to the cursor location at the time of the toggle so a click
+    /// elsewhere drops them; a typed character consumes them.
+    private(set) var storedInlineMarks: Set<InlineMark> = []
+    private var storedMarksAnchor: Int? = nil
+
     public init(
         initialMarkdown: String = "",
         theme: ProseTheme = .default,
@@ -78,6 +85,10 @@ public final class EditorController {
                 self.demoteEmptyStyledLines()
                 self.resegment()
                 self.intrinsicSizeInvalidator?()
+                // The typed character already received our storedMarks via
+                // typingAttributes; further typing should inherit naturally
+                // from the new cursor position, not from the storedMark set.
+                self.clearStoredInlineMarks()
             }
         }
     }
@@ -355,6 +366,10 @@ public final class EditorController {
         if case .link(let url, let label) = action {
             return performLink(url: url, label: label)
         }
+        if currentSelection.length == 0, let mark = inlineMark(for: action) {
+            toggleStoredInlineMark(mark)
+            return currentSelection
+        }
         guard let command = commands.command(for: action) else {
             return currentSelection
         }
@@ -366,6 +381,37 @@ public final class EditorController {
             return currentSelection
         }
         return apply(tx)
+    }
+
+    private func inlineMark(for action: EditorAction) -> InlineMark? {
+        switch action {
+        case .bold: return .bold
+        case .italic: return .italic
+        case .strikethrough: return .strikethrough
+        case .codeSpan: return .codeSpan
+        default: return nil
+        }
+    }
+
+    private func toggleStoredInlineMark(_ mark: InlineMark) {
+        let cursor = currentSelection.location
+        if storedMarksAnchor != cursor {
+            storedInlineMarks.removeAll()
+            storedMarksAnchor = cursor
+        }
+        if storedInlineMarks.contains(mark) {
+            storedInlineMarks.remove(mark)
+        } else {
+            storedInlineMarks.insert(mark)
+        }
+        if storedInlineMarks.isEmpty {
+            storedMarksAnchor = nil
+        }
+    }
+
+    private func clearStoredInlineMarks() {
+        storedInlineMarks.removeAll()
+        storedMarksAnchor = nil
     }
 
     private func performLink(url: String?, label: String?) -> NSRange {
@@ -540,7 +586,79 @@ public final class EditorController {
             attrs.removeValue(forKey: .proseLink)
             attrs.removeValue(forKey: .strikethroughStyle)
         }
+        if let anchor = storedMarksAnchor, anchor == location, !storedInlineMarks.isEmpty {
+            attrs = applyingStoredMarks(to: attrs)
+        } else if !storedInlineMarks.isEmpty {
+            clearStoredInlineMarks()
+        }
         applyTypingAttributes(attrs)
+    }
+
+    private func applyingStoredMarks(
+        to base: [NSAttributedString.Key: Any]
+    ) -> [NSAttributedString.Key: Any] {
+        var attrs = base
+        let baseFont = (attrs[.font] as? PlatformFont) ?? theme.bodyFont
+        var font = baseFont
+        if storedInlineMarks.contains(.codeSpan) {
+            font = theme.monospaceFont
+            attrs[.proseInline] = InlineTag.codeSpan
+            attrs[.backgroundColor] = subtleCodeBackgroundColor()
+        }
+        if storedInlineMarks.contains(.bold) {
+            font = applyFontTrait(.bold, on: font, enable: true)
+        }
+        if storedInlineMarks.contains(.italic) {
+            font = applyFontTrait(.italic, on: font, enable: true)
+        }
+        attrs[.font] = font
+        if storedInlineMarks.contains(.strikethrough) {
+            attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        return attrs
+    }
+
+    private enum StoredFontTrait { case bold, italic }
+
+    private func applyFontTrait(
+        _ trait: StoredFontTrait,
+        on font: PlatformFont,
+        enable: Bool
+    ) -> PlatformFont {
+        #if canImport(AppKit) && os(macOS)
+        var symbolic = font.fontDescriptor.symbolicTraits
+        switch trait {
+        case .bold:
+            if enable { symbolic.insert(.bold) } else { symbolic.remove(.bold) }
+        case .italic:
+            if enable { symbolic.insert(.italic) } else { symbolic.remove(.italic) }
+        }
+        if let descriptor = font.fontDescriptor.withSymbolicTraits(symbolic) as NSFontDescriptor?,
+           let updated = NSFont(descriptor: descriptor, size: font.pointSize) {
+            return updated
+        }
+        return font
+        #else
+        var symbolic = font.fontDescriptor.symbolicTraits
+        switch trait {
+        case .bold:
+            if enable { symbolic.insert(.traitBold) } else { symbolic.remove(.traitBold) }
+        case .italic:
+            if enable { symbolic.insert(.traitItalic) } else { symbolic.remove(.traitItalic) }
+        }
+        if let descriptor = font.fontDescriptor.withSymbolicTraits(symbolic) {
+            return UIFont(descriptor: descriptor, size: font.pointSize)
+        }
+        return font
+        #endif
+    }
+
+    private func subtleCodeBackgroundColor() -> PlatformColor {
+        #if canImport(AppKit) && os(macOS)
+        return NSColor.tertiaryLabelColor.withAlphaComponent(0.12)
+        #else
+        return UIColor.tertiaryLabel.withAlphaComponent(0.12)
+        #endif
     }
 
     @discardableResult

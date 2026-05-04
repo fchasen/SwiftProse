@@ -515,16 +515,7 @@ public enum Operations {
         theme: ProseTheme
     ) -> NSRange {
         if range.length == 0 {
-            return insertStyledPlaceholder(
-                in: storage,
-                at: range.location,
-                placeholder: "strike",
-                theme: theme
-            ) { attrs in
-                var a = attrs
-                a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-                return a
-            }
+            return clampedRange(range, in: storage.length)
         }
         let safe = clampedRange(range, in: storage.length)
         let allOn = isUniformAttribute(in: storage, range: safe, key: .strikethroughStyle) { value in
@@ -547,18 +538,7 @@ public enum Operations {
         theme: ProseTheme
     ) -> NSRange {
         if range.length == 0 {
-            return insertStyledPlaceholder(
-                in: storage,
-                at: range.location,
-                placeholder: "code",
-                theme: theme
-            ) { attrs in
-                var a = attrs
-                a[.font] = theme.monospaceFont
-                a[.proseInline] = InlineTag.codeSpan
-                a[.backgroundColor] = subtleCodeBackground(theme: theme)
-                return a
-            }
+            return clampedRange(range, in: storage.length)
         }
         let safe = clampedRange(range, in: storage.length)
         let allOn = isUniformAttribute(in: storage, range: safe, key: .proseInline) { value in
@@ -590,17 +570,7 @@ public enum Operations {
         placeholder: String
     ) -> NSRange {
         if range.length == 0 {
-            return insertStyledPlaceholder(
-                in: storage,
-                at: range.location,
-                placeholder: placeholder,
-                theme: theme
-            ) { attrs in
-                var a = attrs
-                let baseFont = (a[.font] as? PlatformFont) ?? theme.bodyFont
-                a[.font] = applyTrait(trait, on: baseFont, enable: true)
-                return a
-            }
+            return clampedRange(range, in: storage.length)
         }
         let safe = clampedRange(range, in: storage.length)
         let allOn = isUniformFontTrait(in: storage, range: safe, trait: trait)
@@ -612,23 +582,6 @@ public enum Operations {
         }
         storage.endEditing()
         return safe
-    }
-
-    private static func insertStyledPlaceholder(
-        in storage: NSTextStorage,
-        at location: Int,
-        placeholder: String,
-        theme: ProseTheme,
-        styling: (inout [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any]
-    ) -> NSRange {
-        let safe = max(0, min(location, storage.length))
-        var attrs = inheritedAttributes(in: storage, at: safe)
-        attrs = styling(&attrs)
-        let inserted = NSAttributedString(string: placeholder, attributes: attrs)
-        storage.beginEditing()
-        storage.replaceCharacters(in: NSRange(location: safe, length: 0), with: inserted)
-        storage.endEditing()
-        return NSRange(location: safe, length: (placeholder as NSString).length)
     }
 
     private static func isUniformFontTrait(
