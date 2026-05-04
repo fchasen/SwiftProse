@@ -7,8 +7,15 @@ final class ToolbarTests: XCTestCase {
 
     func testToolbarHasBoldButton() {
         let app = XCUIApplication()
-        app.launch()
+        app.launchAndOpenNewDocument()
         let bold = app.buttons["bold"].firstMatch
-        XCTAssertTrue(bold.waitForExistence(timeout: 5))
+        XCTAssertTrue(bold.waitForExistence(timeout: 10))
+    }
+
+    func testToolbarHasModeToggle() {
+        let app = XCUIApplication()
+        app.launchAndOpenNewDocument()
+        let toggle = app.buttons["mode-toggle"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
     }
 }

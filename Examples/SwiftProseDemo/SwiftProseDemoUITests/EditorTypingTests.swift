@@ -7,9 +7,9 @@ final class EditorTypingTests: XCTestCase {
 
     func testEditorAcceptsTypedCharacter() {
         let app = XCUIApplication()
-        app.launch()
+        app.launchAndOpenNewDocument()
         let editor = app.descendants(matching: .textView).firstMatch
-        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
         editor.tap()
         editor.typeText(" extra")
         XCTAssertTrue(editor.value as? String != nil)

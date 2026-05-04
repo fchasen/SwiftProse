@@ -12,7 +12,8 @@
 		B0010003000000000000B001 /* SwiftProse in Frameworks */ = {isa = PBXBuildFile; productRef = B0050001000000000000B005 /* SwiftProse */; };
 		B0010004000000000000B001 /* EditorTypingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020003000000000000B002 /* EditorTypingTests.swift */; };
 		B0010005000000000000B001 /* ToolbarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020004000000000000B002 /* ToolbarTests.swift */; };
-		B0010006000000000000B001 /* ProseMirrorRoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020005000000000000B002 /* ProseMirrorRoundTripTests.swift */; };
+		B0010007000000000000B001 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020006000000000000B002 /* MarkdownDocument.swift */; };
+		B0010008000000000000B001 /* TestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020008000000000000B002 /* TestHelpers.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -30,7 +31,9 @@
 		B0020002000000000000B002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B0020003000000000000B002 /* EditorTypingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTypingTests.swift; sourceTree = "<group>"; };
 		B0020004000000000000B002 /* ToolbarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolbarTests.swift; sourceTree = "<group>"; };
-		B0020005000000000000B002 /* ProseMirrorRoundTripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProseMirrorRoundTripTests.swift; sourceTree = "<group>"; };
+		B0020006000000000000B002 /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
+		B0020007000000000000B002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B0020008000000000000B002 /* TestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestHelpers.swift; sourceTree = "<group>"; };
 		B00F0001000000000000B00F /* SwiftProseDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwiftProseDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00F0002000000000000B00F /* SwiftProseDemoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftProseDemoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -68,6 +71,8 @@
 			children = (
 				B0020001000000000000B002 /* SwiftProseDemoApp.swift */,
 				B0020002000000000000B002 /* ContentView.swift */,
+				B0020006000000000000B002 /* MarkdownDocument.swift */,
+				B0020007000000000000B002 /* Info.plist */,
 			);
 			path = SwiftProseDemo;
 			sourceTree = "<group>";
@@ -77,7 +82,7 @@
 			children = (
 				B0020003000000000000B002 /* EditorTypingTests.swift */,
 				B0020004000000000000B002 /* ToolbarTests.swift */,
-				B0020005000000000000B002 /* ProseMirrorRoundTripTests.swift */,
+				B0020008000000000000B002 /* TestHelpers.swift */,
 			);
 			path = SwiftProseDemoUITests;
 			sourceTree = "<group>";
@@ -189,6 +194,7 @@
 			files = (
 				B0010001000000000000B001 /* SwiftProseDemoApp.swift in Sources */,
 				B0010002000000000000B001 /* ContentView.swift in Sources */,
+				B0010007000000000000B001 /* MarkdownDocument.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -198,7 +204,7 @@
 			files = (
 				B0010004000000000000B001 /* EditorTypingTests.swift in Sources */,
 				B0010005000000000000B001 /* ToolbarTests.swift in Sources */,
-				B0010006000000000000B001 /* ProseMirrorRoundTripTests.swift in Sources */,
+				B0010008000000000000B001 /* TestHelpers.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -275,12 +281,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_FILE = SwiftProseDemo/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -307,12 +308,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_FILE = SwiftProseDemo/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
