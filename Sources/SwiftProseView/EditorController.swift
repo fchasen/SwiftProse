@@ -862,7 +862,9 @@ public final class EditorController {
             // flags (.proseListMarker, .proseInline, .attachment, .link,
             // .proseLink, .strikethroughStyle) deliberately do not appear in
             // this whitelist so they cannot bleed into typed text.
+            let onLink = raw[.link] != nil || raw[.proseLink] != nil
             for key in EditorController.carryForwardAttributeKeys {
+                if onLink && key == .foregroundColor { continue }
                 if let v = raw[key] { attrs[key] = v }
             }
         }
