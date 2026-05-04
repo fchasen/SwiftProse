@@ -634,8 +634,8 @@ public final class MarkdownAttributedCompiler {
         stripping ranges: [NSRange]
     ) -> StripResult {
         let safe = range.clamped(to: source.length)
-        var out = ""
-        out.reserveCapacity(safe.length)
+        var keptUnits: [unichar] = []
+        keptUnits.reserveCapacity(safe.length)
         var projection: [Int] = Array(repeating: -1, count: safe.length)
         // For O(n+m), scan ranges and source together. ranges are non-overlapping.
         var rangeIdx = 0
@@ -660,15 +660,11 @@ public final class MarkdownAttributedCompiler {
                     continue
                 }
             }
-            let ch = source.character(at: absIdx)
-            let outIdx = (out as NSString).length
-            projection[srcIdx] = outIdx
-            // append the unichar
-            var unit = ch
-            let part = NSString(characters: &unit, length: 1)
-            out.append(part as String)
+            projection[srcIdx] = keptUnits.count
+            keptUnits.append(source.character(at: absIdx))
             srcIdx += 1
         }
+        let out = String(decoding: keptUnits, as: UTF16.self)
         return StripResult(text: out, projection: projection, sourceStart: segStart)
     }
 }
