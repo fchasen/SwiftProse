@@ -139,6 +139,11 @@ public struct ProseTextViewMac: NSViewRepresentable {
             lastAppliedMarkdown = md
         }
 
+        public func textViewDidChangeSelection(_ notification: Notification) {
+            guard let tv = notification.object as? NSTextView else { return }
+            parent.controller.onSelectionChanged?(tv.selectedRange())
+        }
+
         public func undoManager(for view: NSTextView) -> UndoManager? {
             parent.controller.undoManager
         }

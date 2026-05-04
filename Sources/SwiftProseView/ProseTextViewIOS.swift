@@ -101,6 +101,10 @@ public struct ProseTextViewIOS: UIViewRepresentable {
             lastAppliedMarkdown = md
         }
 
+        public func textViewDidChangeSelection(_ textView: UITextView) {
+            parent.controller.onSelectionChanged?(textView.selectedRange)
+        }
+
         public func textView(_ textView: UITextView,
                              editMenuForTextIn range: NSRange,
                              suggestedActions: [UIMenuElement]) -> UIMenu? {

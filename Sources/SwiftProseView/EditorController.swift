@@ -27,6 +27,11 @@ public final class EditorController {
     public weak var hostTextView: AnyObject?
     public var intrinsicSizeInvalidator: (() -> Void)?
     public var onDiagnostic: ((SpecDiagnostic) -> Void)?
+    /// Fires whenever the host text view's selection moves, with the new
+    /// selection range. Hosts wire this to keep an observable selection in
+    /// sync without polling. Forwarded by the platform coordinators in
+    /// `ProseTextViewMac` / `ProseTextViewIOS`.
+    public var onSelectionChanged: ((NSRange) -> Void)?
     public let commands: CommandRegistry
     public let inputRules: InputRuleRunner
 

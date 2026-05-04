@@ -55,7 +55,7 @@ public struct SwiftProseEditor: View {
                         ProseStatusBar(
                             items: configuration.statusItems,
                             text: text,
-                            selection: NSRange(location: 0, length: 0)
+                            selection: hosting.selection
                         )
                     }
                 }
@@ -68,6 +68,7 @@ public struct SwiftProseEditor: View {
             if let controller = hosting.controller {
                 if controller.markdown() != text { controller.setMarkdown(text) }
                 controller.mode = mode
+                hosting.bindSelection(from: controller)
                 onControllerReady?(controller)
             }
         }
@@ -261,6 +262,7 @@ private struct SizingFrame: ViewModifier {
 
 final class ProseHosting: ObservableObject {
     @Published var controller: EditorController?
+    @Published var selection: NSRange = NSRange(location: 0, length: 0)
 
     func ensureController(
         initialText: String,
@@ -273,6 +275,15 @@ final class ProseHosting: ObservableObject {
                 theme: theme,
                 mode: mode
             )
+        }
+    }
+
+    /// Wire the controller's selection callback to keep `selection` in
+    /// sync with the host text view. Idempotent — safe to re-bind across
+    /// onAppear cycles.
+    func bindSelection(from controller: EditorController) {
+        controller.onSelectionChanged = { [weak self] range in
+            self?.selection = range
         }
     }
 }
