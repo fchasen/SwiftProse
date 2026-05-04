@@ -15,7 +15,26 @@ public enum HighlightTag: String, Sendable, Equatable {
     case textReference = "text.reference"
     case punctuationSpecial = "punctuation.special"
     case punctuationDelimiter = "punctuation.delimiter"
+    case punctuationBracket = "punctuation.bracket"
     case stringEscape = "string.escape"
+    // General-purpose code-block capture names. The bundled tree-sitter
+    // language grammars emit these via standard `highlights.scm` queries.
+    case keyword = "keyword"
+    case string = "string"
+    case comment = "comment"
+    case number = "number"
+    case boolean = "boolean"
+    case constant = "constant"
+    case function = "function"
+    case method = "method"
+    case variable = "variable"
+    case parameter = "parameter"
+    case type = "type"
+    case attribute = "attribute"
+    case property = "property"
+    case label = "label"
+    case op = "operator"
+    case tag = "tag"
     case none = "none"
     case unknown
 }

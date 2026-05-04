@@ -12,11 +12,13 @@ public final class MarkdownAttributedCompiler {
     private let blockParser: MarkdownParser
     private let inlineParser: MarkdownParser
     private let highlighter: HighlightApplier
+    public var codeBlockHighlighter: CodeBlockHighlighter?
 
-    public init() throws {
+    public init(codeBlockHighlighter: CodeBlockHighlighter? = nil) throws {
         self.blockParser = try MarkdownParser(grammar: .block)
         self.inlineParser = try MarkdownParser(grammar: .inline)
         self.highlighter = try HighlightApplier()
+        self.codeBlockHighlighter = codeBlockHighlighter
     }
 
     public func compile(
@@ -52,7 +54,11 @@ public final class MarkdownAttributedCompiler {
                 result.addAttribute(.foregroundColor, value: theme.linkURLColor, range: span.range)
             case .textReference:
                 result.addAttribute(.foregroundColor, value: theme.linkColor, range: span.range)
-            case .textLiteral, .stringEscape, .textEmphasis, .textStrong, .none, .unknown:
+            case .textLiteral, .stringEscape, .textEmphasis, .textStrong, .none, .unknown,
+                 .punctuationBracket,
+                 .keyword, .string, .comment, .number, .boolean, .constant,
+                 .function, .method, .variable, .parameter, .type,
+                 .attribute, .property, .label, .op, .tag:
                 break
             }
         }
@@ -341,11 +347,77 @@ public final class MarkdownAttributedCompiler {
         ]
         var content = raw
         if !content.hasSuffix("\n") { content.append("\n") }
-        appendStyled(
-            NSAttributedString(string: content, attributes: paragraphAttrs),
-            spec: BlockSpec(blockSegment: segment),
-            into: out
-        )
+        let attributed = NSMutableAttributedString(string: content, attributes: paragraphAttrs)
+        applyCodeBlockHighlights(to: attributed, segment: segment, source: source, theme: theme)
+        appendStyled(attributed, spec: BlockSpec(blockSegment: segment), into: out)
+    }
+
+    /// Run the registered `CodeBlockHighlighter` over the body lines of this
+    /// code block (skipping fence + info-string lines for fenced blocks, the
+    /// indent prefix for indented blocks) and color tokens via
+    /// `theme.codeColor(for:)`. Spans landing on fences are dropped.
+    private func applyCodeBlockHighlights(
+        to attributed: NSMutableAttributedString,
+        segment: BlockSegment,
+        source: String,
+        theme: ProseTheme
+    ) {
+        guard let highlighter = codeBlockHighlighter else { return }
+        guard let body = codeBlockBody(segment: segment, source: source) else { return }
+        let spans = highlighter.highlights(for: body.text, language: segment.language)
+        guard !spans.isEmpty else { return }
+        let attributedLength = attributed.length
+        for span in spans {
+            guard let color = theme.codeColor(for: span.tag) else { continue }
+            let start = body.offsetInSegment + span.range.location
+            let end = start + span.range.length
+            guard start >= 0, end <= attributedLength, start < end else { continue }
+            attributed.addAttribute(
+                .foregroundColor,
+                value: color,
+                range: NSRange(location: start, length: end - start)
+            )
+        }
+    }
+
+    /// Returns the body text of a code-block segment plus the offset (in
+    /// segment-local coordinates) at which that body starts. The first / last
+    /// lines of a fenced block are the fence delimiters; an indented block is
+    /// all body but each line is prefixed with the indent.
+    private func codeBlockBody(
+        segment: BlockSegment,
+        source: String
+    ) -> (text: String, offsetInSegment: Int)? {
+        let nsSource = source as NSString
+        let raw = nsSource.substring(with: segment.range)
+        switch segment.tag {
+        case .fencedCode:
+            // Drop the first line (opening fence + info string) and the last
+            // line if it's a closing fence. Tree-sitter sometimes emits
+            // unterminated fences (range ends with body); handle both.
+            let lines = raw.components(separatedBy: "\n")
+            guard lines.count >= 2 else { return nil }
+            let firstLineUTF16 = (lines[0] as NSString).length + 1 // +1 for the \n
+            var bodyLines = Array(lines.dropFirst())
+            // Strip trailing empty entry from a trailing \n.
+            if bodyLines.last == "" { bodyLines.removeLast() }
+            // If the last line looks like a closing fence (only ` or ~), drop it.
+            if let last = bodyLines.last, isFenceLine(last) {
+                bodyLines.removeLast()
+            }
+            let body = bodyLines.joined(separator: "\n")
+            return (body, firstLineUTF16)
+        case .indentedCode:
+            return (raw, 0)
+        default:
+            return nil
+        }
+    }
+
+    private func isFenceLine(_ line: String) -> Bool {
+        let trimmed = line.drop { $0 == " " }
+        guard let first = trimmed.first, first == "`" || first == "~" else { return false }
+        return trimmed.allSatisfy { $0 == first }
     }
 
     private func appendHorizontalRule(

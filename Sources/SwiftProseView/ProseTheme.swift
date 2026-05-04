@@ -24,6 +24,7 @@ public struct ProseTheme: Equatable {
     public var linkURLColor: PlatformColor
     public var blockquoteBarColor: PlatformColor
     public var headingScale: [Int: CGFloat]
+    public var codePalette: CodePalette
 
     public init(
         bodyFont: PlatformFont,
@@ -33,7 +34,8 @@ public struct ProseTheme: Equatable {
         linkColor: PlatformColor,
         linkURLColor: PlatformColor,
         blockquoteBarColor: PlatformColor,
-        headingScale: [Int: CGFloat] = [1: 1.6, 2: 1.4, 3: 1.25, 4: 1.15, 5: 1.05, 6: 1.0]
+        headingScale: [Int: CGFloat] = [1: 1.6, 2: 1.4, 3: 1.25, 4: 1.15, 5: 1.05, 6: 1.0],
+        codePalette: CodePalette = .default
     ) {
         self.bodyFont = bodyFont
         self.monospaceFont = monospaceFont
@@ -43,6 +45,7 @@ public struct ProseTheme: Equatable {
         self.linkURLColor = linkURLColor
         self.blockquoteBarColor = blockquoteBarColor
         self.headingScale = headingScale
+        self.codePalette = codePalette
     }
 
     public static var `default`: ProseTheme {
@@ -69,6 +72,101 @@ public struct ProseTheme: Equatable {
         #else
         return UIFont.boldSystemFont(ofSize: size)
         #endif
+    }
+
+    /// Per-tag foreground colors for syntax-highlighted code blocks. Returned
+    /// from `colorFor(tag:)` and consumed by `MarkdownAttributedCompiler`
+    /// when a `CodeBlockHighlighter` produces spans.
+    public struct CodePalette: Equatable {
+        public var keyword: PlatformColor
+        public var string: PlatformColor
+        public var comment: PlatformColor
+        public var number: PlatformColor
+        public var type: PlatformColor
+        public var function: PlatformColor
+        public var variable: PlatformColor
+        public var constant: PlatformColor
+        public var attribute: PlatformColor
+        public var op: PlatformColor
+        public var punctuation: PlatformColor
+
+        public init(
+            keyword: PlatformColor,
+            string: PlatformColor,
+            comment: PlatformColor,
+            number: PlatformColor,
+            type: PlatformColor,
+            function: PlatformColor,
+            variable: PlatformColor,
+            constant: PlatformColor,
+            attribute: PlatformColor,
+            op: PlatformColor,
+            punctuation: PlatformColor
+        ) {
+            self.keyword = keyword
+            self.string = string
+            self.comment = comment
+            self.number = number
+            self.type = type
+            self.function = function
+            self.variable = variable
+            self.constant = constant
+            self.attribute = attribute
+            self.op = op
+            self.punctuation = punctuation
+        }
+
+        public static var `default`: CodePalette {
+            #if canImport(AppKit) && os(macOS)
+            return CodePalette(
+                keyword: NSColor.systemPurple,
+                string: NSColor.systemRed,
+                comment: NSColor.secondaryLabelColor,
+                number: NSColor.systemTeal,
+                type: NSColor.systemBlue,
+                function: NSColor.systemIndigo,
+                variable: NSColor.labelColor,
+                constant: NSColor.systemOrange,
+                attribute: NSColor.systemTeal,
+                op: NSColor.systemPink,
+                punctuation: NSColor.tertiaryLabelColor
+            )
+            #else
+            return CodePalette(
+                keyword: UIColor.systemPurple,
+                string: UIColor.systemRed,
+                comment: UIColor.secondaryLabel,
+                number: UIColor.systemTeal,
+                type: UIColor.systemBlue,
+                function: UIColor.systemIndigo,
+                variable: UIColor.label,
+                constant: UIColor.systemOrange,
+                attribute: UIColor.systemTeal,
+                op: UIColor.systemPink,
+                punctuation: UIColor.tertiaryLabel
+            )
+            #endif
+        }
+    }
+
+    public func codeColor(for tag: HighlightTag) -> PlatformColor? {
+        switch tag {
+        case .keyword: return codePalette.keyword
+        case .string, .stringEscape: return codePalette.string
+        case .comment: return codePalette.comment
+        case .number, .boolean: return codePalette.number
+        case .type: return codePalette.type
+        case .function, .method: return codePalette.function
+        case .variable, .parameter, .label: return codePalette.variable
+        case .constant: return codePalette.constant
+        case .attribute, .property, .tag: return codePalette.attribute
+        case .op: return codePalette.op
+        case .punctuationDelimiter, .punctuationBracket, .punctuationSpecial:
+            return codePalette.punctuation
+        case .textTitle, .textLiteral, .textEmphasis, .textStrong,
+             .textURI, .textReference, .none, .unknown:
+            return nil
+        }
     }
 
     public static func `default`(fontScale: CGFloat) -> ProseTheme {

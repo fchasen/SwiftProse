@@ -83,14 +83,15 @@ public final class EditorController {
         mode: Mode = .rich,
         commands: CommandRegistry = .makeDefault(),
         inputRules: InputRuleRunner = .makeDefault(),
+        codeBlockHighlighter: CodeBlockHighlighter? = nil,
         containerSize: CGSize = CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
     ) throws {
         self.theme = theme
         self.mode = mode
         self.commands = commands
         self.inputRules = inputRules
-        self.compiler = try MarkdownAttributedCompiler()
-        self.backgroundCompiler = try MarkdownAttributedCompiler()
+        self.compiler = try MarkdownAttributedCompiler(codeBlockHighlighter: codeBlockHighlighter)
+        self.backgroundCompiler = try MarkdownAttributedCompiler(codeBlockHighlighter: codeBlockHighlighter)
         self.serializer = AttributedMarkdownSerializer()
 
         self.textStorage = NSTextStorage()

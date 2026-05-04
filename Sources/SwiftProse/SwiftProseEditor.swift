@@ -17,6 +17,7 @@ public struct SwiftProseEditor: View {
     @Environment(\.proseTheme) private var theme
     @Environment(\.proseInlineContentProvider) private var inlineProvider
     @Environment(\.proseControllerReady) private var onControllerReady
+    @Environment(\.proseCodeBlockHighlighter) private var codeBlockHighlighter
 
     @AppStorage("swiftprose.toolbarVisible") private var toolbarVisible = true
     @AppStorage("swiftprose.mode") private var modeRawValue: String = Mode.rich.rawValue
@@ -64,7 +65,12 @@ public struct SwiftProseEditor: View {
             editorBody
         }
         .onAppear {
-            hosting.ensureController(initialText: text, theme: theme, mode: mode)
+            hosting.ensureController(
+                initialText: text,
+                theme: theme,
+                mode: mode,
+                codeBlockHighlighter: codeBlockHighlighter
+            )
             if let controller = hosting.controller {
                 if controller.markdown() != text { controller.setMarkdown(text) }
                 controller.mode = mode
@@ -267,13 +273,15 @@ final class ProseHosting: ObservableObject {
     func ensureController(
         initialText: String,
         theme: ProseTheme,
-        mode: Mode
+        mode: Mode,
+        codeBlockHighlighter: CodeBlockHighlighter? = nil
     ) {
         if controller == nil {
             controller = try? EditorController(
                 initialMarkdown: initialText,
                 theme: theme,
-                mode: mode
+                mode: mode,
+                codeBlockHighlighter: codeBlockHighlighter
             )
         }
     }

@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import SwiftProseView
 import SwiftProseRendering
+import SwiftProseSyntax
 
 // MARK: - environment values
 
@@ -19,6 +20,10 @@ private struct InlineContentProviderKey: EnvironmentKey {
 
 private struct ControllerReadyKey: EnvironmentKey {
     static let defaultValue: ((EditorController) -> Void)? = nil
+}
+
+private struct CodeBlockHighlighterKey: EnvironmentKey {
+    static let defaultValue: CodeBlockHighlighter? = nil
 }
 
 extension EnvironmentValues {
@@ -40,6 +45,11 @@ extension EnvironmentValues {
     public var proseControllerReady: ((EditorController) -> Void)? {
         get { self[ControllerReadyKey.self] }
         set { self[ControllerReadyKey.self] = newValue }
+    }
+
+    public var proseCodeBlockHighlighter: CodeBlockHighlighter? {
+        get { self[CodeBlockHighlighterKey.self] }
+        set { self[CodeBlockHighlighterKey.self] = newValue }
     }
 }
 
@@ -66,5 +76,14 @@ extension View {
         _ callback: @escaping (EditorController) -> Void
     ) -> some View {
         environment(\.proseControllerReady, callback)
+    }
+
+    /// Inject a tree-sitter (or other) `CodeBlockHighlighter` to syntax-color
+    /// fenced code-block bodies. The host registers per-language grammars on
+    /// the highlighter before passing it in.
+    public func codeBlockHighlighter(
+        _ highlighter: CodeBlockHighlighter?
+    ) -> some View {
+        environment(\.proseCodeBlockHighlighter, highlighter)
     }
 }
