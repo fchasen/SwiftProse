@@ -304,15 +304,22 @@ final class ProseNSTextView: NSTextView {
         guard let controller = proseController,
               let layoutManager = textLayoutManager else { return false }
         let point = convert(event.locationInWindow, from: nil)
-        // Translate from text-view coordinates to layout-manager coordinates.
+        // Translate from text-view coordinates to text-container coordinates
+        // (which is also the layout manager's coordinate space).
         let containerOrigin = textContainerOrigin
-        let lmPoint = CGPoint(x: point.x - containerOrigin.x, y: point.y - containerOrigin.y)
-        guard let frag = layoutManager.textLayoutFragment(for: lmPoint) as? PipeTableLayoutFragment else { return false }
-        let fragOrigin = frag.layoutFragmentFrame.origin
-        let local = CGPoint(x: lmPoint.x - fragOrigin.x, y: lmPoint.y - fragOrigin.y)
+        let containerPoint = CGPoint(x: point.x - containerOrigin.x, y: point.y - containerOrigin.y)
+        // Find the fragment that contains this point. Use the line's
+        // vertical strip — for a short table line, the click might be past
+        // the text horizontally, so probe at x=0 (within the container) so
+        // textLayoutFragment(for:) resolves by row.
+        let probePoint = CGPoint(x: 4, y: containerPoint.y)
+        guard let frag = layoutManager.textLayoutFragment(for: probePoint) as? PipeTableLayoutFragment else { return false }
+        // Both toggleHitRect and columnXs are container-anchored x with
+        // y measured from the top of the fragment. Compute fragment-local y.
+        let fragY = containerPoint.y - frag.layoutFragmentFrame.origin.y
+        let local = CGPoint(x: containerPoint.x, y: fragY)
         // Toggle button hit (only valid on the first table line).
         if frag.isFirstLine, !frag.toggleHitRect.isEmpty, frag.toggleHitRect.contains(local) {
-            // Resolve table source range from the fragment's element range.
             guard let elementRange = frag.textElement?.elementRange,
                   let tcs = textLayoutManager?.textContentManager as? NSTextContentStorage else { return false }
             let start = tcs.offset(from: tcs.documentRange.location, to: elementRange.location)

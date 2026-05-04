@@ -81,19 +81,39 @@ public final class HorizontalRuleLayoutFragment: NSTextLayoutFragment {
 /// block. Each line of the block is its own layout fragment; `isFirstLine` /
 /// `isLastLine` toggle the rounding so consecutive fragments stitch into one
 /// block visually.
+///
+/// The fill spans the full text container width — not the line's text width
+/// — by overriding `renderingSurfaceBounds` to extend horizontally beyond
+/// `layoutFragmentFrame`. The host (LayoutManagerDelegate) sets
+/// `containerWidth` so we know how far to reach.
 public class CodeBlockLayoutFragment: NSTextLayoutFragment {
     public var fillColor: PlatformColor = .codeBlockDefaultFill
     public var cornerRadius: CGFloat = 6
     public var horizontalInset: CGFloat = 0
+    public var horizontalPadding: CGFloat = 8
+    /// Width (in container coordinates) the fill should span. Pass the text
+    /// container's full width here; defaults to 0 which falls back to the
+    /// fragment's own text width (the old behavior).
+    public var containerWidth: CGFloat = 0
     public var isFirstLine: Bool = false
     public var isLastLine: Bool = false
 
+    public override var renderingSurfaceBounds: CGRect {
+        let bounds = layoutFragmentFrame
+        let width = max(containerWidth, bounds.width)
+        // Origin is fragment-local; AppKit translates by layoutFragmentFrame.origin
+        // before invoking draw(at:in:), so we anchor at -origin.x to push the
+        // surface to the leading edge of the container.
+        return CGRect(x: -bounds.origin.x, y: 0, width: width, height: bounds.height)
+    }
+
     public override func draw(at point: CGPoint, in context: CGContext) {
         let bounds = layoutFragmentFrame
+        let width = max(containerWidth, bounds.width)
         let rect = CGRect(
-            x: horizontalInset,
+            x: horizontalInset - bounds.origin.x,
             y: 0,
-            width: max(0, bounds.width - 2 * horizontalInset),
+            width: max(0, width - 2 * horizontalInset),
             height: bounds.height
         )
 
@@ -126,10 +146,11 @@ public final class FencedCodeBlockLayoutFragment: CodeBlockLayoutFragment {
         super.draw(at: point, in: context)
         guard isFirstLine, let language, !language.isEmpty else { return }
         let bounds = layoutFragmentFrame
+        let width = max(containerWidth, bounds.width)
         let rect = CGRect(
-            x: horizontalInset,
+            x: horizontalInset - bounds.origin.x,
             y: 0,
-            width: max(0, bounds.width - 2 * horizontalInset),
+            width: max(0, width - 2 * horizontalInset),
             height: bounds.height
         )
         let attrs: [NSAttributedString.Key: Any] = [
@@ -159,15 +180,19 @@ public final class FencedCodeBlockLayoutFragment: CodeBlockLayoutFragment {
 
 public final class IndentedCodeBlockLayoutFragment: CodeBlockLayoutFragment {}
 
-/// Paints chrome for one source line of a rendered GFM pipe table.
+/// Renders one source line of a GFM pipe table as a structured cell row.
 ///
-/// One fragment per source line. Vertical column dividers and outer borders
-/// are computed from `PipeTableModel.columnXs` (so they line up across rows
-/// even when cell text widths differ), not by glyph-hunting `|` positions
-/// like the original implementation. The header line gets a tinted backdrop
-/// and bold text (the bold is applied by the compiler). The alignment line
-/// is suppressed — neither text nor borders are drawn so the literal
-/// `:--- | --- | ---:` doesn't appear.
+/// In rendered mode we **do not** call `super.draw` — the literal source
+/// (pipes, dashes, padding spaces) would render misaligned with the column
+/// chrome since cell text in storage doesn't sit at the column boundaries.
+/// Instead we draw cell text manually from the parsed model into rects
+/// derived from `columnXs`, honoring per-column alignment. The fragment's
+/// `renderingSurfaceBounds` is extended to the full container width so the
+/// drawn chrome reaches the right edge and the toggle button at the
+/// rightmost extent is reachable by hit-testing.
+///
+/// In raw mode (`isRawMode == true`) we skip all chrome and call
+/// `super.draw` — the user sees the literal source for hand-editing.
 public final class PipeTableLayoutFragment: NSTextLayoutFragment {
     public enum LineRole: Equatable {
         case header
@@ -179,44 +204,52 @@ public final class PipeTableLayoutFragment: NSTextLayoutFragment {
     public var borderWidth: CGFloat = 0.5
     public var headerBackgroundColor: PlatformColor = .pipeTableHeaderDefaultBackground
     public var toggleColor: PlatformColor = .pipeTableToggleDefault
+    public var cellTextColor: PlatformColor = .pipeTableCellTextDefault
+    public var cellFont: PlatformFont = .pipeTableCellDefaultFont
+    public var headerFont: PlatformFont = .pipeTableHeaderDefaultFont
     public var horizontalInset: CGFloat = 0
+    public var cellPadding: CGFloat = 6
+    /// Width (container coords) the chrome should span. Set by
+    /// `LayoutManagerDelegate`; defaults to 0 → falls back to `layoutFragmentFrame`.
+    public var containerWidth: CGFloat = 0
     public var isFirstLine: Bool = false
     public var isLastLine: Bool = false
     public var role: LineRole = .body
     /// Column boundary x-positions including outer edges, in fragment-local
     /// coordinates. `[xLeft, x1, x2, ..., xRight]` so `count == columnCount + 1`.
-    /// When empty, vertical dividers fall back to the bounding rect edges.
     public var columnXs: [CGFloat] = []
-    /// True when the table is in the controller's `expandedTablesTracker`
-    /// — meaning the user has flipped this table to raw monospace mode and
-    /// we should skip ALL chrome and let the literal source draw normally.
     public var isRawMode: Bool = false
-    /// Body row index for `role == .body`. Header is `-1`; `.alignment` is
-    /// `-2`. Set by the layout manager delegate so cell hit-testing can map
-    /// clicks back to the model.
     public var bodyRowIndex: Int = 0
-    /// Offset of the toggle button (top-right of the first table line) in
-    /// fragment-local coordinates. The host text view reads `toggleHitRect`
-    /// and dispatches clicks to the controller.
+    /// Cell strings to draw in this row (index → column). Set by the host;
+    /// pass `headerCells` for a header row, `bodyRows[bodyRowIndex]` for body.
+    public var cells: [String] = []
+    /// Per-column horizontal alignment for this row's cells. Empty falls
+    /// back to natural (left-leading).
+    public var alignments: [PipeTableAlignment] = []
+    /// Hit rect for the raw-mode toggle (only painted on first table line),
+    /// in fragment-local coordinates.
     public var toggleHitRect: CGRect = .zero
+
+    public override var renderingSurfaceBounds: CGRect {
+        let bounds = layoutFragmentFrame
+        if isRawMode {
+            return super.renderingSurfaceBounds
+        }
+        let width = max(containerWidth, bounds.width)
+        return CGRect(x: -bounds.origin.x, y: 0, width: width, height: bounds.height)
+    }
 
     public override func draw(at point: CGPoint, in context: CGContext) {
         if isRawMode {
             super.draw(at: point, in: context)
             return
         }
-        if role == .alignment {
-            // Suppress drawing entirely — the literal dashes shouldn't appear
-            // and we don't draw borders here either since the alignment row
-            // has been collapsed to a near-zero line height by the compiler.
-            return
-        }
-
         let bounds = layoutFragmentFrame
+        let width = max(containerWidth, bounds.width)
         let rect = CGRect(
-            x: horizontalInset,
+            x: horizontalInset - bounds.origin.x,
             y: 0,
-            width: max(0, bounds.width - 2 * horizontalInset),
+            width: max(0, width - 2 * horizontalInset),
             height: bounds.height
         )
 
@@ -228,6 +261,7 @@ public final class PipeTableLayoutFragment: NSTextLayoutFragment {
             context.fill(rect)
         }
 
+        // Borders. Alignment row gets none either (rendered as a 1px gap).
         context.setStrokeColor(borderColor.cgColor)
         context.setLineWidth(borderWidth)
         let path = CGMutablePath()
@@ -239,26 +273,74 @@ public final class PipeTableLayoutFragment: NSTextLayoutFragment {
             path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
             path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
         }
-        // Verticals: from columnXs (computed model) so internal dividers line
-        // up across rows even when individual cells wrap or differ in width.
         let xs = columnXs.isEmpty ? [rect.minX, rect.maxX] : columnXs
+        // Translate column xs into the rect's coordinate space (xs are
+        // already laid out relative to the container's leading edge, which
+        // matches rect.minX because we anchored at -bounds.origin.x above).
         for x in xs {
-            path.move(to: CGPoint(x: x, y: rect.minY))
-            path.addLine(to: CGPoint(x: x, y: rect.maxY))
+            path.move(to: CGPoint(x: rect.minX + x, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.minX + x, y: rect.maxY))
         }
         context.addPath(path)
         context.strokePath()
+
+        if role != .alignment {
+            drawCellText(in: rect, columnXs: xs, context: context)
+        }
 
         if isFirstLine, !toggleHitRect.isEmpty {
             drawToggleIcon(in: toggleHitRect, context: context)
         }
 
         context.restoreGState()
-        super.draw(at: point, in: context)
+        // Deliberately skip super.draw — literal source text would
+        // misalign with the chrome columns.
+    }
+
+    private func drawCellText(in rect: CGRect, columnXs xs: [CGFloat], context: CGContext) {
+        guard !cells.isEmpty else { return }
+        let columnCount = max(0, xs.count - 1)
+        guard columnCount > 0 else { return }
+        let font = (role == .header) ? headerFont : cellFont
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: cellTextColor
+        ]
+        for i in 0..<columnCount {
+            let cellText = (i < cells.count) ? cells[i] : ""
+            guard !cellText.isEmpty else { continue }
+            let alignment = (i < alignments.count) ? alignments[i] : .none
+            let cellRect = CGRect(
+                x: rect.minX + xs[i] + cellPadding,
+                y: rect.minY,
+                width: max(0, xs[i + 1] - xs[i] - 2 * cellPadding),
+                height: rect.height
+            )
+            let ns = cellText as NSString
+            let textSize = ns.size(withAttributes: attrs)
+            let x: CGFloat
+            switch alignment {
+            case .right:
+                x = cellRect.maxX - textSize.width
+            case .center:
+                x = cellRect.minX + (cellRect.width - textSize.width) / 2
+            case .left, .none:
+                x = cellRect.minX
+            }
+            let y = cellRect.minY + (cellRect.height - textSize.height) / 2
+            #if canImport(AppKit) && os(macOS)
+            let nsContext = NSGraphicsContext(cgContext: context, flipped: layoutFragmentFrame.height > 0)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = nsContext
+            ns.draw(at: CGPoint(x: x, y: y), withAttributes: attrs)
+            NSGraphicsContext.restoreGraphicsState()
+            #else
+            ns.draw(at: CGPoint(x: x, y: y), withAttributes: attrs)
+            #endif
+        }
     }
 
     private func drawToggleIcon(in rect: CGRect, context: CGContext) {
-        // Three short stacked horizontal lines — a classic "edit raw" glyph.
         context.setStrokeColor(toggleColor.cgColor)
         context.setLineWidth(1)
         context.setLineCap(.round)
@@ -276,16 +358,23 @@ public final class PipeTableLayoutFragment: NSTextLayoutFragment {
 
     /// Map a click in fragment-local coordinates to a (row, column) cell
     /// index, where `row == -1` denotes the header. Returns nil for clicks
-    /// outside the table's drawn area or in the alignment row. Used by the
-    /// host text view to surface the cell-edit sheet.
+    /// outside the table's drawn area or in the alignment row.
     public func cellHitTest(at point: CGPoint) -> (row: Int, column: Int)? {
         guard !isRawMode, role != .alignment else { return nil }
         guard !columnXs.isEmpty else { return nil }
         let bounds = layoutFragmentFrame
         guard point.y >= 0, point.y <= bounds.height else { return nil }
+        // columnXs are container-anchored; point is fragment-local. The
+        // fragment's renderingSurfaceBounds origin is `-bounds.origin.x`,
+        // so a click at point.x corresponds to container x of
+        // `point.x` (already in surface coords if we received it relative to
+        // surface) or `point.x + bounds.origin.x` if relative to fragment.
+        // The host calls with fragment-local coords from layoutFragmentFrame
+        // origin, so adjust by adding bounds.origin.x to land on container.
+        let x = point.x
         var col: Int?
         for i in 0..<(columnXs.count - 1) {
-            if point.x >= columnXs[i], point.x < columnXs[i + 1] {
+            if x >= columnXs[i], x < columnXs[i + 1] {
                 col = i
                 break
             }
@@ -411,6 +500,32 @@ extension PlatformColor {
         return NSColor.secondaryLabelColor
         #else
         return UIColor.secondaryLabel
+        #endif
+    }
+
+    static var pipeTableCellTextDefault: PlatformColor {
+        #if canImport(AppKit) && os(macOS)
+        return NSColor.labelColor
+        #else
+        return UIColor.label
+        #endif
+    }
+}
+
+extension PlatformFont {
+    static var pipeTableCellDefaultFont: PlatformFont {
+        #if canImport(AppKit) && os(macOS)
+        return NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        #else
+        return UIFont.systemFont(ofSize: UIFont.systemFontSize)
+        #endif
+    }
+
+    static var pipeTableHeaderDefaultFont: PlatformFont {
+        #if canImport(AppKit) && os(macOS)
+        return NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
+        #else
+        return UIFont.boldSystemFont(ofSize: UIFont.systemFontSize)
         #endif
     }
 }

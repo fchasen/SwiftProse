@@ -447,6 +447,18 @@ public final class MarkdownAttributedCompiler {
         ]
         let result = NSMutableAttributedString(string: content, attributes: baseAttrs)
         if let model {
+            // Collapse the alignment row line so the rendered table has no
+            // visible gap between header and first body row. We do this via
+            // paragraph-style maxLineHeight, applied unconditionally — in
+            // raw mode the user sees a thin line where the dashes live,
+            // which is acceptable for a fallback editing affordance.
+            let collapsedAlignmentStyle = NSMutableParagraphStyle()
+            collapsedAlignmentStyle.maximumLineHeight = 1
+            collapsedAlignmentStyle.minimumLineHeight = 1
+            collapsedAlignmentStyle.lineSpacing = 0
+            collapsedAlignmentStyle.paragraphSpacing = 0
+            collapsedAlignmentStyle.paragraphSpacingBefore = 0
+
             for (lineIndex, lineRange) in model.lineRanges.enumerated() {
                 guard lineRange.length > 0 else { continue }
                 guard lineRange.upperBound <= result.length else { continue }
@@ -455,10 +467,16 @@ public final class MarkdownAttributedCompiler {
                 case .header:
                     result.addAttribute(.proseTableHeader, value: true, range: lineRange)
                     result.addAttribute(.font, value: theme.monospaceFont.withProseTraits(.bold), range: lineRange)
+                    // Hide the literal pipes/text under the rendered cells
+                    // by clearing foreground; the fragment paints cell text
+                    // manually from the model.
+                    result.addAttribute(.foregroundColor, value: PlatformColor.clear, range: lineRange)
                 case .alignment:
                     result.addAttribute(.proseTableAlignmentRow, value: true, range: lineRange)
+                    result.addAttribute(.foregroundColor, value: PlatformColor.clear, range: lineRange)
+                    result.addAttribute(.paragraphStyle, value: collapsedAlignmentStyle, range: lineRange)
                 case .body:
-                    break
+                    result.addAttribute(.foregroundColor, value: PlatformColor.clear, range: lineRange)
                 }
             }
         }

@@ -49,6 +49,7 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
         }
         if let codeDeco = decorations.first(where: { if case .codeBackground = $0.kind { return true } else { return false } }) {
             if case .codeBackground(let language, let position) = codeDeco.kind {
+                let containerWidth = controller.textContainer.size.width
                 if let language {
                     let fragment = FencedCodeBlockLayoutFragment(
                         textElement: textElement,
@@ -57,6 +58,7 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                     fragment.language = language
                     fragment.isFirstLine = position == .start || position == .single
                     fragment.isLastLine = position == .end || position == .single
+                    fragment.containerWidth = containerWidth
                     return fragment
                 } else if let spec = controller.textStorage.blockSpec(at: elementStart),
                           case .indentedCode = spec.kind {
@@ -66,6 +68,7 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                     )
                     fragment.isFirstLine = position == .start || position == .single
                     fragment.isLastLine = position == .end || position == .single
+                    fragment.containerWidth = containerWidth
                     return fragment
                 } else {
                     let fragment = FencedCodeBlockLayoutFragment(
@@ -75,6 +78,7 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                     fragment.language = nil
                     fragment.isFirstLine = position == .start || position == .single
                     fragment.isLastLine = position == .end || position == .single
+                    fragment.containerWidth = containerWidth
                     return fragment
                 }
             }
@@ -113,22 +117,36 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                 return fragment
             }
             // Resolve role + bodyRowIndex by parsing the table source.
+            let containerWidth = controller.textContainer.size.width
+            fragment.containerWidth = containerWidth
             if let model = PipeTableModel.parse(at: elementStart, in: controller.textStorage),
                let lineIdx = model.lineRanges.firstIndex(where: { $0.location <= elementStart && elementStart < $0.location + max(1, $0.length) }) {
                 switch model.lineKinds[lineIdx] {
                 case .header:
                     fragment.role = .header
+                    fragment.cells = model.headerCells
                 case .alignment:
                     fragment.role = .alignment
                 case .body(let row):
                     fragment.role = .body
                     fragment.bodyRowIndex = row
+                    fragment.cells = (row < model.bodyRows.count) ? model.bodyRows[row] : []
                 }
-                fragment.columnXs = computeColumnXs(model: model, lineWidth: textContainer(controller).size.width)
+                fragment.alignments = model.alignments
+                fragment.columnXs = computeColumnXs(model: model, lineWidth: containerWidth)
             }
             // Top-right toggle hit rect (only the first table line draws it).
+            // Container-anchored coords; renderingSurfaceBounds extends to
+            // container width so this is reachable for hit-testing.
             if fragment.isFirstLine {
-                fragment.toggleHitRect = CGRect(x: max(0, controller.textContainer.size.width - 22), y: 2, width: 16, height: 16)
+                let toggleSize: CGFloat = 16
+                let toggleInset: CGFloat = 6
+                fragment.toggleHitRect = CGRect(
+                    x: containerWidth - toggleInset - toggleSize,
+                    y: 2,
+                    width: toggleSize,
+                    height: toggleSize
+                )
             }
             return fragment
         }
