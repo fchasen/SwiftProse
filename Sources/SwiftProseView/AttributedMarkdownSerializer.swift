@@ -16,29 +16,19 @@ public final class AttributedMarkdownSerializer {
         guard total > 0 else { return "" }
         var out = ""
         var emittedSomething = false
-        var cursor = 0
 
-        while cursor < total {
-            let spec = attributed.blockSpec(at: cursor)
-            var blockEnd = total
-            attributed.enumerateAttribute(.proseBlockSpec, in: NSRange(location: cursor, length: total - cursor)) { _, range, stop in
-                if range.location > cursor {
-                    blockEnd = range.location
-                    stop.pointee = true
-                }
-            }
-
-            let blockRange = NSRange(location: cursor, length: blockEnd - cursor)
-            if let spec {
-                if emittedSomething { out.append("\n") }
-                out.append(emitBlock(spec, attributed: attributed, range: blockRange))
+        // BlockSpecBox uses reference equality (see BlockSpec.swift) so each
+        // compiled block carries a distinct box and enumerateAttribute yields
+        // one range per block in a single linear pass.
+        let fullRange = NSRange(location: 0, length: total)
+        attributed.enumerateAttribute(.proseBlockSpec, in: fullRange) { value, range, _ in
+            if emittedSomething { out.append("\n") }
+            if let spec = (value as? BlockSpecBox)?.spec {
+                out.append(emitBlock(spec, attributed: attributed, range: range))
             } else {
-                if emittedSomething { out.append("\n") }
-                let plain = attributed.attributedSubstring(from: blockRange).string
-                out.append(plain)
+                out.append(attributed.attributedSubstring(from: range).string)
             }
             emittedSomething = true
-            cursor = blockEnd
         }
         return ensureTrailingNewline(out)
     }
