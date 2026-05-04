@@ -146,23 +146,54 @@ public final class EditorController {
         guard editedRange.length > 0 else { return }
         let safe = editedRange.clamped(to: textStorage.length)
         guard safe.length > 0 else { return }
+        let ns = textStorage.string as NSString
+
+        // Enumerate runs where each attribute is actually present. AppKit
+        // sometimes copies the previous run's .attachment / .proseListMarker
+        // onto adjacent typed text — those copies live on non-FFFC chars
+        // and need to be cleared. Runs that already lack the attribute
+        // contribute no work.
+        var attachmentStrays: [NSRange] = []
+        textStorage.enumerateAttribute(.attachment, in: safe) { value, runRange, _ in
+            guard value != nil else { return }
+            attachmentStrays.append(contentsOf: Self.nonAttachmentSubranges(of: runRange, in: ns))
+        }
+        var markerStrays: [NSRange] = []
+        textStorage.enumerateAttribute(.proseListMarker, in: safe) { value, runRange, _ in
+            guard (value as? Bool) == true else { return }
+            markerStrays.append(contentsOf: Self.nonAttachmentSubranges(of: runRange, in: ns))
+        }
+        if attachmentStrays.isEmpty && markerStrays.isEmpty { return }
+
         applyingMarkdown = true
         textStorage.beginEditing()
-        let ns = textStorage.string as NSString
-        var i = safe.location
-        let endIdx = min(safe.location + safe.length, textStorage.length)
-        while i < endIdx {
-            let charRange = NSRange(location: i, length: 1)
-            let isAttachmentGlyph = ns.character(at: i) == 0xFFFC
-                && textStorage.safeAttribute(.attachment, at: i) != nil
-            if !isAttachmentGlyph {
-                textStorage.removeAttribute(.attachment, range: charRange)
-                textStorage.removeAttribute(.proseListMarker, range: charRange)
-            }
-            i += 1
-        }
+        for r in attachmentStrays { textStorage.removeAttribute(.attachment, range: r) }
+        for r in markerStrays { textStorage.removeAttribute(.proseListMarker, range: r) }
         textStorage.endEditing()
         applyingMarkdown = false
+    }
+
+    /// Subranges of `range` whose characters are NOT the FFFC attachment
+    /// glyph. Used by scrubTypedAttributes to spot positions where AppKit
+    /// stamped a run-level attribute onto typed text.
+    private static func nonAttachmentSubranges(of range: NSRange, in ns: NSString) -> [NSRange] {
+        var out: [NSRange] = []
+        var start: Int?
+        let end = range.location + range.length
+        for i in range.location..<end {
+            if ns.character(at: i) == 0xFFFC {
+                if let s = start {
+                    out.append(NSRange(location: s, length: i - s))
+                    start = nil
+                }
+            } else if start == nil {
+                start = i
+            }
+        }
+        if let s = start {
+            out.append(NSRange(location: s, length: end - s))
+        }
+        return out
     }
 
     /// After a character edit, scan the edited paragraphs and reset any
