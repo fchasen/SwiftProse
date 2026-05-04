@@ -84,12 +84,11 @@ public final class HighlightApplier {
         let query = (grammar == .block) ? blockQuery : inlineQuery
         let cursor = query.execute(node: rootNode, in: tree)
         let named = cursor.highlights()
-        return named.compactMap { nr in
-            guard let captureName = nr.nameComponents.first else { return nil }
-            let fullName = nr.nameComponents.joined(separator: ".")
-            let tag = HighlightTag(captureName: fullName) == .unknown
-                ? HighlightTag(captureName: captureName)
-                : HighlightTag(captureName: fullName)
+        return named.map { nr in
+            // HighlightTag.init(captureName:) already walks the dotted prefix
+            // chain back to a known tag, so passing the joined name is enough.
+            let name = nr.nameComponents.joined(separator: ".")
+            let tag = name.isEmpty ? HighlightTag.unknown : HighlightTag(captureName: name)
             let lo = mapping.utf16Offset(forByte: nr.tsRange.bytes.lowerBound)
             let hi = mapping.utf16Offset(forByte: nr.tsRange.bytes.upperBound)
             return HighlightSpan(range: NSRange(location: lo, length: hi - lo), tag: tag)
