@@ -166,7 +166,7 @@ public struct ProseTheme: Equatable {
         case .op: return codePalette.op
         case .punctuationDelimiter, .punctuationBracket, .punctuationSpecial:
             return codePalette.punctuation
-        case .textTitle, .textLiteral, .textEmphasis, .textStrong,
+        case .textTitle, .textLiteral, .textEmphasis, .textStrong, .textStrike,
              .textURI, .textReference, .none, .unknown:
             return nil
         }

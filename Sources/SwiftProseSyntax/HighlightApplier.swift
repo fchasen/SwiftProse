@@ -11,6 +11,7 @@ public enum HighlightTag: String, Sendable, Equatable {
     case textLiteral = "text.literal"
     case textEmphasis = "text.emphasis"
     case textStrong = "text.strong"
+    case textStrike = "text.strike"
     case textURI = "text.uri"
     case textReference = "text.reference"
     case punctuationSpecial = "punctuation.special"
@@ -182,6 +183,8 @@ public final class HighlightApplier {
     (emphasis) @text.emphasis
 
     (strong_emphasis) @text.strong
+
+    (strikethrough) @text.strike
 
     (uri_autolink) @text.uri
 

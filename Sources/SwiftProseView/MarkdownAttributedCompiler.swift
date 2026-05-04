@@ -81,12 +81,15 @@ public final class MarkdownAttributedCompiler {
         let inlineTree = inlineParser.parse(markdown)
         let inlineMapping = inlineParser.mapping
         let inlineHighlights: [HighlightSpan]
+        let inlineRegions: [InlineRegion]
         if let inlineRoot = inlineTree?.rootNode, let it = inlineTree {
             inlineHighlights = highlighter.highlights(
                 rootNode: inlineRoot, in: it, mapping: inlineMapping, grammar: .inline
             )
+            inlineRegions = InlineClassifier.classify(rootNode: inlineRoot, mapping: inlineMapping)
         } else {
             inlineHighlights = []
+            inlineRegions = []
         }
 
         let result = NSMutableAttributedString()
@@ -102,6 +105,7 @@ public final class MarkdownAttributedCompiler {
                 source: markdown,
                 blockHighlights: blockHighlights,
                 inlineHighlights: inlineHighlights,
+                inlineRegions: inlineRegions,
                 theme: theme,
                 into: result
             )
@@ -123,6 +127,7 @@ public final class MarkdownAttributedCompiler {
         source: String,
         blockHighlights: [HighlightSpan],
         inlineHighlights: [HighlightSpan],
+        inlineRegions: [InlineRegion],
         theme: ProseTheme,
         into out: NSMutableAttributedString
     ) {
@@ -136,6 +141,7 @@ public final class MarkdownAttributedCompiler {
                 segment,
                 source: source,
                 inlineHighlights: inlineHighlights,
+                inlineRegions: inlineRegions,
                 blockHighlights: blockHighlights,
                 theme: theme,
                 into: out
@@ -156,6 +162,7 @@ public final class MarkdownAttributedCompiler {
         _ segment: BlockSegment,
         source: String,
         inlineHighlights: [HighlightSpan],
+        inlineRegions: [InlineRegion],
         blockHighlights: [HighlightSpan],
         theme: ProseTheme,
         into out: NSMutableAttributedString
@@ -209,12 +216,25 @@ public final class MarkdownAttributedCompiler {
                     .font: theme.monospaceFont,
                     .proseInline: InlineTag.codeSpan
                 ]))
-            case .textURI, .textReference:
+            case .textStrike:
                 styleRuns.append((projected, [
+                    .strikethroughStyle: NSUnderlineStyle.single.rawValue
+                ]))
+            case .textURI, .textReference:
+                var attrs: [NSAttributedString.Key: Any] = [
                     .foregroundColor: theme.linkColor,
                     .underlineStyle: NSUnderlineStyle.single.rawValue,
                     .proseInline: InlineTag.link
-                ]))
+                ]
+                if let dest = linkDestination(for: span.range, in: inlineRegions) {
+                    attrs[.proseLink] = dest
+                    if let url = URL(string: dest) {
+                        attrs[.link] = url
+                    } else {
+                        attrs[.link] = dest
+                    }
+                }
+                styleRuns.append((projected, attrs))
             default:
                 break
             }
@@ -756,6 +776,18 @@ public final class MarkdownAttributedCompiler {
         let aEnd = a.location + a.length
         let bEnd = b.location + b.length
         return a.location < bEnd && b.location < aEnd
+    }
+
+    private func linkDestination(for spanRange: NSRange, in regions: [InlineRegion]) -> String? {
+        for region in regions {
+            guard case .inlineLink(let dest, _) = region.kind else { continue }
+            let regionEnd = region.range.location + region.range.length
+            let spanEnd = spanRange.location + spanRange.length
+            if spanRange.location >= region.range.location && spanEnd <= regionEnd {
+                return dest.isEmpty ? nil : dest
+            }
+        }
+        return nil
     }
 
     /// Walk forward from a strip range's end as long as the next character
