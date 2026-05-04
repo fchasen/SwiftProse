@@ -139,15 +139,15 @@ public final class AttributedMarkdownSerializer {
             let label = stripTrailingNewline(content)
             return "`\(label)`"
         }
-        if let font = attrs[.font] as? PlatformFont, isMonospace(font) {
+        if let font = attrs[.font] as? PlatformFont, font.isMonospace {
             let label = stripTrailingNewline(content)
             return "`\(label)`"
         }
 
         if let font = attrs[.font] as? PlatformFont {
-            let traits = symbolicTraits(of: font)
-            let bold = isBold(traits) && !paragraphImpliedBold(for: spec)
-            let italic = isItalic(traits)
+            let traits = font.proseTraits
+            let bold = traits.contains(.bold) && !paragraphImpliedBold(for: spec)
+            let italic = traits.contains(.italic)
             if bold && italic {
                 prefix = "***"; suffix = "***"
             } else if bold {
@@ -204,33 +204,4 @@ public final class AttributedMarkdownSerializer {
         return nil
     }
 
-    private func isMonospace(_ font: PlatformFont) -> Bool {
-        #if canImport(AppKit) && os(macOS)
-        return font.fontDescriptor.symbolicTraits.contains(NSFontDescriptor.SymbolicTraits.monoSpace)
-        #else
-        return font.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
-        #endif
-    }
-
-    #if canImport(AppKit) && os(macOS)
-    private func symbolicTraits(of font: PlatformFont) -> NSFontDescriptor.SymbolicTraits {
-        font.fontDescriptor.symbolicTraits
-    }
-    private func isBold(_ traits: NSFontDescriptor.SymbolicTraits) -> Bool {
-        traits.contains(.bold)
-    }
-    private func isItalic(_ traits: NSFontDescriptor.SymbolicTraits) -> Bool {
-        traits.contains(.italic)
-    }
-    #else
-    private func symbolicTraits(of font: PlatformFont) -> UIFontDescriptor.SymbolicTraits {
-        font.fontDescriptor.symbolicTraits
-    }
-    private func isBold(_ traits: UIFontDescriptor.SymbolicTraits) -> Bool {
-        traits.contains(.traitBold)
-    }
-    private func isItalic(_ traits: UIFontDescriptor.SymbolicTraits) -> Bool {
-        traits.contains(.traitItalic)
-    }
-    #endif
 }

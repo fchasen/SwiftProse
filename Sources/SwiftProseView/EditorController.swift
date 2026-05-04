@@ -628,51 +628,16 @@ public final class EditorController {
             attrs[.backgroundColor] = subtleCodeBackgroundColor()
         }
         if storedInlineMarks.contains(.bold) {
-            font = applyFontTrait(.bold, on: font, enable: true)
+            font = font.togglingProseTrait(.bold, enable: true)
         }
         if storedInlineMarks.contains(.italic) {
-            font = applyFontTrait(.italic, on: font, enable: true)
+            font = font.togglingProseTrait(.italic, enable: true)
         }
         attrs[.font] = font
         if storedInlineMarks.contains(.strikethrough) {
             attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
         }
         return attrs
-    }
-
-    private enum StoredFontTrait { case bold, italic }
-
-    private func applyFontTrait(
-        _ trait: StoredFontTrait,
-        on font: PlatformFont,
-        enable: Bool
-    ) -> PlatformFont {
-        #if canImport(AppKit) && os(macOS)
-        var symbolic = font.fontDescriptor.symbolicTraits
-        switch trait {
-        case .bold:
-            if enable { symbolic.insert(.bold) } else { symbolic.remove(.bold) }
-        case .italic:
-            if enable { symbolic.insert(.italic) } else { symbolic.remove(.italic) }
-        }
-        if let descriptor = font.fontDescriptor.withSymbolicTraits(symbolic) as NSFontDescriptor?,
-           let updated = NSFont(descriptor: descriptor, size: font.pointSize) {
-            return updated
-        }
-        return font
-        #else
-        var symbolic = font.fontDescriptor.symbolicTraits
-        switch trait {
-        case .bold:
-            if enable { symbolic.insert(.traitBold) } else { symbolic.remove(.traitBold) }
-        case .italic:
-            if enable { symbolic.insert(.traitItalic) } else { symbolic.remove(.traitItalic) }
-        }
-        if let descriptor = font.fontDescriptor.withSymbolicTraits(symbolic) {
-            return UIFont(descriptor: descriptor, size: font.pointSize)
-        }
-        return font
-        #endif
     }
 
     private func subtleCodeBackgroundColor() -> PlatformColor {

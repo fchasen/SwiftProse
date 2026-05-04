@@ -218,9 +218,9 @@ public final class MarkdownAttributedCompiler {
             guard let projected = stripped.project(sourceRange: span.range) else { continue }
             switch span.tag {
             case .textStrong:
-                styleRuns.append((projected, [.font: themedFont(theme.bodyFont, traits: [.bold])]))
+                styleRuns.append((projected, [.font: theme.bodyFont.withProseTraits(.bold)]))
             case .textEmphasis:
-                styleRuns.append((projected, [.font: themedFont(theme.bodyFont, traits: [.italic])]))
+                styleRuns.append((projected, [.font: theme.bodyFont.withProseTraits(.italic)]))
             case .textLiteral:
                 styleRuns.append((projected, [
                     .font: theme.monospaceFont,
@@ -242,7 +242,7 @@ public final class MarkdownAttributedCompiler {
         switch segment.tag {
         case .heading:
             let scale = theme.headingScale[segment.level] ?? 1.0
-            baseFont = themedFont(theme.bodyFont, scale: scale, traits: [.bold])
+            baseFont = theme.bodyFont.withProseTraits(.bold, scale: scale)
         default:
             baseFont = theme.bodyFont
         }
@@ -272,8 +272,8 @@ public final class MarkdownAttributedCompiler {
             for (k, v) in attrs {
                 if k == .font {
                     if let baseRun = attributed.safeAttribute(.font, at: safe.location) as? PlatformFont,
-                       let trait = (v as? PlatformFont).flatMap({ traitsOf($0) }) {
-                        let merged = themedFont(baseRun, traits: trait)
+                       let trait = (v as? PlatformFont)?.proseTraits {
+                        let merged = baseRun.withProseTraits(trait)
                         attributed.addAttribute(.font, value: merged, range: safe)
                     } else {
                         attributed.addAttribute(.font, value: v, range: safe)
@@ -673,43 +673,3 @@ public final class MarkdownAttributedCompiler {
     }
 }
 
-// MARK: - font trait helpers
-
-private struct FontTraits: OptionSet {
-    let rawValue: Int
-    static let bold = FontTraits(rawValue: 1 << 0)
-    static let italic = FontTraits(rawValue: 1 << 1)
-}
-
-private func themedFont(_ base: PlatformFont, scale: CGFloat = 1.0, traits: FontTraits = []) -> PlatformFont {
-    let size = base.pointSize * scale
-    #if canImport(AppKit) && os(macOS)
-    var nsTraits: NSFontDescriptor.SymbolicTraits = []
-    if traits.contains(.bold) { nsTraits.insert(.bold) }
-    if traits.contains(.italic) { nsTraits.insert(.italic) }
-    let descriptor = base.fontDescriptor.withSymbolicTraits(nsTraits)
-    return NSFont(descriptor: descriptor, size: size) ?? NSFont.systemFont(ofSize: size)
-    #else
-    var uiTraits: UIFontDescriptor.SymbolicTraits = []
-    if traits.contains(.bold) { uiTraits.insert(.traitBold) }
-    if traits.contains(.italic) { uiTraits.insert(.traitItalic) }
-    if let d = base.fontDescriptor.withSymbolicTraits(uiTraits) {
-        return UIFont(descriptor: d, size: size)
-    }
-    return UIFont.systemFont(ofSize: size)
-    #endif
-}
-
-private func traitsOf(_ font: PlatformFont) -> FontTraits {
-    var out: FontTraits = []
-    #if canImport(AppKit) && os(macOS)
-    let symbolic = font.fontDescriptor.symbolicTraits
-    if symbolic.contains(.bold) { out.insert(.bold) }
-    if symbolic.contains(.italic) { out.insert(.italic) }
-    #else
-    let symbolic = font.fontDescriptor.symbolicTraits
-    if symbolic.contains(.traitBold) { out.insert(.bold) }
-    if symbolic.contains(.traitItalic) { out.insert(.italic) }
-    #endif
-    return out
-}

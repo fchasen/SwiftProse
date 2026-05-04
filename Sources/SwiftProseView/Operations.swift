@@ -488,7 +488,7 @@ public enum Operations {
         range: NSRange,
         theme: ProseTheme
     ) -> NSRange {
-        toggleFontTrait(in: storage, range: range, trait: .bold, theme: theme, placeholder: "bold")
+        toggleFontTrait(in: storage, range: range, trait: .bold, theme: theme)
     }
 
     @discardableResult
@@ -497,7 +497,7 @@ public enum Operations {
         range: NSRange,
         theme: ProseTheme
     ) -> NSRange {
-        toggleFontTrait(in: storage, range: range, trait: .italic, theme: theme, placeholder: "italic")
+        toggleFontTrait(in: storage, range: range, trait: .italic, theme: theme)
     }
 
     @discardableResult
@@ -552,14 +552,11 @@ public enum Operations {
 
     // MARK: - private toggle helpers
 
-    private enum FontTrait { case bold, italic }
-
     private static func toggleFontTrait(
         in storage: NSTextStorage,
         range: NSRange,
-        trait: FontTrait,
-        theme: ProseTheme,
-        placeholder: String
+        trait: FontTraits,
+        theme: ProseTheme
     ) -> NSRange {
         if range.length == 0 {
             return range.clamped(to: storage.length)
@@ -569,7 +566,7 @@ public enum Operations {
         storage.beginEditing()
         storage.enumerateAttribute(.font, in: safe) { value, subRange, _ in
             let base = (value as? PlatformFont) ?? theme.bodyFont
-            let updated = applyTrait(trait, on: base, enable: !allOn)
+            let updated = base.togglingProseTrait(trait, enable: !allOn)
             storage.addAttribute(.font, value: updated, range: subRange)
         }
         storage.endEditing()
@@ -579,13 +576,13 @@ public enum Operations {
     private static func isUniformFontTrait(
         in storage: NSTextStorage,
         range: NSRange,
-        trait: FontTrait
+        trait: FontTraits
     ) -> Bool {
         var allOn = true
         var sawAny = false
         storage.enumerateAttribute(.font, in: range) { value, _, stop in
             sawAny = true
-            guard let font = value as? PlatformFont, hasTrait(trait, on: font) else {
+            guard let font = value as? PlatformFont, font.proseTraits.contains(trait) else {
                 allOn = false
                 stop.pointee = true
                 return
@@ -621,40 +618,6 @@ public enum Operations {
     }
 
     // MARK: - helpers
-
-    private static func hasTrait(_ trait: FontTrait, on font: PlatformFont) -> Bool {
-        #if canImport(AppKit) && os(macOS)
-        let symbolic = font.fontDescriptor.symbolicTraits
-        switch trait {
-        case .bold: return symbolic.contains(.bold)
-        case .italic: return symbolic.contains(.italic)
-        }
-        #else
-        let symbolic = font.fontDescriptor.symbolicTraits
-        switch trait {
-        case .bold: return symbolic.contains(.traitBold)
-        case .italic: return symbolic.contains(.traitItalic)
-        }
-        #endif
-    }
-
-    private static func applyTrait(_ trait: FontTrait, on font: PlatformFont, enable: Bool) -> PlatformFont {
-        #if canImport(AppKit) && os(macOS)
-        var symbolic = font.fontDescriptor.symbolicTraits
-        let toggle: NSFontDescriptor.SymbolicTraits = (trait == .bold) ? .bold : .italic
-        if enable { symbolic.insert(toggle) } else { symbolic.remove(toggle) }
-        let descriptor = font.fontDescriptor.withSymbolicTraits(symbolic)
-        return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
-        #else
-        var symbolic = font.fontDescriptor.symbolicTraits
-        let toggle: UIFontDescriptor.SymbolicTraits = (trait == .bold) ? .traitBold : .traitItalic
-        if enable { symbolic.insert(toggle) } else { symbolic.remove(toggle) }
-        if let descriptor = font.fontDescriptor.withSymbolicTraits(symbolic) {
-            return UIFont(descriptor: descriptor, size: font.pointSize)
-        }
-        return font
-        #endif
-    }
 
     /// Read the attributes at `location` to seed inserted text. If the
     /// storage is empty or location is at the very end, fall back to a
