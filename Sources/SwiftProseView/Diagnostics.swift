@@ -31,31 +31,26 @@ public enum SpecValidator {
     ) -> [SpecDiagnostic] {
         var out: [SpecDiagnostic] = []
         forEachLine(in: storage, range: range) { lineRange in
-            // Missing spec.
             var sawSpec = false
-            for i in lineRange.location..<(lineRange.location + lineRange.length) {
-                if storage.blockSpec(at: i) == nil {
-                    out.append(SpecDiagnostic(issue: .missingSpec(at: i), lineRange: lineRange))
-                } else {
-                    sawSpec = true
-                }
-            }
-            // Inconsistent specs.
             var seenSpecs: [BlockSpec] = []
             for i in lineRange.location..<(lineRange.location + lineRange.length) {
-                if let spec = storage.blockSpec(at: i), !seenSpecs.contains(spec) {
-                    seenSpecs.append(spec)
+                if let spec = storage.blockSpec(at: i) {
+                    sawSpec = true
+                    if !seenSpecs.contains(spec) { seenSpecs.append(spec) }
+                } else {
+                    out.append(SpecDiagnostic(issue: .missingSpec(at: i), lineRange: lineRange))
                 }
             }
             if seenSpecs.count > 1 {
                 out.append(SpecDiagnostic(issue: .inconsistentSpec(in: lineRange, found: seenSpecs), lineRange: lineRange))
             }
             // Marker / list-item alignment.
-            if sawSpec, let canonical = seenSpecs.first {
-                for i in lineRange.location..<(lineRange.location + lineRange.length) {
-                    let marker = (storage.attribute(.proseListMarker, at: i, effectiveRange: nil) as? Bool) == true
-                    if marker && !canonical.isListItem {
-                        out.append(SpecDiagnostic(issue: .markerWithoutListItem(at: i), lineRange: lineRange))
+            if sawSpec, let canonical = seenSpecs.first, !canonical.isListItem {
+                storage.enumerateAttribute(.proseListMarker, in: lineRange) { value, subRange, _ in
+                    if (value as? Bool) == true {
+                        for i in subRange.location..<(subRange.location + subRange.length) {
+                            out.append(SpecDiagnostic(issue: .markerWithoutListItem(at: i), lineRange: lineRange))
+                        }
                     }
                 }
             }
@@ -76,22 +71,18 @@ public enum SpecValidator {
         }
     }
 
-    /// Pick the spec value that the largest contiguous run agrees on.
-    /// Falls back to the first spec found, or nil if no chars carry one.
+    /// Pick the spec value the largest portion of the line agrees on.
+    /// Returns nil if no character carries a spec.
     private static func canonicalSpec(
         in storage: NSAttributedString,
         lineRange: NSRange
     ) -> BlockSpec? {
-        var counts: [(BlockSpec, Int)] = []
-        for i in lineRange.location..<(lineRange.location + lineRange.length) {
-            guard let spec = storage.blockSpec(at: i) else { continue }
-            if let idx = counts.firstIndex(where: { $0.0 == spec }) {
-                counts[idx].1 += 1
-            } else {
-                counts.append((spec, 1))
-            }
+        var counts: [BlockSpec: Int] = [:]
+        storage.enumerateAttribute(.proseBlockSpec, in: lineRange) { value, subRange, _ in
+            guard let spec = (value as? BlockSpecBox)?.spec else { return }
+            counts[spec, default: 0] += subRange.length
         }
-        return counts.max(by: { $0.1 < $1.1 })?.0
+        return counts.max(by: { $0.value < $1.value })?.key
     }
 
     private static func applyCanonical(
