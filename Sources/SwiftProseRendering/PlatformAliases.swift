@@ -7,6 +7,7 @@ public typealias PlatformTextView = NSTextView
 public typealias PlatformColor = NSColor
 public typealias PlatformFont = NSFont
 public typealias PlatformFontDescriptor = NSFontDescriptor
+public typealias PlatformImage = NSImage
 #elseif canImport(UIKit)
 import UIKit
 public typealias PlatformView = UIView
@@ -14,4 +15,5 @@ public typealias PlatformTextView = UITextView
 public typealias PlatformColor = UIColor
 public typealias PlatformFont = UIFont
 public typealias PlatformFontDescriptor = UIFontDescriptor
+public typealias PlatformImage = UIImage
 #endif

@@ -67,12 +67,6 @@ public final class ChipTextAttachment: NSTextAttachment {
     }
 }
 
-#if canImport(AppKit) && os(macOS)
-public typealias PlatformImage = NSImage
-#elseif canImport(UIKit)
-public typealias PlatformImage = UIImage
-#endif
-
 extension ChipAttachment {
     static func width(for label: String, symbolName: String, height: CGFloat) -> CGFloat {
         let labelWidth = (label as NSString).size(withAttributes: [
