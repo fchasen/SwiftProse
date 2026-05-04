@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProseSyntax
 import SwiftProseRendering
 #if canImport(AppKit) && os(macOS)
 import AppKit
@@ -46,6 +47,18 @@ public struct ProseTheme: Equatable {
 
     public static var `default`: ProseTheme {
         Self.default(fontScale: 1.0)
+    }
+
+    /// Attribute set for a plain paragraph in this theme. Used everywhere
+    /// the editor needs to demote a styled line back to an unstyled one
+    /// (backspace at the start of a list item, exiting a heading, etc.).
+    public func plainParagraphAttributes() -> [NSAttributedString.Key: Any] {
+        [
+            .font: bodyFont,
+            .foregroundColor: foregroundColor,
+            .paragraphStyle: NSParagraphStyle(),
+            .proseBlockSpec: BlockSpecBox(.paragraph)
+        ]
     }
 
     public func headingFont(level: Int) -> PlatformFont {

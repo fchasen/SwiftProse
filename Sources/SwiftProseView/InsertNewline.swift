@@ -40,12 +40,7 @@ public enum InsertNewline {
         let lineRange = ns.paragraphRange(for: NSRange(location: probe, length: 0))
 
         if isEmptyListLine(in: storage, lineRange: lineRange) {
-            let plainAttrs: [NSAttributedString.Key: Any] = [
-                .font: theme.bodyFont,
-                .foregroundColor: theme.foregroundColor,
-                .paragraphStyle: NSParagraphStyle(),
-                .proseBlockSpec: BlockSpecBox(.paragraph)
-            ]
+            let plainAttrs = theme.plainParagraphAttributes()
             let replacement = NSAttributedString(string: "\n", attributes: plainAttrs)
             storage.beginEditing()
             storage.replaceCharacters(in: lineRange, with: replacement)

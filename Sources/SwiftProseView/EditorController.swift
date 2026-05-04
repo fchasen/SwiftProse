@@ -168,12 +168,7 @@ public final class EditorController {
     /// view's `typingAttributes`) so the next keystroke continues to
     /// render in heading style.
     private func demoteEmptyStyledLines() {
-        let plainAttrs: [NSAttributedString.Key: Any] = [
-            .font: theme.bodyFont,
-            .foregroundColor: theme.foregroundColor,
-            .paragraphStyle: NSParagraphStyle(),
-            .proseBlockSpec: BlockSpecBox(.paragraph)
-        ]
+        let plainAttrs = theme.plainParagraphAttributes()
         if textStorage.length == 0 {
             applyTypingAttributes(plainAttrs)
             return
@@ -593,12 +588,7 @@ public final class EditorController {
     /// empty — so the user's next keystroke renders as expected.
     private func refreshTypingAttributes(at location: Int) {
         let total = textStorage.length
-        var attrs: [NSAttributedString.Key: Any] = [
-            .font: theme.bodyFont,
-            .foregroundColor: theme.foregroundColor,
-            .paragraphStyle: NSParagraphStyle(),
-            .proseBlockSpec: BlockSpecBox(.paragraph)
-        ]
+        var attrs = theme.plainParagraphAttributes()
         if total > 0 {
             let probe = max(0, min(location, total - 1))
             let raw = textStorage.safeAttributes(at: probe)
@@ -780,12 +770,7 @@ public final class EditorController {
             .trimmingCharacters(in: .whitespaces)
         if stripped.isEmpty {
             // Empty blockquote line — exit to plain paragraph at this line.
-            let plainAttrs: [NSAttributedString.Key: Any] = [
-                .font: theme.bodyFont,
-                .foregroundColor: theme.foregroundColor,
-                .paragraphStyle: NSParagraphStyle(),
-                .proseBlockSpec: BlockSpecBox(.paragraph)
-            ]
+            let plainAttrs = theme.plainParagraphAttributes()
             let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
             withCharacterMutation(range: lineRange) {
                 applyingMarkdown = true
@@ -841,12 +826,7 @@ public final class EditorController {
     }
 
     private func demoteOrphanLineToPlain(lineRange: NSRange) -> NSRange {
-        let plainAttrs: [NSAttributedString.Key: Any] = [
-            .font: theme.bodyFont,
-            .foregroundColor: theme.foregroundColor,
-            .paragraphStyle: NSParagraphStyle(),
-            .proseBlockSpec: BlockSpecBox(.paragraph)
-        ]
+        let plainAttrs = theme.plainParagraphAttributes()
         let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
         withCharacterMutation(range: lineRange) {
             applyingMarkdown = true
@@ -889,12 +869,7 @@ public final class EditorController {
         let bodyStart = markerRange.location + markerRange.length
         guard cursor == bodyStart else { return false }
 
-        let plainAttrs: [NSAttributedString.Key: Any] = [
-            .font: theme.bodyFont,
-            .foregroundColor: theme.foregroundColor,
-            .paragraphStyle: NSParagraphStyle(),
-            .proseBlockSpec: BlockSpecBox(.paragraph)
-        ]
+        let plainAttrs = theme.plainParagraphAttributes()
         let bodyRange = NSRange(location: bodyStart, length: lineRange.length - markerRange.length)
         withCharacterMutation(range: lineRange) {
             applyingMarkdown = true
@@ -927,12 +902,7 @@ public final class EditorController {
         let lineRange = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
         let trailingLength = max(0, lineRange.location + lineRange.length - cursor)
 
-        let plainAttrs: [NSAttributedString.Key: Any] = [
-            .font: theme.bodyFont,
-            .foregroundColor: theme.foregroundColor,
-            .paragraphStyle: NSParagraphStyle(),
-            .proseBlockSpec: BlockSpecBox(.paragraph)
-        ]
+        let plainAttrs = theme.plainParagraphAttributes()
         let inserted = NSAttributedString(string: "\n", attributes: plainAttrs)
 
         withCharacterMutation(range: lineRange) {

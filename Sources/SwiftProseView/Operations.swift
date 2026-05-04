@@ -388,12 +388,7 @@ public enum Operations {
         }
         var markerRange = NSRange(location: lineRange.location, length: 0)
         _ = storage.safeAttribute(.proseListMarker, at: lineRange.location, longestEffectiveRange: &markerRange, in: lineRange)
-        let plainAttrs: [NSAttributedString.Key: Any] = [
-            .font: theme.bodyFont,
-            .foregroundColor: theme.foregroundColor,
-            .paragraphStyle: NSParagraphStyle(),
-            .proseBlockSpec: BlockSpecBox(.paragraph)
-        ]
+        let plainAttrs = theme.plainParagraphAttributes()
         storage.beginEditing()
         storage.replaceCharacters(in: markerRange, with: "")
         let bodyLen = lineRange.length - markerRange.length
