@@ -68,4 +68,37 @@ import UIKit
         #expect(decoded.type == "doc")
         #expect(decoded.content?.first?.type == "heading")
     }
+
+    @Test func documentExposesTreeOfCurrentStorage() throws {
+        let controller = try EditorController(initialMarkdown: "# Title\n\nBody.\n")
+        let document = controller.document
+        guard case .structural(let root, let kids) = document.root else {
+            Issue.record("expected structural root")
+            return
+        }
+        #expect(root.type == "doc")
+        let topTypes = kids.compactMap { kid -> String? in
+            if case .structural(let n, _) = kid { return n.type }
+            if case .leaf(let n) = kid { return n.type }
+            return nil
+        }
+        #expect(topTypes.contains("heading"))
+        #expect(topTypes.contains("paragraph"))
+    }
+
+    @Test func documentReflectsLatestStorageAfterMutation() throws {
+        let controller = try EditorController(initialMarkdown: "alpha\n")
+        let lineRange = NSRange(location: 0, length: controller.textStorage.length)
+        controller.apply(Transaction(steps: [
+            .setSpec(lineRange: lineRange, BlockSpec(kind: .heading(level: 2)))
+        ]))
+        let document = controller.document
+        guard case .structural(_, let kids) = document.root,
+              case .structural(let leaf, _) = kids.first else {
+            Issue.record("expected heading at top of doc")
+            return
+        }
+        #expect(leaf.type == "heading")
+        #expect(leaf.attrs["level"] == .int(2))
+    }
 }

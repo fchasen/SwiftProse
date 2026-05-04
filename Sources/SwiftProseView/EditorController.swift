@@ -20,6 +20,14 @@ public final class EditorController {
 
     public private(set) var blocks: [BlockSegment] = []
 
+    /// Tree view of the current storage. Re-derived from `proseNodePath`
+    /// runs on every access; mutations that update those attributes
+    /// (compile, setSpec, addMark, removeMark, toggleInlineMark) keep the
+    /// tree fresh. Phase 8 will cache and eagerly update.
+    public var document: ProseDocument {
+        ProseDocument.from(storage: textStorage, schema: compiler.schema)
+    }
+
     public let undoManager: UndoManager = UndoManager()
     public weak var hostTextView: AnyObject?
     public var intrinsicSizeInvalidator: (() -> Void)?
