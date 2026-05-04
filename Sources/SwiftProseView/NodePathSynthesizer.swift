@@ -67,6 +67,7 @@ public struct NodePathSynthesizer {
         let docNode = ProseNode(type: schema.topNodeName, attrs: schema.topNode.defaultAttrs())
         var tableRunNode: ProseNode? = nil
         var lastWasPipeTable = false
+        var openLists: [OpenList] = []
         storage.beginEditing()
         storage.enumerateBlockSpecs { blockRange, spec in
             // Decide the table envelope: consecutive pipe-table paragraphs
@@ -80,7 +81,12 @@ public struct NodePathSynthesizer {
                 tableRunNode = nil
                 lastWasPipeTable = false
             }
-            let path = nodePath(for: spec, doc: docNode, tableNode: tableRunNode)
+            let path = nodePath(
+                for: spec,
+                doc: docNode,
+                tableNode: tableRunNode,
+                openLists: &openLists
+            )
             storage.setNodePath(path, in: blockRange)
             // Stamp marks per inline run within this block. Marks come from
             // the rendering attributes the compiler already set.
@@ -91,26 +97,70 @@ public struct NodePathSynthesizer {
 
     // MARK: - NodePath synthesis
 
+    /// Tracks which list ancestors are currently open at each depth so
+    /// consecutive list-item lines share the same list + (where applicable)
+    /// ancestor item nodes.
+    private struct OpenList {
+        let kind: ListKind
+        let listNode: ProseNode
+        var itemNode: ProseNode
+    }
+
+    private enum ListKind: Equatable {
+        case bullet
+        case ordered
+        case task
+    }
+
     private func nodePath(
         for spec: BlockSpec,
         doc: ProseNode,
-        tableNode: ProseNode?
+        tableNode: ProseNode?,
+        openLists: inout [OpenList]
     ) -> NodePath {
         var nodes: [ProseNode] = [doc]
         // Blockquote nesting: each depth level introduces a blockquote.
         for _ in 0..<spec.blockquoteDepth {
             nodes.append(ProseNode(type: "blockquote"))
         }
-        // List nesting: each list level introduces a list+list_item pair.
-        // Phase-2 stamping is best-effort — it doesn't have access to the
-        // list KIND at outer levels, so all wrappers default to bullet_list.
-        // Phase 4 (step refactor) corrects this once the compiler emits a
-        // tree directly.
-        if spec.isListItem {
-            for _ in 0..<spec.listLevel {
-                nodes.append(ProseNode(type: "bullet_list"))
-                nodes.append(ProseNode(type: "list_item"))
+        if spec.isListItem, let kind = listKind(for: spec.kind) {
+            let depth = spec.listLevel
+            // Close any deeper open lists.
+            if openLists.count > depth + 1 {
+                openLists.removeLast(openLists.count - (depth + 1))
             }
+            // Ensure ancestors at every shallower depth exist; outer
+            // wrappers default to bullet_list because per-line synthesis
+            // doesn't know the outer list kind. Phase 4's direct tree
+            // compile will close this gap.
+            while openLists.count < depth {
+                openLists.append(OpenList(
+                    kind: .bullet,
+                    listNode: ProseNode(type: listNodeName(for: .bullet)),
+                    itemNode: ProseNode(type: "list_item")
+                ))
+            }
+            let leafItem = ProseNode(type: "list_item", attrs: itemAttrs(for: spec.kind))
+            // At the line's own depth: reuse the open list when kind matches,
+            // mint a new list otherwise. Always mint a new list_item — every
+            // list-item line is its own item.
+            if openLists.count == depth + 1, openLists[depth].kind == kind {
+                openLists[depth].itemNode = leafItem
+            } else {
+                if openLists.count > depth { openLists.removeLast(openLists.count - depth) }
+                openLists.append(OpenList(
+                    kind: kind,
+                    listNode: ProseNode(type: listNodeName(for: kind)),
+                    itemNode: leafItem
+                ))
+            }
+            for level in 0...depth {
+                nodes.append(openLists[level].listNode)
+                nodes.append(openLists[level].itemNode)
+            }
+        } else {
+            // Non-list-item lines close any open lists.
+            openLists.removeAll(keepingCapacity: true)
         }
         // Table envelope: every pipe-table paragraph in a run shares one
         // table node. Phase 6 will replace this best-effort wrapping with
@@ -121,6 +171,34 @@ public struct NodePathSynthesizer {
         // Leaf node — the type that corresponds to this block's kind.
         nodes.append(leafNode(for: spec.kind))
         return NodePath(nodes)
+    }
+
+    private func listKind(for kind: BlockSpec.Kind) -> ListKind? {
+        switch kind {
+        case .unorderedListItem: return .bullet
+        case .orderedListItem: return .ordered
+        case .taskListItem: return .task
+        default: return nil
+        }
+    }
+
+    private func listNodeName(for kind: ListKind) -> String {
+        switch kind {
+        case .bullet: return "bullet_list"
+        case .ordered: return "ordered_list"
+        case .task: return "task_list"
+        }
+    }
+
+    private func itemAttrs(for kind: BlockSpec.Kind) -> [String: ProseAttrValue] {
+        switch kind {
+        case .taskListItem(let checked):
+            return ["checked": .bool(checked)]
+        case .orderedListItem(let index):
+            return ["order": .int(index)]
+        default:
+            return [:]
+        }
     }
 
     private func leafNode(for kind: BlockSpec.Kind) -> ProseNode {

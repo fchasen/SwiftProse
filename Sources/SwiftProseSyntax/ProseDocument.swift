@@ -264,17 +264,33 @@ public extension ProseDocument {
                 stack[stack.count - 1].kids.append(.leaf(leaf))
                 return
             }
-            // Inline runs — split by `proseMarks` boundaries (and skip
-            // presentation markers via per-character probe).
+            // Inline runs — split by `proseMarks` boundaries, then split
+            // each run further around presentation markers (list bullet
+            // glyphs etc.) so a marker at position 0 of a run doesn't make
+            // us skip the trailing content.
             storage.enumerateAttribute(.proseMarks, in: blockRange) { value, runRange, _ in
                 guard runRange.length > 0 else { return }
-                if isPresentationMarker(in: storage, at: runRange.location) { return }
-                let raw = (storage.string as NSString).substring(with: runRange)
-                let text = stripTrailingNewlines(raw)
-                if text.isEmpty { return }
-                openTo(parent: blockPath, stack: &stack, openPath: &openPath)
                 let marks = (value as? MarkSetBox)?.marks ?? MarkSet()
-                stack[stack.count - 1].kids.append(.inline(text: text, marks: marks))
+                var cursor = runRange.location
+                let runEnd = runRange.location + runRange.length
+                while cursor < runEnd {
+                    if isPresentationMarker(in: storage, at: cursor) {
+                        cursor += 1
+                        continue
+                    }
+                    var segEnd = cursor + 1
+                    while segEnd < runEnd,
+                          !isPresentationMarker(in: storage, at: segEnd) {
+                        segEnd += 1
+                    }
+                    let segRange = NSRange(location: cursor, length: segEnd - cursor)
+                    cursor = segEnd
+                    let raw = (storage.string as NSString).substring(with: segRange)
+                    let text = stripTrailingNewlines(raw)
+                    if text.isEmpty { continue }
+                    openTo(parent: blockPath, stack: &stack, openPath: &openPath)
+                    stack[stack.count - 1].kids.append(.inline(text: text, marks: marks))
+                }
             }
         }
 

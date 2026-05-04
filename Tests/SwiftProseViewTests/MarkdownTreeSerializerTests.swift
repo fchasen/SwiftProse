@@ -78,4 +78,37 @@ struct MarkdownTreeSerializerTests {
         #expect(out == "## Plain heading\n")
         #expect(!out.contains("**"))
     }
+
+    @Test
+    func consecutiveBulletItemsShareList() throws {
+        let out = try roundTrip("- one\n- two\n")
+        #expect(out == "- one\n- two\n")
+    }
+
+
+    @Test
+    func consecutiveOrderedItemsShareList() throws {
+        let out = try roundTrip("1. one\n2. two\n")
+        #expect(out == "1. one\n2. two\n")
+    }
+
+    @Test
+    func consecutiveTaskItemsShareList() throws {
+        let out = try roundTrip("- [x] done\n- [ ] todo\n")
+        #expect(out == "- [x] done\n- [ ] todo\n")
+    }
+
+    @Test
+    func bulletThenOrderedSplitsIntoTwoLists() throws {
+        let out = try roundTrip("- bullet\n\n1. ordered\n")
+        #expect(out.contains("- bullet"))
+        #expect(out.contains("1. ordered"))
+    }
+
+    @Test
+    func paragraphFollowingBulletStaysOutsideList() throws {
+        let out = try roundTrip("- one\n\nafter\n")
+        #expect(out.contains("- one"))
+        #expect(out.contains("after"))
+    }
 }

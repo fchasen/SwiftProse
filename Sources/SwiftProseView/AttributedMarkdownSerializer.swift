@@ -36,13 +36,14 @@ public final class AttributedMarkdownSerializer {
 
     /// Tree-driven emit path. Reconstructs a `ProseDocument` from the
     /// storage's `proseNodePath` runs and walks it via
-    /// `MarkdownTreeSerializer`. The result is byte-equivalent to
-    /// `serialize(_:)` for compiler-produced storage that hasn't been
-    /// mutated post-compile; once Step mutations go through Phase 4's
-    /// tree-aware path and Phase 8's typing→tree sync lands, callers can
-    /// flip to this path uniformly. Phase 3 ships it as opt-in.
+    /// `MarkdownTreeSerializer`. Re-derives `proseNodePath` from the
+    /// legacy `proseBlockSpec` first so post-mutation storage that lost
+    /// the tree attribute (e.g. `setAttributes(plainAttrs, …)` paths in
+    /// EditorController) still serializes correctly.
     public func serializeFromTree(_ attributed: NSAttributedString) -> String {
-        let tree = ProseDocument.from(storage: attributed, schema: schema)
+        let mutable = NSMutableAttributedString(attributedString: attributed)
+        NodePathSynthesizer(schema: schema).stamp(into: mutable)
+        let tree = ProseDocument.from(storage: mutable, schema: schema)
         return MarkdownTreeSerializer(schema: schema).serialize(tree)
     }
 
