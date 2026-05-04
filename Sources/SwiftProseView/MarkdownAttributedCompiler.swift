@@ -364,7 +364,13 @@ public final class MarkdownAttributedCompiler {
     ) {
         guard let highlighter = codeBlockHighlighter else { return }
         guard let body = codeBlockBody(segment: segment, source: source) else { return }
-        let spans = highlighter.highlights(for: body.text, language: segment.language)
+        let resolved: String?
+        if let explicit = segment.language, !explicit.isEmpty {
+            resolved = explicit
+        } else {
+            resolved = highlighter.detectLanguage(for: body.text)
+        }
+        let spans = highlighter.highlights(for: body.text, language: resolved)
         guard !spans.isEmpty else { return }
         let attributedLength = attributed.length
         for span in spans {

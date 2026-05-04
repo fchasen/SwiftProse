@@ -18,12 +18,21 @@ import UIKit
 private final class StubHighlighter: CodeBlockHighlighter {
     var languageSeen: String?
     var sourceSeen: String?
+    var detectionCalls: [String] = []
+    var detectionResponse: String?
     let response: [HighlightSpan]
-    init(response: [HighlightSpan]) { self.response = response }
+    init(response: [HighlightSpan], detectionResponse: String? = nil) {
+        self.response = response
+        self.detectionResponse = detectionResponse
+    }
     func highlights(for source: String, language: String?) -> [HighlightSpan] {
         sourceSeen = source
         languageSeen = language
         return response
+    }
+    func detectLanguage(for source: String) -> String? {
+        detectionCalls.append(source)
+        return detectionResponse
     }
 }
 
@@ -130,5 +139,71 @@ private final class StubHighlighter: CodeBlockHighlighter {
         let spans = highlighter.highlights(for: "# Hello\n", language: "demo")
         #expect(!spans.isEmpty)
         #expect(spans.contains { $0.tag == .keyword })
+    }
+
+    /// Detection over a single registered grammar returns the language for
+    /// markdown-shaped input that exceeds the 30% coverage threshold.
+    @Test func detectLanguageReturnsRegisteredNameForMatchingInput() throws {
+        let highlighter = TreeSitterCodeBlockHighlighter()
+        let language = Language(language: tree_sitter_markdown())
+        // Wide net so coverage on heading-heavy input is well above 30%.
+        let query = """
+        (atx_heading (inline) @keyword)
+        (atx_heading (atx_h1_marker) @punctuation.special)
+        (atx_heading (atx_h2_marker) @punctuation.special)
+        (atx_heading (atx_h3_marker) @punctuation.special)
+        """
+        try highlighter.register(language: "markdown", language: language,
+                                 queryData: query.data(using: .utf8)!)
+        let body = "# Heading One\n## Heading Two\n### Heading Three\n"
+        #expect(highlighter.detectLanguage(for: body) == "markdown")
+    }
+
+    /// Detection returns nil for input that no registered grammar covers
+    /// well — e.g. plain prose against a markdown-headings-only query.
+    @Test func detectLanguageReturnsNilForUnrecognizedInput() throws {
+        let highlighter = TreeSitterCodeBlockHighlighter()
+        let language = Language(language: tree_sitter_markdown())
+        let query = "(atx_heading (inline) @keyword)"
+        try highlighter.register(language: "markdown", language: language,
+                                 queryData: query.data(using: .utf8)!)
+        // No headings — coverage should be 0%.
+        #expect(highlighter.detectLanguage(for: "just a regular sentence with words") == nil)
+    }
+
+    /// Very short bodies skip detection (16-char floor) — auto-coloring a
+    /// two-line snippet is too noisy.
+    @Test func detectLanguageReturnsNilForShortBodies() throws {
+        let highlighter = TreeSitterCodeBlockHighlighter()
+        let language = Language(language: tree_sitter_markdown())
+        let query = "(atx_heading (inline) @keyword)"
+        try highlighter.register(language: "markdown", language: language,
+                                 queryData: query.data(using: .utf8)!)
+        #expect(highlighter.detectLanguage(for: "# Hi") == nil)
+    }
+
+    /// When the fence has no info string, the compiler asks the highlighter
+    /// to detect, then queries with the detected language.
+    @Test func compilerCallsDetectionWhenLanguageMissing() throws {
+        let stub = StubHighlighter(
+            response: [HighlightSpan(range: NSRange(location: 0, length: 3), tag: .keyword)],
+            detectionResponse: "swift"
+        )
+        let body = "let x = 1\nlet y = 2"
+        let md = "```\n\(body)\n```\n"
+        let compiler = try MarkdownAttributedCompiler(codeBlockHighlighter: stub)
+        _ = compiler.compile(md, mode: .rich, theme: .default)
+        #expect(stub.detectionCalls == [body])
+        #expect(stub.languageSeen == "swift")
+    }
+
+    /// When the fence has an explicit info string, detection is skipped.
+    @Test func compilerSkipsDetectionWhenLanguageProvided() throws {
+        let stub = StubHighlighter(response: [], detectionResponse: "swift")
+        let md = "```ruby\nputs 'hi'\n```\n"
+        let compiler = try MarkdownAttributedCompiler(codeBlockHighlighter: stub)
+        _ = compiler.compile(md, mode: .rich, theme: .default)
+        #expect(stub.detectionCalls.isEmpty)
+        #expect(stub.languageSeen == "ruby")
     }
 }
