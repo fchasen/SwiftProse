@@ -28,6 +28,7 @@ public final class EditorController {
     public var intrinsicSizeInvalidator: (() -> Void)?
     public var onDiagnostic: ((SpecDiagnostic) -> Void)?
     public let commands: CommandRegistry
+    public let inputRules: InputRuleRunner
 
     private(set) var compiler: MarkdownAttributedCompiler
     private(set) var serializer: AttributedMarkdownSerializer
@@ -47,11 +48,13 @@ public final class EditorController {
         theme: ProseTheme = .default,
         mode: Mode = .rich,
         commands: CommandRegistry = .makeDefault(),
+        inputRules: InputRuleRunner = .makeDefault(),
         containerSize: CGSize = CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
     ) throws {
         self.theme = theme
         self.mode = mode
         self.commands = commands
+        self.inputRules = inputRules
         self.compiler = try MarkdownAttributedCompiler()
         self.serializer = AttributedMarkdownSerializer()
 
@@ -80,6 +83,7 @@ public final class EditorController {
         ) { [weak self] _ in
             guard let self, !self.applyingMarkdown else { return }
             if self.textStorage.editedMask.contains(.editedCharacters) {
+                let changeInLength = self.textStorage.changeInLength
                 self.scrubTypedAttributes()
                 self.repairEditedLine()
                 self.demoteEmptyStyledLines()
@@ -89,6 +93,12 @@ public final class EditorController {
                 // typingAttributes; further typing should inherit naturally
                 // from the new cursor position, not from the storedMark set.
                 self.clearStoredInlineMarks()
+                // Input rules: only on a single typed character — paste,
+                // cut, multi-char inserts, undo/redo, programmatic edits all
+                // skip. Composition (CJK / dictation) skips too.
+                if changeInLength == 1, !self.isComposingIME {
+                    self.evaluateInputRules()
+                }
             }
         }
     }
@@ -412,6 +422,27 @@ public final class EditorController {
     private func clearStoredInlineMarks() {
         storedInlineMarks.removeAll()
         storedMarksAnchor = nil
+    }
+
+    private var isComposingIME: Bool {
+        #if canImport(AppKit) && os(macOS)
+        if let tv = hostTextView as? NSTextView { return tv.hasMarkedText() }
+        #elseif canImport(UIKit)
+        if let tv = hostTextView as? UITextView { return tv.markedTextRange != nil }
+        #endif
+        return false
+    }
+
+    func evaluateInputRules() {
+        let cursor = currentSelection.location
+        _ = inputRules.evaluate(
+            storage: textStorage,
+            cursor: cursor,
+            env: makeStepEnvironment(),
+            apply: { [weak self] tx in
+                _ = self?.apply(tx)
+            }
+        )
     }
 
     private func performLink(url: String?, label: String?) -> NSRange {
