@@ -1169,6 +1169,15 @@ public final class EditorController {
         #endif
     }
 
+    /// Set the host text view's selection to `range`. Use this to restore a
+    /// selection captured before a focus-stealing UI (sheet, popover, picker)
+    /// took over, so a subsequent `insertLink` / `insert(text:)` lands at the
+    /// intended position rather than wherever the resigned-first-responder
+    /// text view ended up reporting.
+    public func setSelection(_ range: NSRange) {
+        setHostSelection(range)
+    }
+
     // MARK: - private
 
     private func compileFor(_ markdown: String) -> NSAttributedString {
