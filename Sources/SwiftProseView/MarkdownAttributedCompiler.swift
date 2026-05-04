@@ -556,18 +556,6 @@ public final class MarkdownAttributedCompiler {
         #endif
     }
 
-    private func isListItemTag(_ tag: BlockTag) -> Bool {
-        tag == .unorderedListItem || tag == .orderedListItem || tag == .taskListItem
-    }
-
-    private func listKind(forTag tag: BlockTag) -> ListItemKind {
-        switch tag {
-        case .orderedListItem: return .ordered
-        case .taskListItem: return .task
-        default: return .bullet
-        }
-    }
-
     private func rangesIntersect(_ a: NSRange, _ b: NSRange) -> Bool {
         let aEnd = a.location + a.length
         let bEnd = b.location + b.length
