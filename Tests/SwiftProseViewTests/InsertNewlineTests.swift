@@ -29,7 +29,6 @@ import UIKit
             cursor: cursor,
             compiler: compiler,
             serializer: serializer,
-            mode: .rich,
             theme: .default
         )
     }

@@ -13,7 +13,7 @@ import UIKit
     private func makeEnv() throws -> StepEnvironment {
         let compiler = try MarkdownAttributedCompiler()
         let serializer = AttributedMarkdownSerializer()
-        return StepEnvironment(compiler: compiler, serializer: serializer, theme: .default, mode: .rich)
+        return StepEnvironment(compiler: compiler, serializer: serializer, theme: .default)
     }
 
     private func storage(from markdown: String) throws -> NSTextStorage {

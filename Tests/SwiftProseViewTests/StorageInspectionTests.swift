@@ -57,7 +57,7 @@ import UIKit
         Operations.toggleUnorderedList(
             in: storage, range: NSRange(location: 0, length: 0),
             compiler: compiler, serializer: serializer,
-            mode: .rich, theme: .default
+            theme: .default
         )
         let raw = storage.string
         print("toggle-on-empty result raw='\(raw.replacingOccurrences(of: "\u{FFFC}", with: "[FFFC]"))' length=\(raw.count)")

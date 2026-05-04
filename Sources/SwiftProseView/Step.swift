@@ -11,18 +11,15 @@ public struct StepEnvironment {
     public let compiler: MarkdownAttributedCompiler
     public let serializer: AttributedMarkdownSerializer
     public let theme: ProseTheme
-    public let mode: Mode
 
     public init(
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        theme: ProseTheme,
-        mode: Mode
+        theme: ProseTheme
     ) {
         self.compiler = compiler
         self.serializer = serializer
         self.theme = theme
-        self.mode = mode
     }
 }
 

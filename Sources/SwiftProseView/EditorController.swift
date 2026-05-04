@@ -404,8 +404,7 @@ public final class EditorController {
         StepEnvironment(
             compiler: compiler,
             serializer: serializer,
-            theme: theme,
-            mode: mode
+            theme: theme
         )
     }
 
@@ -819,7 +818,6 @@ public final class EditorController {
                         cursor: cursor,
                         compiler: compiler,
                         serializer: serializer,
-                        mode: mode,
                         theme: theme
                     )
                     applyingMarkdown = false

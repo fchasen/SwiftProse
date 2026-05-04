@@ -27,8 +27,7 @@ import UIKit
         let env = StepEnvironment(
             compiler: try MarkdownAttributedCompiler(),
             serializer: AttributedMarkdownSerializer(),
-            theme: .default,
-            mode: .rich
+            theme: .default
         )
         // Cursor in the middle of the match — no fire.
         _ = runner.evaluate(storage: storage, cursor: 1, env: env, apply: { _ in })
@@ -53,8 +52,7 @@ import UIKit
         let env = StepEnvironment(
             compiler: try MarkdownAttributedCompiler(),
             serializer: AttributedMarkdownSerializer(),
-            theme: .default,
-            mode: .rich
+            theme: .default
         )
         // Apply closure re-enters evaluate() — the guard must short-circuit.
         let dispatched = runner.evaluate(storage: storage, cursor: 2, env: env) { _ in
@@ -79,8 +77,7 @@ import UIKit
         let env = StepEnvironment(
             compiler: try MarkdownAttributedCompiler(),
             serializer: AttributedMarkdownSerializer(),
-            theme: .default,
-            mode: .rich
+            theme: .default
         )
         _ = runner.evaluate(storage: storage, cursor: 4, env: env, apply: { _ in })
         #expect(capturedIndex == "42")

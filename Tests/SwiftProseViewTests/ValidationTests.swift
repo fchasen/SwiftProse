@@ -15,8 +15,7 @@ import UIKit
         return StepEnvironment(
             compiler: compiler,
             serializer: AttributedMarkdownSerializer(),
-            theme: .default,
-            mode: .rich
+            theme: .default
         )
     }
 
