@@ -794,7 +794,6 @@ public final class EditorController {
         if storedInlineMarks.contains(.codeSpan) {
             font = theme.monospaceFont
             attrs[.proseInline] = InlineTag.codeSpan
-            attrs[.backgroundColor] = subtleCodeBackgroundColor()
         }
         if storedInlineMarks.contains(.bold) {
             font = font.togglingProseTrait(.bold, enable: true)
@@ -809,13 +808,6 @@ public final class EditorController {
         return attrs
     }
 
-    private func subtleCodeBackgroundColor() -> PlatformColor {
-        #if canImport(AppKit) && os(macOS)
-        return NSColor.tertiaryLabelColor.withAlphaComponent(0.12)
-        #else
-        return UIColor.tertiaryLabel.withAlphaComponent(0.12)
-        #endif
-    }
 
     @discardableResult
     public func toggleCheckbox(at location: Int) -> Bool {

@@ -48,6 +48,8 @@ public final class BlockquoteLayoutFragment: NSTextLayoutFragment {
         context.fill(barRect)
         context.restoreGState()
 
+        // Inline code pills layer above the blockquote bar but below glyphs.
+        InlineCodePainter.paint(fragment: self, at: point, in: context)
         super.draw(at: point, in: context)
     }
 }
@@ -82,10 +84,14 @@ public final class HorizontalRuleLayoutFragment: NSTextLayoutFragment {
 /// `isLastLine` toggle the rounding so consecutive fragments stitch into one
 /// block visually.
 ///
-/// The fill spans the full text container width — not the line's text width
-/// — by overriding `renderingSurfaceBounds` to extend horizontally beyond
-/// `layoutFragmentFrame`. The host (LayoutManagerDelegate) sets
-/// `containerWidth` so we know how far to reach.
+/// The fill spans the visible text container width — *not* the line's text
+/// width. Long, unbroken code lines push `layoutFragmentFrame` beyond the
+/// container, but we deliberately clamp at `containerWidth` so every line in
+/// a block paints the same backdrop width: the bg is a viewport, not a
+/// per-line halo. The host (`LayoutManagerDelegate`) supplies
+/// `containerWidth`; `trailingInset` carves off a right-edge breathing strip
+/// (scrollbar gutter, default `lineFragmentPadding`) so the fill doesn't
+/// slide under a vertical scrollbar.
 public class CodeBlockLayoutFragment: NSTextLayoutFragment {
     public var fillColor: PlatformColor = .codeBlockDefaultFill
     public var cornerRadius: CGFloat = 6
@@ -95,12 +101,16 @@ public class CodeBlockLayoutFragment: NSTextLayoutFragment {
     /// container's full width here; defaults to 0 which falls back to the
     /// fragment's own text width (the old behavior).
     public var containerWidth: CGFloat = 0
+    /// Right-edge breathing room reserved for the scrollbar gutter / overlay
+    /// scroller. Carved off the fill's right edge so the bg doesn't sit under
+    /// the scroller.
+    public var trailingInset: CGFloat = 5
     public var isFirstLine: Bool = false
     public var isLastLine: Bool = false
 
     public override var renderingSurfaceBounds: CGRect {
         let bounds = layoutFragmentFrame
-        let width = max(containerWidth, bounds.width)
+        let width = effectiveWidth(bounds: bounds)
         // Origin is fragment-local; AppKit translates by layoutFragmentFrame.origin
         // before invoking draw(at:in:), so we anchor at -origin.x to push the
         // surface to the leading edge of the container.
@@ -109,11 +119,11 @@ public class CodeBlockLayoutFragment: NSTextLayoutFragment {
 
     public override func draw(at point: CGPoint, in context: CGContext) {
         let bounds = layoutFragmentFrame
-        let width = max(containerWidth, bounds.width)
+        let width = effectiveWidth(bounds: bounds)
         let rect = CGRect(
             x: horizontalInset - bounds.origin.x,
             y: 0,
-            width: max(0, width - 2 * horizontalInset),
+            width: max(0, width - 2 * horizontalInset - trailingInset),
             height: bounds.height
         )
 
@@ -133,6 +143,15 @@ public class CodeBlockLayoutFragment: NSTextLayoutFragment {
 
         super.draw(at: point, in: context)
     }
+
+    fileprivate func effectiveWidth(bounds: CGRect) -> CGFloat {
+        // Long unbroken code lines blow out `bounds.width` past the container.
+        // Clamp to `containerWidth` so every line in a fenced block paints the
+        // same backdrop. Fall back to `bounds.width` only when the host hasn't
+        // supplied a container width yet (early layout, headless tests).
+        guard containerWidth > 0 else { return bounds.width }
+        return containerWidth
+    }
 }
 
 /// Same chrome as `CodeBlockLayoutFragment`, plus an optional language tag in
@@ -146,11 +165,11 @@ public final class FencedCodeBlockLayoutFragment: CodeBlockLayoutFragment {
         super.draw(at: point, in: context)
         guard isFirstLine, let language, !language.isEmpty else { return }
         let bounds = layoutFragmentFrame
-        let width = max(containerWidth, bounds.width)
+        let width = effectiveWidth(bounds: bounds)
         let rect = CGRect(
             x: horizontalInset - bounds.origin.x,
             y: 0,
-            width: max(0, width - 2 * horizontalInset),
+            width: max(0, width - 2 * horizontalInset - trailingInset),
             height: bounds.height
         )
         let attrs: [NSAttributedString.Key: Any] = [
@@ -179,6 +198,120 @@ public final class FencedCodeBlockLayoutFragment: CodeBlockLayoutFragment {
 }
 
 public final class IndentedCodeBlockLayoutFragment: CodeBlockLayoutFragment {}
+
+/// Default paragraph fragment that paints a padded rounded "pill" backdrop
+/// behind any inline run carrying `.proseInline = .codeSpan`. The
+/// attributed-string `.backgroundColor` attribute paints flush against the
+/// glyphs which reads as a tight box; we want a chip-style rect with
+/// horizontal padding extending past the first and last glyph. Drawn before
+/// `super.draw` so glyphs render on top of the fill.
+public final class InlineCodePainterLayoutFragment: NSTextLayoutFragment {
+    public override func draw(at point: CGPoint, in context: CGContext) {
+        InlineCodePainter.paint(fragment: self, at: point, in: context)
+        super.draw(at: point, in: context)
+    }
+}
+
+/// Shared inline-code-pill painter used by `InlineCodePainterLayoutFragment`
+/// and `BlockquoteLayoutFragment` (so inline `` `code` `` inside a quote
+/// keeps its rounded backdrop too). All routines are stateless; a fragment
+/// just hands itself in.
+public enum InlineCodePainter {
+    public static var fillColor: PlatformColor = .codeBlockDefaultFill
+    public static var cornerRadius: CGFloat = 4
+    public static var horizontalPadding: CGFloat = 4
+
+    public static func paint(
+        fragment: NSTextLayoutFragment,
+        at point: CGPoint,
+        in context: CGContext
+    ) {
+        guard let cs = fragment.textLayoutManager?.textContentManager as? NSTextContentStorage,
+              let storage = cs.textStorage else { return }
+        let elementStart = cs.offset(from: cs.documentRange.location, to: fragment.rangeInElement.location)
+        guard elementStart >= 0 else { return }
+        let lineFragments = fragment.textLineFragments
+        guard !lineFragments.isEmpty else { return }
+        context.saveGState()
+        context.translateBy(x: point.x, y: point.y)
+        context.setFillColor(fillColor.cgColor)
+        for line in lineFragments {
+            paintCodeRanges(in: line, storage: storage, elementStart: elementStart, context: context)
+        }
+        context.restoreGState()
+    }
+
+    /// Walk codeSpan runs inside `line` and draw a rounded backdrop behind
+    /// each. `line.characterRange` is local to the layout fragment, so add
+    /// `elementStart` to land at the right offset in `storage`.
+    private static func paintCodeRanges(
+        in line: NSTextLineFragment,
+        storage: NSTextStorage,
+        elementStart: Int,
+        context: CGContext
+    ) {
+        let lineLocal = line.characterRange
+        guard lineLocal.length > 0 else { return }
+        let storageStart = elementStart + lineLocal.location
+        let storageEnd = min(storage.length, storageStart + lineLocal.length)
+        guard storageStart < storageEnd else { return }
+        var cursor = storageStart
+        while cursor < storageEnd {
+            var runRange = NSRange(location: cursor, length: 0)
+            let value = storage.attribute(
+                .proseInline,
+                at: cursor,
+                longestEffectiveRange: &runRange,
+                in: NSRange(location: cursor, length: storageEnd - cursor)
+            )
+            let runEnd = runRange.location + runRange.length
+            if let tag = value as? InlineTag, tag == .codeSpan, runRange.length > 0 {
+                let lineRunStart = max(runRange.location, storageStart) - elementStart
+                let lineRunEnd = min(runEnd, storageEnd) - elementStart
+                let runInLine = NSRange(location: lineRunStart, length: lineRunEnd - lineRunStart)
+                drawPill(line: line, runInLine: runInLine, context: context)
+            }
+            cursor = max(runEnd, cursor + 1)
+        }
+    }
+
+    private static func drawPill(
+        line: NSTextLineFragment,
+        runInLine: NSRange,
+        context: CGContext
+    ) {
+        // `runInLine` is layout-fragment-local; the line fragment's character
+        // API expects offsets into its own attributedString (zero at the
+        // line's first char), so subtract the line's start.
+        let localStart = runInLine.location - line.characterRange.location
+        let localEndExclusive = localStart + runInLine.length
+        guard localStart >= 0,
+              localEndExclusive <= line.attributedString.length,
+              localStart < localEndExclusive else { return }
+        let startPoint = line.locationForCharacter(at: localStart)
+        let endPoint = line.locationForCharacter(at: localEndExclusive)
+        let bounds = line.typographicBounds
+        // locationForCharacter returns a point on the baseline; use the line
+        // fragment's typographicBounds for vertical extent.
+        let xMin = min(startPoint.x, endPoint.x) - horizontalPadding
+        let xMax = max(startPoint.x, endPoint.x) + horizontalPadding
+        let pill = CGRect(
+            x: bounds.origin.x + xMin,
+            y: bounds.origin.y,
+            width: max(0, xMax - xMin),
+            height: bounds.height
+        )
+        let path = roundedPath(
+            rect: pill,
+            topLeft: cornerRadius,
+            topRight: cornerRadius,
+            bottomLeft: cornerRadius,
+            bottomRight: cornerRadius
+        )
+        context.addPath(path)
+        context.fillPath()
+    }
+}
 
 /// Renders one source line of a GFM pipe table as a structured cell row.
 ///

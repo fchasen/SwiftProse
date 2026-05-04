@@ -529,13 +529,15 @@ public enum Operations {
         storage.beginEditing()
         if allOn {
             storage.removeAttribute(.proseInline, range: safe)
-            storage.removeAttribute(.backgroundColor, range: safe)
             storage.addAttribute(.font, value: theme.bodyFont, range: safe)
         } else {
             storage.addAttribute(.proseInline, value: InlineTag.codeSpan, range: safe)
             storage.addAttribute(.font, value: theme.monospaceFont, range: safe)
-            storage.addAttribute(.backgroundColor, value: subtleCodeBackground(theme: theme), range: safe)
         }
+        // The codeSpan backdrop is painted by `InlineCodePainterLayoutFragment`,
+        // not via `.backgroundColor` — keep the legacy attribute clean either
+        // way so a flip-from-old-storage still drops the tight glyph fill.
+        storage.removeAttribute(.backgroundColor, range: safe)
         storage.endEditing()
         return safe
     }
@@ -597,14 +599,6 @@ public enum Operations {
             }
         }
         return sawAny && allOn
-    }
-
-    private static func subtleCodeBackground(theme: ProseTheme) -> PlatformColor {
-        #if canImport(AppKit) && os(macOS)
-        return NSColor.tertiaryLabelColor.withAlphaComponent(0.12)
-        #else
-        return UIColor.tertiaryLabel.withAlphaComponent(0.12)
-        #endif
     }
 
     // MARK: - helpers

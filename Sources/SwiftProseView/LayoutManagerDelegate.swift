@@ -86,6 +86,9 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
         if decorations.contains(where: { if case .horizontalRule = $0.kind { return true } else { return false } }) {
             return HorizontalRuleLayoutFragment(textElement: textElement, range: textElement.elementRange)
         }
+        if rangeContainsCodeSpan(controller.textStorage, range: lineRange) {
+            return InlineCodePainterLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        }
         if let spec = paragraphSpec(in: controller.textStorage, from: elementStart, to: elementEnd),
            case .pipeTable = spec.kind {
             let fragment = PipeTableLayoutFragment(
@@ -182,5 +185,20 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
             i += 1
         }
         return nil
+    }
+
+    /// Cheap scan: returns `true` if any character in `range` carries
+    /// `.proseInline = .codeSpan`. Used to decide whether to upgrade the
+    /// default fragment to one that paints rounded code-span backdrops.
+    private func rangeContainsCodeSpan(_ storage: NSAttributedString, range: NSRange) -> Bool {
+        guard range.length > 0, range.location + range.length <= storage.length else { return false }
+        var found = false
+        storage.enumerateAttribute(.proseInline, in: range) { value, _, stop in
+            if let tag = value as? InlineTag, tag == .codeSpan {
+                found = true
+                stop.pointee = true
+            }
+        }
+        return found
     }
 }

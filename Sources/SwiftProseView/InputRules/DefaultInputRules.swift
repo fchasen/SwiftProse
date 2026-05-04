@@ -28,6 +28,7 @@ public extension InputRuleRunner {
         runner.register(InputRule.unorderedList)
         runner.register(InputRule.orderedList)
         runner.register(InputRule.horizontalRule)
+        runner.register(InputRule.fencedCodeBlock)
         // Inline rules — bold before italic so `**bold**` matches the longer
         // pattern first. Strikethrough and code span use distinct delimiters,
         // so ordering between them is irrelevant.
@@ -159,6 +160,35 @@ public extension InputRule {
         Transaction(steps: [
             .setSpec(lineRange: match.lineRange, BlockSpec(kind: .horizontalRule))
         ], label: "Horizontal rule")
+    }
+
+    /// Triple backticks on their own line at the start of a paragraph.
+    /// Fires the moment the third backtick is typed and replaces the line
+    /// with an empty fenced code block; the cursor lands on the body line so
+    /// the user can start typing code immediately. The language tag is left
+    /// empty and editable inline (small text in the top-right of the code
+    /// block).
+    static let fencedCodeBlock = InputRule(
+        id: "inputRule.fencedCodeBlock",
+        pattern: "^```$"
+    ) { match in
+        let env = match.env
+        // Render the empty block once and splice it in. The compiler emits
+        // "```\n\n```\n" so the body line sits at offset 4 from the start
+        // of the inserted content.
+        let block = env.compiler.compile("```\n\n```\n", theme: env.theme)
+        let bodyLineOffset = 4
+        let bodyAnchor = NSRange(
+            location: match.lineRange.location + bodyLineOffset,
+            length: 0
+        )
+        return Transaction(steps: [
+            .replaceText(range: match.lineRange, with: block),
+            // Empty replace at the body-line anchor so `apply()`'s
+            // last-step-mappedRange cursor heuristic lands the cursor inside
+            // the body instead of at the closing fence.
+            .replaceText(range: bodyAnchor, with: NSAttributedString())
+        ], label: "Code block")
     }
 
     // MARK: - inline rules

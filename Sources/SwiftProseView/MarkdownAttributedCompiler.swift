@@ -177,7 +177,6 @@ public final class MarkdownAttributedCompiler {
             case .textLiteral:
                 styleRuns.append((projected, [
                     .font: theme.monospaceFont,
-                    .backgroundColor: subtleBackground(theme: theme),
                     .proseInline: InlineTag.codeSpan
                 ]))
             case .textURI, .textReference:
@@ -641,14 +640,6 @@ public final class MarkdownAttributedCompiler {
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor
         ]
-    }
-
-    private func subtleBackground(theme: ProseTheme) -> PlatformColor {
-        #if canImport(AppKit) && os(macOS)
-        return NSColor.tertiaryLabelColor.withAlphaComponent(0.12)
-        #else
-        return UIColor.tertiaryLabel.withAlphaComponent(0.12)
-        #endif
     }
 
     private func rangesIntersect(_ a: NSRange, _ b: NSRange) -> Bool {
