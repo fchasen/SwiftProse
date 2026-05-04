@@ -96,8 +96,23 @@ public final class EditorController {
                 // Input rules: only on a single typed character — paste,
                 // cut, multi-char inserts, undo/redo, programmatic edits all
                 // skip. Composition (CJK / dictation) skips too.
+                //
+                // When a host text view is attached, defer to the next
+                // runloop tick: running synchronously here re-enters
+                // NSTextView/UITextView while it's still completing its
+                // post-edit work, which clobbered host selection updates
+                // and caused stale-range crashes in the text system
+                // ("Range {10,1} out of bounds; string length 9"). With no
+                // host (unit tests, headless use), run synchronously —
+                // there's no run loop to defer onto.
                 if changeInLength == 1, !self.isComposingIME {
-                    self.evaluateInputRules()
+                    if self.hostTextView != nil {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.evaluateInputRules()
+                        }
+                    } else {
+                        self.evaluateInputRules()
+                    }
                 }
             }
         }

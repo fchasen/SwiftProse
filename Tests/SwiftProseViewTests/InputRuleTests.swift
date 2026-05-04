@@ -330,6 +330,10 @@ import UIKit
             length: 0
         )
         storage.endEditing()
+        // Input rules dispatch synchronously when no host text view is
+        // attached (the headless path used by these tests). When a host
+        // is attached they defer to the next runloop tick to avoid mid-
+        // edit reentry into NSTextView/UITextView.
         // If a rule re-rendered the line, the storage length jumped beyond
         // the typed length. Place cursor at end of content (before any
         // trailing newline) so subsequent typed chars land in the right
