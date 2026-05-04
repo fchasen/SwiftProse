@@ -36,6 +36,27 @@ public struct NodePathSynthesizer {
         self.schema = schema
     }
 
+    /// Re-derive `proseMarks` from the current rendering attributes within
+    /// `range`, walking block-by-block so each block's `baseTraits` (e.g.
+    /// the implicit bold of a heading) is subtracted correctly. Used by
+    /// inline-mark Steps to keep the canonical mark store fresh after they
+    /// mutate font / strikethrough / inline-tag attributes directly.
+    public func stampMarks(
+        in storage: NSMutableAttributedString,
+        range: NSRange
+    ) {
+        guard range.length > 0,
+              range.location >= 0,
+              range.location + range.length <= storage.length else { return }
+        storage.beginEditing()
+        storage.enumerateBlockSpecs(in: range) { blockRange, spec in
+            let intersection = NSIntersectionRange(blockRange, range)
+            guard intersection.length > 0 else { return }
+            stampMarks(in: storage, blockRange: intersection, blockKind: spec.kind)
+        }
+        storage.endEditing()
+    }
+
     /// Stamp `proseNodePath` and `proseMarks` onto every character. Mutates
     /// the input. Idempotent: re-running on a stamped string overwrites
     /// previous attributes deterministically (one fresh `NodeID` per

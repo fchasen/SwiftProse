@@ -105,4 +105,59 @@ struct StepMarkTests {
         let inline = storage.attribute(.proseInline, at: clickRange.location, effectiveRange: nil) as? InlineTag
         #expect(inline == .link)
     }
+
+    @Test
+    func toggleInlineBoldStampsStrongMark() throws {
+        let env = try makeEnv()
+        let storage = makeStorage("hello world\n", env: env)
+        let helloRange = (storage.string as NSString).range(of: "hello")
+        _ = Step.toggleInlineMark(range: helloRange, .bold).apply(to: storage, env: env)
+
+        let marks = storage.markSet(at: helloRange.location)
+        #expect(marks?.contains(type: "strong") == true)
+    }
+
+    @Test
+    func toggleInlineBoldOffClearsStrongMark() throws {
+        let env = try makeEnv()
+        let storage = makeStorage("**hello** world\n", env: env)
+        let helloRange = (storage.string as NSString).range(of: "hello")
+        _ = Step.toggleInlineMark(range: helloRange, .bold).apply(to: storage, env: env)
+
+        let marks = storage.markSet(at: helloRange.location)
+        #expect(marks?.contains(type: "strong") != true)
+    }
+
+    @Test
+    func toggleInlineItalicStampsEmMark() throws {
+        let env = try makeEnv()
+        let storage = makeStorage("hello world\n", env: env)
+        let helloRange = (storage.string as NSString).range(of: "hello")
+        _ = Step.toggleInlineMark(range: helloRange, .italic).apply(to: storage, env: env)
+
+        let marks = storage.markSet(at: helloRange.location)
+        #expect(marks?.contains(type: "em") == true)
+    }
+
+    @Test
+    func toggleInlineStrikethroughStampsStrikeMark() throws {
+        let env = try makeEnv()
+        let storage = makeStorage("hello world\n", env: env)
+        let helloRange = (storage.string as NSString).range(of: "hello")
+        _ = Step.toggleInlineMark(range: helloRange, .strikethrough).apply(to: storage, env: env)
+
+        let marks = storage.markSet(at: helloRange.location)
+        #expect(marks?.contains(type: "strike") == true)
+    }
+
+    @Test
+    func toggleInlineCodeSpanStampsCodeMark() throws {
+        let env = try makeEnv()
+        let storage = makeStorage("hello world\n", env: env)
+        let helloRange = (storage.string as NSString).range(of: "hello")
+        _ = Step.toggleInlineMark(range: helloRange, .codeSpan).apply(to: storage, env: env)
+
+        let marks = storage.markSet(at: helloRange.location)
+        #expect(marks?.contains(type: "code") == true)
+    }
 }

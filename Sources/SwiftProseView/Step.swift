@@ -99,6 +99,8 @@ public enum Step {
         case .codeSpan:
             resulting = Operations.toggleCodeSpan(in: storage, range: range, theme: env.theme)
         }
+        NodePathSynthesizer(schema: env.compiler.schema)
+            .stampMarks(in: storage, range: resulting.clamped(to: storage.length))
         let inverse = Step.replaceText(range: resulting.clamped(to: storage.length), with: prior)
         return AppliedStep(inverse: inverse, mappedRange: resulting, affectedLineRange: resulting, stepMap: .empty)
     }
