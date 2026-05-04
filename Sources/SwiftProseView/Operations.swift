@@ -322,12 +322,10 @@ public enum Operations {
         case .taskListItem: kind = .task
         default: return nil
         }
-        let orderedIndex: Int? = {
-            if case .orderedListItem(let i) = spec.kind { return i } else { return nil }
-        }()
-        let isChecked: Bool? = {
-            if case .taskListItem(let c) = spec.kind { return c } else { return nil }
-        }()
+        var orderedIndex: Int?
+        if case let .orderedListItem(i) = spec.kind { orderedIndex = i }
+        var isChecked: Bool?
+        if case let .taskListItem(c) = spec.kind { isChecked = c }
 
         let newParagraphStyle = compiler.paragraphStyle(forListLevel: newLevel, theme: theme)
         let newSpec: BlockSpec
@@ -368,9 +366,8 @@ public enum Operations {
 
         storage.beginEditing()
         storage.replaceCharacters(in: markerRange, with: newMarker)
-        let delta_len = newMarker.length - markerRange.length
-        let updatedLineLen = lineRange.length + delta_len
-        let updatedLineRange = NSRange(location: lineRange.location, length: updatedLineLen)
+        let lengthDelta = newMarker.length - markerRange.length
+        let updatedLineRange = NSRange(location: lineRange.location, length: lineRange.length + lengthDelta)
         storage.addAttribute(.paragraphStyle, value: newParagraphStyle, range: updatedLineRange)
         storage.addAttribute(.proseBlockSpec, value: newSpecBox, range: updatedLineRange)
         storage.endEditing()
@@ -593,10 +590,10 @@ public enum Operations {
         var sawAny = false
         storage.enumerateAttribute(.font, in: range) { value, _, stop in
             sawAny = true
-            let font = value as? PlatformFont
-            if font == nil || !hasTrait(trait, on: font!) {
+            guard let font = value as? PlatformFont, hasTrait(trait, on: font) else {
                 allOn = false
                 stop.pointee = true
+                return
             }
         }
         return sawAny && allOn
