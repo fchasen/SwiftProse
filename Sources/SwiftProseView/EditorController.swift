@@ -79,7 +79,7 @@ public final class EditorController {
         storageObserver = NotificationCenter.default.addObserver(
             forName: NSTextStorage.didProcessEditingNotification,
             object: textStorage,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
             guard let self, !self.applyingMarkdown else { return }
             if self.textStorage.editedMask.contains(.editedCharacters) {
