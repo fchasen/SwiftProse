@@ -20,13 +20,18 @@ public final class EditorController {
 
     public private(set) var blocks: [BlockSegment] = []
 
-    /// Tree view of the current storage. Re-derived from `proseNodePath`
-    /// runs on every access; mutations that update those attributes
-    /// (compile, setSpec, addMark, removeMark, toggleInlineMark) keep the
-    /// tree fresh. Phase 8 will cache and eagerly update.
+    /// Tree view of the current storage. Cached between accesses and
+    /// invalidated by the storage observer on every edit, so repeated reads
+    /// hand back the same `ProseDocument` instance until the user (or a
+    /// step) mutates the storage.
     public var document: ProseDocument {
-        ProseDocument.from(storage: textStorage, schema: compiler.schema)
+        if let cached = cachedDocument { return cached }
+        let fresh = ProseDocument.from(storage: textStorage, schema: compiler.schema)
+        cachedDocument = fresh
+        return fresh
     }
+
+    private var cachedDocument: ProseDocument?
 
     public let undoManager: UndoManager = UndoManager()
     public weak var hostTextView: AnyObject?
@@ -143,7 +148,14 @@ public final class EditorController {
             object: textStorage,
             queue: .main
         ) { [weak self] _ in
-            guard let self, !self.applyingMarkdown else { return }
+            guard let self else { return }
+            // Cache invalidation runs even during programmatic loads so that
+            // the next `document` read after `setMarkdown` / `replaceStorage`
+            // re-derives from the new content.
+            if !self.textStorage.editedMask.isEmpty {
+                self.cachedDocument = nil
+            }
+            guard !self.applyingMarkdown else { return }
             if self.textStorage.editedMask.contains(.editedCharacters) {
                 let changeInLength = self.textStorage.changeInLength
                 self.accumulateHighlightRange(self.textStorage.editedRange)

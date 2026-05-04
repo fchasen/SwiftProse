@@ -101,4 +101,23 @@ import UIKit
         #expect(leaf.type == "heading")
         #expect(leaf.attrs["level"] == .int(2))
     }
+
+    @Test func documentCachedBetweenReads() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        let firstId = controller.document.root.node?.id
+        let secondId = controller.document.root.node?.id
+        #expect(firstId != nil)
+        #expect(firstId == secondId, "successive reads should return the cached tree")
+    }
+
+    @Test func documentCacheInvalidatedAfterEdit() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        let beforeId = controller.document.root.node?.id
+        controller.testSelection = NSRange(location: controller.textStorage.length, length: 0)
+        controller.insert(text: "!")
+        let afterId = controller.document.root.node?.id
+        #expect(beforeId != nil)
+        #expect(afterId != nil)
+        #expect(beforeId != afterId, "edit should invalidate the cached tree")
+    }
 }
