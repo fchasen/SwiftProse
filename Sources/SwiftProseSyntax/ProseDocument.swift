@@ -264,6 +264,18 @@ public extension ProseDocument {
                 stack[stack.count - 1].kids.append(.leaf(leaf))
                 return
             }
+            // Open the structural ancestors for this block even when it
+            // has no inline content (e.g. an empty bullet line — `- \n`
+            // — or a heading whose body got deleted). Skip pure-whitespace
+            // top-level paragraphs so blank-line gaps between blocks don't
+            // surface as empty paragraph nodes that round-trip back as
+            // extra newlines.
+            let leafType = blockPath.leaf?.type ?? ""
+            let openEvenWhenEmpty = leafType != "paragraph"
+                || rangeHasPresentationMarker(in: storage, range: blockRange)
+            if openEvenWhenEmpty {
+                openTo(parent: blockPath, stack: &stack, openPath: &openPath)
+            }
             // Inline runs — split by `proseMarks` boundaries, then split
             // each run further around presentation markers (list bullet
             // glyphs etc.) so a marker at position 0 of a run doesn't make
@@ -352,6 +364,19 @@ public extension ProseDocument {
         let folded: TreeNode = .structural(popped.node, popped.kids)
         stack[stack.count - 1].kids.append(folded)
         openPath = openPath.droppingLast()
+    }
+
+    private static func rangeHasPresentationMarker(
+        in storage: NSAttributedString,
+        range: NSRange
+    ) -> Bool {
+        let end = range.location + range.length
+        var i = range.location
+        while i < end {
+            if isPresentationMarker(in: storage, at: i) { return true }
+            i += 1
+        }
+        return false
     }
 
     private static func isPresentationMarker(

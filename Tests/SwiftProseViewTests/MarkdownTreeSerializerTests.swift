@@ -111,4 +111,10 @@ struct MarkdownTreeSerializerTests {
         #expect(out.contains("- one"))
         #expect(out.contains("after"))
     }
+
+    @Test
+    func blankParagraphBetweenBlocksDoesNotMaterialize() throws {
+        let out = try roundTrip("# Hi\n\nworld\n")
+        #expect(out == "# Hi\n\nworld\n")
+    }
 }

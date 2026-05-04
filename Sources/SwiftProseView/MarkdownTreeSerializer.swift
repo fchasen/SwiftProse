@@ -213,6 +213,11 @@ public struct MarkdownTreeSerializer {
             if first {
                 first = false
                 emitListItemFirstChild(marker: marker, child: child, ctx: &ctx)
+                // Children that follow the marker line (e.g. a nested list)
+                // belong to the same list_item — drop the prior block count
+                // so they don't trigger a blank-line separator before the
+                // first nested block.
+                ctx.blocksAtThisLevel = 0
             } else {
                 emitBlock(child, ctx: &ctx)
             }

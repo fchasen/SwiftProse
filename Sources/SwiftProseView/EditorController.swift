@@ -413,7 +413,7 @@ public final class EditorController {
     }
 
     public func markdown() -> String {
-        return serializer.serialize(textStorage)
+        return serializer.serializeFromTree(textStorage)
     }
 
     public func loadProseMirrorJSON(_ json: String, schemaMap: SchemaMap = .basic) throws {
