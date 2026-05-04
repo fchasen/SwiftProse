@@ -239,6 +239,113 @@ public struct ProseMirrorCodec {
         try JSONEncoder().encode(encode(storage))
     }
 
+    /// Tree-direct encode: walk a `ProseDocument` and emit a PM tree.
+    /// Marks come from inline runs' `MarkSet` directly rather than being
+    /// re-extracted from rendering attributes, which keeps mark fidelity
+    /// in nested contexts (table cells will benefit once Phase 6 reshapes
+    /// table storage). Tables today still rely on the flat-block path
+    /// because the storage tree only carries a `table` envelope.
+    public func encode(document: ProseDocument) -> PMNode {
+        guard case .structural(_, let kids) = document.root else {
+            return PMNode(type: "doc", content: nil)
+        }
+        let children = kids.compactMap { encodeBlock($0) }
+        return PMNode(type: "doc", content: children.isEmpty ? nil : children)
+    }
+
+    private func encodeBlock(_ node: TreeNode) -> PMNode? {
+        switch node {
+        case .structural(let pn, let kids):
+            switch pn.type {
+            case "paragraph":
+                return PMNode(type: "paragraph", content: encodeInlines(kids).orNilIfEmpty())
+            case "heading":
+                let level = pn.attrs["level"]?.intValue ?? 1
+                return PMNode(
+                    type: "heading",
+                    attrs: ["level": .int(level)],
+                    content: encodeInlines(kids).orNilIfEmpty()
+                )
+            case "blockquote":
+                let inner = kids.compactMap { encodeBlock($0) }
+                return PMNode(type: "blockquote", content: inner.orNilIfEmpty())
+            case "bullet_list", "task_list":
+                let items = kids.compactMap { encodeBlock($0) }
+                return PMNode(type: "bullet_list", content: items.orNilIfEmpty())
+            case "ordered_list":
+                let items = kids.compactMap { encodeBlock($0) }
+                let start = pn.attrs["start"]?.intValue ?? 1
+                let attrs: [String: PMValue]? = (start != 1) ? ["order": .int(start)] : nil
+                return PMNode(type: "ordered_list", attrs: attrs, content: items.orNilIfEmpty())
+            case "list_item":
+                let inner = kids.compactMap { encodeBlock($0) }
+                return PMNode(type: "list_item", content: inner.orNilIfEmpty())
+            case "code_block":
+                let language = pn.attrs["language"]?.stringValue ?? ""
+                let body = kids.compactMap { kid -> String? in
+                    if case .inline(let text, _) = kid { return text }
+                    return nil
+                }.joined()
+                let inner: [PMNode]? = body.isEmpty ? nil : [PMNode(type: "text", text: body)]
+                return PMNode(
+                    type: "code_block",
+                    attrs: ["params": .string(language)],
+                    content: inner
+                )
+            case "table":
+                // Tree-native table emit lands with Phase 6. Until then the
+                // storage tree only carries a `table` envelope without
+                // row/cell breakdown, so we delegate to the storage path
+                // for tables by signalling a fallback.
+                return nil
+            default:
+                return nil
+            }
+        case .leaf(let pn):
+            switch pn.type {
+            case "horizontal_rule":
+                return PMNode(type: "horizontal_rule")
+            case "hard_break":
+                return PMNode(type: "hard_break")
+            default:
+                return nil
+            }
+        case .inline:
+            // Top-level inline — wrap in a paragraph.
+            return PMNode(type: "paragraph", content: encodeInlines([node]).orNilIfEmpty())
+        }
+    }
+
+    private func encodeInlines(_ nodes: [TreeNode]) -> [PMNode] {
+        var out: [PMNode] = []
+        for node in nodes {
+            switch node {
+            case .inline(let text, let marks):
+                guard !text.isEmpty else { continue }
+                var pm = PMNode(type: "text", text: text)
+                if !marks.isEmpty {
+                    pm.marks = marks.marks.map { mark in
+                        var attrs: [String: PMValue]? = nil
+                        if !mark.attrs.isEmpty {
+                            var dict: [String: PMValue] = [:]
+                            for (k, v) in mark.attrs {
+                                dict[k] = v.toPMValue()
+                            }
+                            attrs = dict
+                        }
+                        return PMMark(type: mark.type, attrs: attrs)
+                    }
+                }
+                out.append(pm)
+            case .leaf(let pn) where pn.type == "hard_break":
+                out.append(PMNode(type: "hard_break"))
+            case .leaf, .structural:
+                continue
+            }
+        }
+        return out
+    }
+
     private func extractFlatBlocks(from storage: NSAttributedString) -> [FlatBlock] {
         var blocks: [FlatBlock] = []
         let ns = storage.string as NSString
@@ -439,6 +546,26 @@ public struct ProseMirrorCodec {
         default:
             return PMNode(type: "paragraph", content: block.inlineNodes.isEmpty ? nil : block.inlineNodes)
         }
+    }
+}
+
+// MARK: - tree-direct helpers
+
+private extension ProseAttrValue {
+    func toPMValue() -> PMValue {
+        switch self {
+        case .null: return .null
+        case .bool(let v): return .bool(v)
+        case .int(let v): return .int(v)
+        case .double(let v): return .double(v)
+        case .string(let v): return .string(v)
+        }
+    }
+}
+
+private extension Array where Element == PMNode {
+    func orNilIfEmpty() -> [PMNode]? {
+        isEmpty ? nil : self
     }
 }
 

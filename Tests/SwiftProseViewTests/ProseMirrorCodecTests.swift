@@ -19,6 +19,11 @@ import UIKit
         ProseMirrorCodec().encode(attributed)
     }
 
+    private func compileTree(_ markdown: String) throws -> ProseDocument {
+        let compiler = try MarkdownAttributedCompiler()
+        return compiler.compileToTree(markdown, theme: .default)
+    }
+
     @Test func decodeSimpleParagraph() throws {
         let json = """
         {"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"hello"}]}]}
@@ -157,5 +162,48 @@ import UIKit
         #expect(reDecoded.content?.first?.type == "heading")
         #expect(reDecoded.content?.first?.attrs?["level"]?.intValue == 2)
         #expect(reDecoded.content?[1].type == "paragraph")
+    }
+
+    // MARK: - tree-direct encode (Phase 7)
+
+    @Test func encodeFromTreeWrapsInDoc() throws {
+        let document = try compileTree("hello\n")
+        let pm = ProseMirrorCodec().encode(document: document)
+        #expect(pm.type == "doc")
+        #expect(pm.content?.first?.type == "paragraph")
+    }
+
+    @Test func encodeFromTreePreservesHeadingLevel() throws {
+        let document = try compileTree("## Title\n")
+        let pm = ProseMirrorCodec().encode(document: document)
+        let heading = pm.content?.first
+        #expect(heading?.type == "heading")
+        #expect(heading?.attrs?["level"]?.intValue == 2)
+    }
+
+    @Test func encodeFromTreePropagatesMarksOnText() throws {
+        let document = try compileTree("**bold** rest\n")
+        let pm = ProseMirrorCodec().encode(document: document)
+        let paragraph = pm.content?.first
+        let firstText = paragraph?.content?.first
+        #expect(firstText?.type == "text")
+        #expect(firstText?.marks?.contains(where: { $0.type == "strong" }) == true)
+    }
+
+    @Test func encodeFromTreeBuildsListStructure() throws {
+        let document = try compileTree("- one\n- two\n")
+        let pm = ProseMirrorCodec().encode(document: document)
+        let list = pm.content?.first
+        #expect(list?.type == "bullet_list")
+        #expect(list?.content?.count == 2)
+        #expect(list?.content?.first?.type == "list_item")
+    }
+
+    @Test func encodeFromTreeEmitsCodeBlockLanguage() throws {
+        let document = try compileTree("```swift\nlet x = 1\n```\n")
+        let pm = ProseMirrorCodec().encode(document: document)
+        let code = pm.content?.first
+        #expect(code?.type == "code_block")
+        #expect(code?.attrs?["params"]?.stringValue == "swift")
     }
 }
