@@ -15,6 +15,16 @@ public extension NSAttributedString.Key {
     /// paragraph. Layout fragment uses it to paint a tinted background
     /// stripe behind the header.
     static let proseTableHeader = NSAttributedString.Key("swiftprose.tableHeader")
+    /// Hierarchical structural attribute introduced in the Phase-1 pivot to
+    /// a ProseMirror-aligned model. Carries a `NodePathBox` per character
+    /// so the document tree can be reconstructed from attribute runs. Phase
+    /// 2 starts stamping this alongside `proseBlockSpec`; Phase 10 removes
+    /// `proseBlockSpec`.
+    static let proseNodePath = NSAttributedString.Key("swiftprose.nodePath")
+    /// Canonical inline marks (bold, italic, code, link, strike) per character
+    /// as a `MarkSetBox`. Layout layer projects these onto the existing
+    /// rendering attributes (font traits, foreground color, code-span pill).
+    static let proseMarks = NSAttributedString.Key("swiftprose.marks")
 }
 
 public enum BlockTag: String, Sendable, Hashable, CaseIterable {
