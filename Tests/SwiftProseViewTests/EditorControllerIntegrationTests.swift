@@ -30,6 +30,16 @@ import UIKit
         #expect(controller.markdown().contains("alpha"))
     }
 
+    @Test func performBoldOnSelectionPreservesSelection() throws {
+        let controller = try EditorController(initialMarkdown: "alpha beta\n")
+        let selection = NSRange(location: 0, length: 5)
+        controller.testSelection = selection
+        let result = controller.perform(.bold)
+        // The toggled range should stay selected so the user can chain
+        // formatting (bold + italic, etc.) without re-selecting.
+        #expect(result == selection)
+    }
+
     @Test func performHeadingPreservesInlineMarks() throws {
         let controller = try EditorController(initialMarkdown: "**title** here\n")
         controller.testSelection = NSRange(location: 0, length: 0)

@@ -367,11 +367,20 @@ public final class EditorController {
             resegment()
             intrinsicSizeInvalidator?()
         }
-        let cursor = max(lastRange.location, lastRange.location + lastRange.length - 1)
-        let cursorRange = NSRange(location: cursor, length: 0)
-        setHostSelection(cursorRange)
-        refreshTypingAttributes(at: cursor)
-        return cursorRange
+        // Inline-mark toggles preserve the selection so the user can chain
+        // (e.g. bold then italic). Block-level steps emit content ending in
+        // "\n" — land the cursor just before that newline so further typing
+        // extends the same line instead of starting a new one.
+        let resultRange: NSRange
+        if case .toggleInlineMark = transaction.steps.last, lastRange.length > 0 {
+            resultRange = lastRange
+        } else {
+            let cursor = max(lastRange.location, lastRange.location + lastRange.length - 1)
+            resultRange = NSRange(location: cursor, length: 0)
+        }
+        setHostSelection(resultRange)
+        refreshTypingAttributes(at: resultRange.location)
+        return resultRange
     }
 
     /// Validate the spec invariants in `range`, repair drift, and forward
