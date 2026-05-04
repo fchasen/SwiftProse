@@ -34,6 +34,29 @@ public enum Step {
     case replaceText(range: NSRange, with: NSAttributedString)
     case setSpec(lineRange: NSRange, BlockSpec)
     case toggleInlineMark(range: NSRange, InlineMark)
+    /// Replace the slice between `outer.start..inner.start` AND
+    /// `inner.end..outer.end` with `content` (split into a leading and
+    /// trailing piece based on `contentSplit`). Mirrors ProseMirror's
+    /// `ReplaceAroundStep` — useful for wrapping or unwrapping a range
+    /// without touching the inner content.
+    case replaceAround(
+        outer: NSRange,
+        inner: NSRange,
+        content: NSAttributedString,
+        contentSplit: Int
+    )
+    /// Add an inline mark to `range`. Stamps both the canonical
+    /// `proseMarks` attribute and the legacy rendering attributes (font
+    /// traits, foreground colors) so the existing layout fragment code
+    /// continues to work during the migration.
+    case addMark(range: NSRange, mark: ProseMark)
+    /// Remove all marks of `markType` from `range`. Inverse of `addMark`
+    /// when the mark wasn't already present.
+    case removeMark(range: NSRange, markType: MarkType.Name)
+    /// Replace the leaf node's attributes within the given `NodePath`.
+    /// Walks the storage's `proseNodePath` runs, finds the run whose path
+    /// matches by NodeID, and rewrites the leaf with merged attributes.
+    case setNodeAttrs(path: NodePath, attrs: [String: ProseAttrValue])
 
     public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedStep {
         switch self {
@@ -43,6 +66,17 @@ public enum Step {
             return applySetSpec(in: storage, lineRange: lineRange, spec: spec, env: env)
         case .toggleInlineMark(let range, let mark):
             return applyToggleInlineMark(in: storage, range: range, mark: mark, env: env)
+        case .replaceAround(let outer, let inner, let content, let contentSplit):
+            return applyReplaceAround(
+                in: storage, outer: outer, inner: inner,
+                content: content, contentSplit: contentSplit
+            )
+        case .addMark(let range, let mark):
+            return applyAddMark(in: storage, range: range, mark: mark, env: env)
+        case .removeMark(let range, let markType):
+            return applyRemoveMark(in: storage, range: range, markType: markType, env: env)
+        case .setNodeAttrs(let path, let attrs):
+            return applySetNodeAttrs(in: storage, path: path, attrs: attrs)
         }
     }
 
@@ -258,6 +292,242 @@ public enum Step {
             return .setSpec(lineRange: mapping.mapRange(lineRange), spec)
         case .toggleInlineMark(let range, let mark):
             return .toggleInlineMark(range: mapping.mapRange(range), mark)
+        case .replaceAround(let outer, let inner, let content, let split):
+            return .replaceAround(
+                outer: mapping.mapRange(outer),
+                inner: mapping.mapRange(inner),
+                content: content,
+                contentSplit: split
+            )
+        case .addMark(let range, let mark):
+            return .addMark(range: mapping.mapRange(range), mark: mark)
+        case .removeMark(let range, let markType):
+            return .removeMark(range: mapping.mapRange(range), markType: markType)
+        case .setNodeAttrs(let path, let attrs):
+            // NodePath addressing is identity-based, not positional, so
+            // mapping ranges doesn't move the target. The path stays the
+            // same; the apply path re-resolves it against current storage.
+            return .setNodeAttrs(path: path, attrs: attrs)
+        }
+    }
+
+    // MARK: - new step variants (Phase 4)
+
+    private func applyReplaceAround(
+        in storage: NSTextStorage,
+        outer: NSRange,
+        inner: NSRange,
+        content: NSAttributedString,
+        contentSplit: Int
+    ) -> AppliedStep {
+        let outerSafe = outer.clamped(to: storage.length)
+        let prior = storage.attributedSubstring(from: outerSafe)
+        let innerStart = max(outerSafe.location, min(inner.location, outerSafe.location + outerSafe.length))
+        let innerEndRaw = inner.location + inner.length
+        let innerEnd = max(innerStart, min(innerEndRaw, outerSafe.location + outerSafe.length))
+        let split = max(0, min(contentSplit, content.length))
+        let leading = content.attributedSubstring(from: NSRange(location: 0, length: split))
+        let trailing = content.attributedSubstring(
+            from: NSRange(location: split, length: content.length - split)
+        )
+        // Apply trailing first so the leading replace doesn't shift the
+        // trailing range.
+        storage.beginEditing()
+        storage.replaceCharacters(
+            in: NSRange(location: innerEnd, length: outerSafe.location + outerSafe.length - innerEnd),
+            with: trailing
+        )
+        storage.replaceCharacters(
+            in: NSRange(location: outerSafe.location, length: innerStart - outerSafe.location),
+            with: leading
+        )
+        storage.endEditing()
+        let newLength = leading.length + (innerEnd - innerStart) + trailing.length
+        let mappedRange = NSRange(location: outerSafe.location, length: newLength)
+        let inverse = Step.replaceText(range: mappedRange, with: prior)
+        let stepMap = StepMap(oldRange: outerSafe, newLength: newLength)
+        return AppliedStep(
+            inverse: inverse,
+            mappedRange: mappedRange,
+            affectedLineRange: mappedRange,
+            stepMap: stepMap
+        )
+    }
+
+    private func applyAddMark(
+        in storage: NSTextStorage,
+        range: NSRange,
+        mark: ProseMark,
+        env: StepEnvironment
+    ) -> AppliedStep {
+        let safe = range.clamped(to: storage.length)
+        let prior = storage.attributedSubstring(from: safe)
+        let schema = env.compiler.schema
+        storage.beginEditing()
+        // Stamp proseMarks per existing run, adding the new mark.
+        storage.enumerateAttribute(.proseMarks, in: safe) { value, runRange, _ in
+            let current = (value as? MarkSetBox)?.marks ?? MarkSet()
+            let updated = current.adding(mark, in: schema)
+            if !updated.isEmpty {
+                storage.addAttribute(.proseMarks, value: MarkSetBox(updated), range: runRange)
+            }
+        }
+        // Reflect the mark to legacy rendering attributes so the existing
+        // layout fragment paints correctly until Phase 5/10 retire them.
+        applyRenderingAttribute(for: mark, in: storage, range: safe, theme: env.theme)
+        storage.endEditing()
+        let inverse = Step.replaceText(range: safe, with: prior)
+        return AppliedStep(
+            inverse: inverse,
+            mappedRange: safe,
+            affectedLineRange: safe,
+            stepMap: .empty
+        )
+    }
+
+    private func applyRemoveMark(
+        in storage: NSTextStorage,
+        range: NSRange,
+        markType: MarkType.Name,
+        env: StepEnvironment
+    ) -> AppliedStep {
+        let safe = range.clamped(to: storage.length)
+        let prior = storage.attributedSubstring(from: safe)
+        storage.beginEditing()
+        storage.enumerateAttribute(.proseMarks, in: safe) { value, runRange, _ in
+            guard let current = (value as? MarkSetBox)?.marks else { return }
+            let updated = current.removing(markType)
+            if updated.isEmpty {
+                storage.removeAttribute(.proseMarks, range: runRange)
+            } else {
+                storage.addAttribute(.proseMarks, value: MarkSetBox(updated), range: runRange)
+            }
+        }
+        removeRenderingAttribute(forMarkType: markType, in: storage, range: safe, theme: env.theme)
+        storage.endEditing()
+        let inverse = Step.replaceText(range: safe, with: prior)
+        return AppliedStep(
+            inverse: inverse,
+            mappedRange: safe,
+            affectedLineRange: safe,
+            stepMap: .empty
+        )
+    }
+
+    private func applySetNodeAttrs(
+        in storage: NSTextStorage,
+        path: NodePath,
+        attrs: [String: ProseAttrValue]
+    ) -> AppliedStep {
+        guard let leafID = path.leaf?.id else {
+            return AppliedStep(
+                inverse: .replaceText(range: NSRange(location: 0, length: 0), with: NSAttributedString()),
+                mappedRange: NSRange(location: 0, length: 0),
+                affectedLineRange: NSRange(location: 0, length: 0),
+                stepMap: .empty
+            )
+        }
+        var resolvedRange: NSRange?
+        var newPath: NodePath?
+        storage.enumerateNodePaths { runRange, runPath in
+            guard runPath.leaf?.id == leafID else { return }
+            if resolvedRange == nil {
+                resolvedRange = runRange
+                let merged = (runPath.leaf?.attrs ?? [:]).merging(attrs) { _, new in new }
+                let updatedLeaf = ProseNode(
+                    id: leafID,
+                    type: runPath.leaf!.type,
+                    attrs: merged
+                )
+                newPath = NodePath(runPath.nodes.dropLast() + [updatedLeaf])
+            } else {
+                resolvedRange = NSUnionRange(resolvedRange!, runRange)
+            }
+        }
+        guard let safe = resolvedRange, let updatedPath = newPath else {
+            return AppliedStep(
+                inverse: .replaceText(range: NSRange(location: 0, length: 0), with: NSAttributedString()),
+                mappedRange: NSRange(location: 0, length: 0),
+                affectedLineRange: NSRange(location: 0, length: 0),
+                stepMap: .empty
+            )
+        }
+        let prior = storage.attributedSubstring(from: safe)
+        storage.beginEditing()
+        storage.setNodePath(updatedPath, in: safe)
+        storage.endEditing()
+        let inverse = Step.replaceText(range: safe, with: prior)
+        return AppliedStep(
+            inverse: inverse,
+            mappedRange: safe,
+            affectedLineRange: safe,
+            stepMap: .empty
+        )
+    }
+
+    private func applyRenderingAttribute(
+        for mark: ProseMark,
+        in storage: NSTextStorage,
+        range: NSRange,
+        theme: ProseTheme
+    ) {
+        switch mark.type {
+        case "strong":
+            stampFontTrait(.bold, in: storage, range: range)
+        case "em":
+            stampFontTrait(.italic, in: storage, range: range)
+        case "strike":
+            storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+        case "code":
+            storage.addAttribute(.font, value: theme.monospaceFont, range: range)
+            storage.addAttribute(.proseInline, value: InlineTag.codeSpan, range: range)
+        case "link":
+            storage.addAttribute(.foregroundColor, value: theme.linkColor, range: range)
+            storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            storage.addAttribute(.proseInline, value: InlineTag.link, range: range)
+            if let href = mark.attrs["href"]?.stringValue {
+                storage.addAttribute(.proseLink, value: href, range: range)
+            }
+        default: break
+        }
+    }
+
+    private func removeRenderingAttribute(
+        forMarkType markType: MarkType.Name,
+        in storage: NSTextStorage,
+        range: NSRange,
+        theme: ProseTheme
+    ) {
+        switch markType {
+        case "strong":
+            stampFontTrait(.bold, in: storage, range: range, enabled: false)
+        case "em":
+            stampFontTrait(.italic, in: storage, range: range, enabled: false)
+        case "strike":
+            storage.removeAttribute(.strikethroughStyle, range: range)
+        case "code":
+            storage.removeAttribute(.proseInline, range: range)
+            // Restore body font on the run.
+            storage.addAttribute(.font, value: theme.bodyFont, range: range)
+        case "link":
+            storage.removeAttribute(.proseInline, range: range)
+            storage.removeAttribute(.proseLink, range: range)
+            storage.removeAttribute(.underlineStyle, range: range)
+            storage.addAttribute(.foregroundColor, value: theme.foregroundColor, range: range)
+        default: break
+        }
+    }
+
+    private func stampFontTrait(
+        _ trait: FontTraits,
+        in storage: NSTextStorage,
+        range: NSRange,
+        enabled: Bool = true
+    ) {
+        storage.enumerateAttribute(.font, in: range) { value, runRange, _ in
+            guard let font = value as? PlatformFont else { return }
+            let updated = font.togglingProseTrait(trait, enable: enabled)
+            storage.addAttribute(.font, value: updated, range: runRange)
         }
     }
 }

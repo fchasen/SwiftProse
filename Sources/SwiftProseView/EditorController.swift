@@ -530,9 +530,19 @@ public final class EditorController {
             switch step {
             case .replaceText(let range, _),
                  .setSpec(let range, _),
-                 .toggleInlineMark(let range, _):
+                 .toggleInlineMark(let range, _),
+                 .addMark(let range, _),
+                 .removeMark(let range, _):
                 lo = min(lo, range.location)
                 hi = max(hi, range.location + range.length)
+            case .replaceAround(let outer, _, _, _):
+                lo = min(lo, outer.location)
+                hi = max(hi, outer.location + outer.length)
+            case .setNodeAttrs:
+                // Identity-addressed; no positional bounds — leave as the
+                // current accumulator. The apply path resolves the leaf
+                // range from the stored NodePath.
+                continue
             }
         }
         guard hi > lo else { return NSRange(location: 0, length: 0) }
