@@ -40,18 +40,38 @@ struct ContentView: View {
         }
         ToolbarItem {
             Menu {
-                Button("Heading 1") { perform(.heading(level: 1)) }
-                Button("Heading 2") { perform(.heading(level: 2)) }
-                Button("Heading 3") { perform(.heading(level: 3)) }
+                Button { perform(.heading(level: 1)) } label: {
+                    Label("Heading 1", systemImage: "1.square")
+                }
+                Button { perform(.heading(level: 2)) } label: {
+                    Label("Heading 2", systemImage: "2.square")
+                }
+                Button { perform(.heading(level: 3)) } label: {
+                    Label("Heading 3", systemImage: "3.square")
+                }
                 Divider()
-                Button("Bullet List") { perform(.unorderedList) }
-                Button("Numbered List") { perform(.orderedList) }
-                Button("Task List") { perform(.taskList) }
-                Button("Blockquote") { perform(.blockquote) }
+                Button { perform(.unorderedList) } label: {
+                    Label("Bullet List", systemImage: "list.bullet")
+                }
+                Button { perform(.orderedList) } label: {
+                    Label("Numbered List", systemImage: "list.number")
+                }
+                Button { perform(.taskList) } label: {
+                    Label("Task List", systemImage: "checklist")
+                }
+                Button { perform(.blockquote) } label: {
+                    Label("Blockquote", systemImage: "text.quote")
+                }
                 Divider()
-                Button("Inline Code") { perform(.codeSpan) }
-                Button("Code Block") { perform(.codeBlock) }
-                Button("Horizontal Rule") { perform(.horizontalRule) }
+                Button { perform(.codeSpan) } label: {
+                    Label("Inline Code", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                Button { perform(.codeBlock) } label: {
+                    Label("Code Block", systemImage: "curlybraces")
+                }
+                Button { perform(.horizontalRule) } label: {
+                    Label("Horizontal Rule", systemImage: "minus")
+                }
             } label: {
                 Label("Format", systemImage: "textformat")
             }
