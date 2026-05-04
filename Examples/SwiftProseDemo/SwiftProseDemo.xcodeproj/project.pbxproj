@@ -14,6 +14,12 @@
 		B0010005000000000000B001 /* ToolbarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020004000000000000B002 /* ToolbarTests.swift */; };
 		B0010007000000000000B001 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020006000000000000B002 /* MarkdownDocument.swift */; };
 		B0010008000000000000B001 /* TestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020008000000000000B002 /* TestHelpers.swift */; };
+		B0010009000000000000B001 /* CodeHighlighters.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020009000000000000B002 /* CodeHighlighters.swift */; };
+		B001000A000000000000B001 /* queries in Resources */ = {isa = PBXBuildFile; fileRef = B002000A000000000000B002 /* queries */; };
+		B0E30001000000000000B0E3 /* TreeSitterSwift in Frameworks */ = {isa = PBXBuildFile; productRef = B0E20001000000000000B0E2 /* TreeSitterSwift */; };
+		B0E30002000000000000B0E3 /* TreeSitterJavaScript in Frameworks */ = {isa = PBXBuildFile; productRef = B0E20002000000000000B0E2 /* TreeSitterJavaScript */; };
+		B0E30003000000000000B0E3 /* TreeSitterCSS in Frameworks */ = {isa = PBXBuildFile; productRef = B0E20003000000000000B0E2 /* TreeSitterCSS */; };
+		B0E30004000000000000B0E3 /* TreeSitterHTML in Frameworks */ = {isa = PBXBuildFile; productRef = B0E20004000000000000B0E2 /* TreeSitterHTML */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -34,6 +40,8 @@
 		B0020006000000000000B002 /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
 		B0020007000000000000B002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B0020008000000000000B002 /* TestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestHelpers.swift; sourceTree = "<group>"; };
+		B0020009000000000000B002 /* CodeHighlighters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeHighlighters.swift; sourceTree = "<group>"; };
+		B002000A000000000000B002 /* queries */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/queries; sourceTree = "<group>"; };
 		B00F0001000000000000B00F /* SwiftProseDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwiftProseDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00F0002000000000000B00F /* SwiftProseDemoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftProseDemoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -44,6 +52,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				B0010003000000000000B001 /* SwiftProse in Frameworks */,
+				B0E30001000000000000B0E3 /* TreeSitterSwift in Frameworks */,
+				B0E30002000000000000B0E3 /* TreeSitterJavaScript in Frameworks */,
+				B0E30003000000000000B0E3 /* TreeSitterCSS in Frameworks */,
+				B0E30004000000000000B0E3 /* TreeSitterHTML in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,7 +83,9 @@
 			children = (
 				B0020001000000000000B002 /* SwiftProseDemoApp.swift */,
 				B0020002000000000000B002 /* ContentView.swift */,
+				B0020009000000000000B002 /* CodeHighlighters.swift */,
 				B0020006000000000000B002 /* MarkdownDocument.swift */,
+				B002000A000000000000B002 /* queries */,
 				B0020007000000000000B002 /* Info.plist */,
 			);
 			path = SwiftProseDemo;
@@ -114,6 +128,10 @@
 			name = SwiftProseDemo;
 			packageProductDependencies = (
 				B0050001000000000000B005 /* SwiftProse */,
+				B0E20001000000000000B0E2 /* TreeSitterSwift */,
+				B0E20002000000000000B0E2 /* TreeSitterJavaScript */,
+				B0E20003000000000000B0E2 /* TreeSitterCSS */,
+				B0E20004000000000000B0E2 /* TreeSitterHTML */,
 			);
 			productName = SwiftProseDemo;
 			productReference = B00F0001000000000000B00F /* SwiftProseDemo.app */;
@@ -166,6 +184,10 @@
 			mainGroup = B0060001000000000000B006;
 			packageReferences = (
 				B00E0001000000000000B00E /* XCLocalSwiftPackageReference "../.." */,
+				B0E10001000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-swift" */,
+				B0E10002000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-javascript" */,
+				B0E10003000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-css" */,
+				B0E10004000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-html" */,
 			);
 			productRefGroup = B0060004000000000000B006 /* Products */;
 			projectDirPath = "";
@@ -182,6 +204,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B001000A000000000000B001 /* queries in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -195,6 +218,7 @@
 				B0010001000000000000B001 /* SwiftProseDemoApp.swift in Sources */,
 				B0010002000000000000B001 /* ContentView.swift in Sources */,
 				B0010007000000000000B001 /* MarkdownDocument.swift in Sources */,
+				B0010009000000000000B001 /* CodeHighlighters.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -409,10 +433,65 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		B0E10001000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/alex-pinkus/tree-sitter-swift";
+			requirement = {
+				branch = "with-generated-files";
+				kind = branch;
+			};
+		};
+		B0E10002000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-javascript" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tree-sitter/tree-sitter-javascript";
+			requirement = {
+				kind = exactVersion;
+				version = 0.23.1;
+			};
+		};
+		B0E10003000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-css" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tree-sitter/tree-sitter-css";
+			requirement = {
+				kind = exactVersion;
+				version = 0.23.2;
+			};
+		};
+		B0E10004000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-html" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tree-sitter/tree-sitter-html";
+			requirement = {
+				kind = exactVersion;
+				version = 0.23.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		B0050001000000000000B005 /* SwiftProse */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SwiftProse;
+		};
+		B0E20001000000000000B0E2 /* TreeSitterSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0E10001000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-swift" */;
+			productName = TreeSitterSwift;
+		};
+		B0E20002000000000000B0E2 /* TreeSitterJavaScript */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0E10002000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-javascript" */;
+			productName = TreeSitterJavaScript;
+		};
+		B0E20003000000000000B0E2 /* TreeSitterCSS */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0E10003000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-css" */;
+			productName = TreeSitterCSS;
+		};
+		B0E20004000000000000B0E2 /* TreeSitterHTML */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0E10004000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-html" */;
+			productName = TreeSitterHTML;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

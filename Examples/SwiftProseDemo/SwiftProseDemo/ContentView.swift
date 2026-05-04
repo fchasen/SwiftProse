@@ -5,6 +5,7 @@ struct ContentView: View {
     @Binding var document: MarkdownDocument
     @State private var controller: EditorController?
     @AppStorage("swiftprose.mode") private var modeRawValue: String = Mode.rich.rawValue
+    private static let codeHighlighter: CodeBlockHighlighter? = DemoCodeHighlighter.make()
 
     private var mode: Mode { Mode(rawValue: modeRawValue) ?? .rich }
     private var isSourceMode: Bool { mode == .source }
@@ -16,6 +17,7 @@ struct ContentView: View {
                 statusItems: [],
                 sizing: .fillContainer
             ))
+            .codeBlockHighlighter(Self.codeHighlighter)
             .onProseControllerReady { controller = $0 }
             .accessibilityIdentifier("prose-editor")
             .toolbar { formattingToolbar }
