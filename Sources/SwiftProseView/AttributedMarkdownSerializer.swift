@@ -8,18 +8,19 @@ import UIKit
 #endif
 
 public final class AttributedMarkdownSerializer {
+    /// Schema for the tree-driven emit path. Defaults to the markdown
+    /// schema; callers with custom schemas can pass their own.
+    public let schema: Schema
 
-    public init() {}
+    public init(schema: Schema = .defaultMarkdown) {
+        self.schema = schema
+    }
 
     public func serialize(_ attributed: NSAttributedString) -> String {
         let total = attributed.length
         guard total > 0 else { return "" }
         var out = ""
         var emittedSomething = false
-
-        // BlockSpecBox uses reference equality (see BlockSpec.swift) so each
-        // compiled block carries a distinct box and enumerateAttribute yields
-        // one range per block in a single linear pass.
         let fullRange = NSRange(location: 0, length: total)
         attributed.enumerateAttribute(.proseBlockSpec, in: fullRange) { value, range, _ in
             if emittedSomething { out.append("\n") }
@@ -31,6 +32,18 @@ public final class AttributedMarkdownSerializer {
             emittedSomething = true
         }
         return ensureTrailingNewline(out)
+    }
+
+    /// Tree-driven emit path. Reconstructs a `ProseDocument` from the
+    /// storage's `proseNodePath` runs and walks it via
+    /// `MarkdownTreeSerializer`. The result is byte-equivalent to
+    /// `serialize(_:)` for compiler-produced storage that hasn't been
+    /// mutated post-compile; once Step mutations go through Phase 4's
+    /// tree-aware path and Phase 8's typing→tree sync lands, callers can
+    /// flip to this path uniformly. Phase 3 ships it as opt-in.
+    public func serializeFromTree(_ attributed: NSAttributedString) -> String {
+        let tree = ProseDocument.from(storage: attributed, schema: schema)
+        return MarkdownTreeSerializer(schema: schema).serialize(tree)
     }
 
     private func emitBlock(

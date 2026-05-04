@@ -44,7 +44,8 @@ public final class EditorController {
     private(set) var serializer: AttributedMarkdownSerializer
 
     private static let carryForwardAttributeKeys: [NSAttributedString.Key] = [
-        .font, .foregroundColor, .paragraphStyle, .proseBlockSpec
+        .font, .foregroundColor, .paragraphStyle, .proseBlockSpec,
+        .proseNodePath, .proseMarks
     ]
     private let layoutDelegate: LayoutManagerDelegate
     private var storageObserver: NSObjectProtocol?

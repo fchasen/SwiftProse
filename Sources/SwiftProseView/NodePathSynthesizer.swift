@@ -170,18 +170,33 @@ public struct NodePathSynthesizer {
         // storage's natural attribute runs, which already split on every
         // attribute change, so each invocation receives a homogeneous run
         // we can synthesize a single MarkSet for.
+        let baseTraits = baseTraits(for: blockKind)
         storage.enumerateAttributes(in: blockRange, options: []) { attrs, runRange, _ in
-            let marks = synthesizeMarks(from: attrs)
+            let marks = synthesizeMarks(from: attrs, baseTraits: baseTraits)
             storage.setMarkSet(marks, in: runRange)
         }
     }
 
+    /// Block-level "implicit" font traits — traits that the compiler
+    /// applies as part of the block's base styling and that should not
+    /// surface as inline marks on every character. Headings, in
+    /// particular, render in bold; without subtracting the implicit bold,
+    /// every heading character would carry a `strong` mark and the
+    /// serializer would emit `# **all of this**` for plain headings.
+    private func baseTraits(for kind: BlockSpec.Kind) -> FontTraits {
+        switch kind {
+        case .heading: return .bold
+        default: return []
+        }
+    }
+
     private func synthesizeMarks(
-        from attrs: [NSAttributedString.Key: Any]
+        from attrs: [NSAttributedString.Key: Any],
+        baseTraits: FontTraits = []
     ) -> MarkSet {
         var working = MarkSet()
         if let font = attrs[.font] as? PlatformFont {
-            let traits = font.proseTraits
+            let traits = font.proseTraits.subtracting(baseTraits)
             if traits.contains(.bold) {
                 working = working.adding(ProseMark(type: "strong"), in: schema)
             }

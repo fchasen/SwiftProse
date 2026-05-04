@@ -251,24 +251,29 @@ public extension ProseDocument {
         var stack: [(node: ProseNode, kids: [TreeNode])] = [(docNode, [])]
         var openPath: NodePath = NodePath([docNode])
 
-        storage.enumerateNodePaths { runRange, runPath in
-            let rawText = (storage.string as NSString).substring(with: runRange)
-            let marks = storage.markSet(at: runRange.location) ?? MarkSet()
-            if let leaf = runPath.leaf, isLeafType(leaf.type, schema: schema) {
-                // Leaf node placeholder character (e.g. "\n" for hr) — open
-                // ancestors up to (but not including) the leaf, then attach
-                // the leaf as a child of the parent.
-                openTo(parent: runPath.droppingLast(), stack: &stack, openPath: &openPath)
+        storage.enumerateNodePaths { blockRange, blockPath in
+            // For each `proseNodePath` run, walk the inner `proseMarks`
+            // run boundaries so inline children inherit the correct
+            // per-character marks. Without this split, the whole block
+            // would collapse to one inline run carrying the marks of the
+            // first character (e.g. a paragraph starting with bold would
+            // serialize as fully bold).
+            if let leaf = blockPath.leaf, isLeafType(leaf.type, schema: schema) {
+                if isPresentationMarker(in: storage, at: blockRange.location) { return }
+                openTo(parent: blockPath.droppingLast(), stack: &stack, openPath: &openPath)
                 stack[stack.count - 1].kids.append(.leaf(leaf))
-            } else {
-                // Inline text run. Trailing `\n` characters mark block
-                // separators (paragraph end + inter-block whitespace) and
-                // belong to the structural layout, not the inline content.
-                // Strip them; if the run is *purely* separators, it
-                // contributes nothing to the tree.
-                let text = stripTrailingNewlines(rawText)
+                return
+            }
+            // Inline runs — split by `proseMarks` boundaries (and skip
+            // presentation markers via per-character probe).
+            storage.enumerateAttribute(.proseMarks, in: blockRange) { value, runRange, _ in
+                guard runRange.length > 0 else { return }
+                if isPresentationMarker(in: storage, at: runRange.location) { return }
+                let raw = (storage.string as NSString).substring(with: runRange)
+                let text = stripTrailingNewlines(raw)
                 if text.isEmpty { return }
-                openTo(parent: runPath, stack: &stack, openPath: &openPath)
+                openTo(parent: blockPath, stack: &stack, openPath: &openPath)
+                let marks = (value as? MarkSetBox)?.marks ?? MarkSet()
                 stack[stack.count - 1].kids.append(.inline(text: text, marks: marks))
             }
         }
@@ -331,6 +336,23 @@ public extension ProseDocument {
         let folded: TreeNode = .structural(popped.node, popped.kids)
         stack[stack.count - 1].kids.append(folded)
         openPath = openPath.droppingLast()
+    }
+
+    private static func isPresentationMarker(
+        in storage: NSAttributedString,
+        at location: Int
+    ) -> Bool {
+        guard location >= 0, location < storage.length else { return false }
+        if let flag = storage.attribute(.proseListMarker, at: location, effectiveRange: nil) as? Bool, flag {
+            return true
+        }
+        // `.attachment` is defined by AppKit/UIKit, not the base Foundation
+        // module that owns `NSAttributedString.Key` — string-key probe
+        // avoids the platform-conditional import here in SwiftProseSyntax.
+        if storage.attribute(NSAttributedString.Key("NSAttachment"), at: location, effectiveRange: nil) != nil {
+            return true
+        }
+        return false
     }
 
     private static func stripTrailingNewlines(_ s: String) -> String {
