@@ -36,6 +36,9 @@ public protocol DecorationProvider: AnyObject {
     func decorations(in range: NSRange, storage: NSAttributedString) -> [Decoration]
 }
 
+/// Decoration provider that reads `proseNodePath` to derive structural
+/// chrome (blockquote bars, code backgrounds, hr lines). Walks paragraph
+/// by paragraph; for each, inspects the path's ancestors and leaf type.
 public final class BlockSpecDecorationProvider: DecorationProvider {
 
     public init() {}
@@ -65,49 +68,51 @@ public final class BlockSpecDecorationProvider: DecorationProvider {
         in storage: NSAttributedString,
         into out: inout [Decoration]
     ) {
-        // Scan the paragraph for any character carrying a spec —
+        // Scan the paragraph for any character carrying a node path —
         // trusting char 0 only would miss lines where the leading
-        // character lost its spec mid-edit.
-        guard let spec = paragraphSpec(in: storage, lineRange: line) else { return }
-        if spec.blockquoteDepth > 0 {
-            let position = runPosition(for: line, in: storage) { $0.blockquoteDepth > 0 }
-            out.append(Decoration(range: line, kind: .blockquoteBar(depth: spec.blockquoteDepth, position: position)))
+        // character lost its path mid-edit.
+        guard let path = paragraphPath(in: storage, lineRange: line) else { return }
+        let depth = blockquoteDepth(in: path)
+        if depth > 0 {
+            let position = runPosition(for: line, in: storage) { p in blockquoteDepth(in: p) > 0 }
+            out.append(Decoration(range: line, kind: .blockquoteBar(depth: depth, position: position)))
         }
-        switch spec.kind {
-        case .fencedCode(let language):
-            let position = runPosition(for: line, in: storage) { spec in
-                if case .fencedCode = spec.kind { return true } else { return false }
+        guard let leaf = path.leaf else { return }
+        switch leaf.type {
+        case "code_block":
+            let language = leaf.attrs["language"]?.stringValue
+            let position = runPosition(for: line, in: storage) { p in
+                p.leaf?.type == "code_block"
             }
             out.append(Decoration(range: line, kind: .codeBackground(language: language, position: position), zIndex: -1))
-        case .indentedCode:
-            let position = runPosition(for: line, in: storage) { spec in
-                if case .indentedCode = spec.kind { return true } else { return false }
-            }
-            out.append(Decoration(range: line, kind: .codeBackground(language: nil, position: position), zIndex: -1))
-        case .horizontalRule:
+        case "horizontal_rule":
             out.append(Decoration(range: line, kind: .horizontalRule))
         default:
             break
         }
     }
 
-    private func paragraphSpec(in storage: NSAttributedString, lineRange: NSRange) -> BlockSpec? {
+    private func paragraphPath(in storage: NSAttributedString, lineRange: NSRange) -> NodePath? {
         var i = lineRange.location
         let end = lineRange.location + lineRange.length
         while i < end {
-            if let spec = storage.blockSpec(at: i) { return spec }
+            if let path = storage.nodePath(at: i) { return path }
             i += 1
         }
         return nil
     }
 
+    private func blockquoteDepth(in path: NodePath) -> Int {
+        path.nodes.reduce(0) { $0 + ($1.type == "blockquote" ? 1 : 0) }
+    }
+
     private func runPosition(
         for line: NSRange,
         in storage: NSAttributedString,
-        match: (BlockSpec) -> Bool
+        match: (NodePath) -> Bool
     ) -> RunPosition {
-        let prevMatches = lineSpec(before: line, in: storage).map(match) ?? false
-        let nextMatches = lineSpec(after: line, in: storage).map(match) ?? false
+        let prevMatches = linePath(before: line, in: storage).map(match) ?? false
+        let nextMatches = linePath(after: line, in: storage).map(match) ?? false
         switch (prevMatches, nextMatches) {
         case (false, false): return .single
         case (false, true): return .start
@@ -116,14 +121,14 @@ public final class BlockSpecDecorationProvider: DecorationProvider {
         }
     }
 
-    private func lineSpec(before line: NSRange, in storage: NSAttributedString) -> BlockSpec? {
+    private func linePath(before line: NSRange, in storage: NSAttributedString) -> NodePath? {
         guard line.location > 0 else { return nil }
-        return storage.blockSpec(at: line.location - 1)
+        return storage.nodePath(at: line.location - 1)
     }
 
-    private func lineSpec(after line: NSRange, in storage: NSAttributedString) -> BlockSpec? {
+    private func linePath(after line: NSRange, in storage: NSAttributedString) -> NodePath? {
         let end = line.location + line.length
         guard end < storage.length else { return nil }
-        return storage.blockSpec(at: end)
+        return storage.nodePath(at: end)
     }
 }

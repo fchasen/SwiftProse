@@ -60,8 +60,9 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                     fragment.isLastLine = position == .end || position == .single
                     fragment.containerWidth = containerWidth
                     return fragment
-                } else if let spec = controller.textStorage.blockSpec(at: elementStart),
-                          case .indentedCode = spec.kind {
+                } else if let path = controller.textStorage.nodePath(at: elementStart),
+                          path.leaf?.type == "code_block",
+                          path.leaf?.attrs["fenced"]?.boolValue == false {
                     let fragment = IndentedCodeBlockLayoutFragment(
                         textElement: textElement,
                         range: textElement.elementRange
@@ -94,15 +95,6 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
 
     private func textContainer(_ controller: EditorController) -> NSTextContainer {
         controller.textContainer
-    }
-
-    private func paragraphSpec(in storage: NSAttributedString, from lo: Int, to hi: Int) -> BlockSpec? {
-        var i = lo
-        while i < hi {
-            if let spec = storage.blockSpec(at: i) { return spec }
-            i += 1
-        }
-        return nil
     }
 
     /// Cheap scan: returns `true` if any character in `range` carries
