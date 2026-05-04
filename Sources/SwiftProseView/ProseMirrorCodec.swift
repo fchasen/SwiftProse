@@ -180,18 +180,15 @@ public struct ProseMirrorCodec {
                 for mark in child.marks ?? [] {
                     schemaMap.applyMark(mark, to: &attrs, theme: theme)
                 }
-                attrs[.proseBlockSpec] = BlockSpecBox(spec)
                 line.append(NSAttributedString(string: text, attributes: attrs))
             case "hard_break":
-                var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
-                attrs[.proseBlockSpec] = BlockSpecBox(spec)
+                let attrs = schemaMap.baseAttributes(for: spec, theme: theme)
                 line.append(NSAttributedString(string: "\n", attributes: attrs))
             case "image":
                 let src = child.attrs?["src"]?.stringValue ?? ""
                 let alt = child.attrs?["alt"]?.stringValue ?? ""
                 let title = child.attrs?["title"]?.stringValue
-                var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
-                attrs[.proseBlockSpec] = BlockSpecBox(spec)
+                let attrs = schemaMap.baseAttributes(for: spec, theme: theme)
                 let label = alt.isEmpty ? src : alt
                 let titleSuffix = title.map { " \"\($0)\"" } ?? ""
                 line.append(NSAttributedString(string: "![\(label)](\(src)\(titleSuffix))", attributes: attrs))
@@ -200,16 +197,21 @@ public struct ProseMirrorCodec {
             }
         }
         if line.length == 0 {
-            var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
-            attrs[.proseBlockSpec] = BlockSpecBox(spec)
+            let attrs = schemaMap.baseAttributes(for: spec, theme: theme)
             line.append(NSAttributedString(string: "", attributes: attrs))
         }
         if !line.string.hasSuffix("\n") {
-            var nlAttrs = schemaMap.baseAttributes(for: spec, theme: theme)
-            nlAttrs[.proseBlockSpec] = BlockSpecBox(spec)
+            let nlAttrs = schemaMap.baseAttributes(for: spec, theme: theme)
             line.append(NSAttributedString(string: "\n", attributes: nlAttrs))
         }
+        // Stamp the entire block with one BlockSpecBox so the synthesizer
+        // sees one logical block run (not one per inline child).
+        let beforeLength = result.length
         result.append(line)
+        let stampedLength = result.length - beforeLength
+        if stampedLength > 0 {
+            result.setBlockSpec(spec, in: NSRange(location: beforeLength, length: stampedLength))
+        }
     }
 
     private func appendLeafBlock(spec: BlockSpec, into result: NSMutableAttributedString) {
@@ -221,9 +223,14 @@ public struct ProseMirrorCodec {
     // MARK: encode
 
     public func encode(_ storage: NSAttributedString) -> PMNode {
-        let blocks = extractFlatBlocks(from: storage)
-        let children = buildPMTree(from: blocks)
-        return PMNode(type: "doc", content: children)
+        // Project storage to a tree first, then walk the tree directly.
+        // The tree path captures marks via `MarkSet` rather than re-deriving
+        // from rendering attributes, which keeps mark fidelity in nested
+        // contexts.
+        let mutable = NSMutableAttributedString(attributedString: storage)
+        NodePathSynthesizer(schema: .defaultMarkdown).stamp(into: mutable)
+        let document = ProseDocument.from(storage: mutable, schema: .defaultMarkdown)
+        return encode(document: document)
     }
 
     public func encodeToJSON(_ storage: NSAttributedString) throws -> Data {
@@ -269,7 +276,21 @@ public struct ProseMirrorCodec {
                 let attrs: [String: PMValue]? = (start != 1) ? ["order": .int(start)] : nil
                 return PMNode(type: "ordered_list", attrs: attrs, content: items.orNilIfEmpty())
             case "list_item":
-                let inner = kids.compactMap { encodeBlock($0) }
+                var inner = kids.compactMap { encodeBlock($0) }
+                // Task list_items carry `checked` in attrs; PM has no
+                // native task type, so we render bullet items with a
+                // `[x] ` / `[ ] ` text prefix the way the legacy codec did.
+                if let checked = pn.attrs["checked"]?.boolValue {
+                    let prefix = checked ? "[x] " : "[ ] "
+                    let prefixNode = PMNode(type: "text", text: prefix)
+                    if let firstIdx = inner.firstIndex(where: { $0.type == "paragraph" }) {
+                        var paragraph = inner[firstIdx]
+                        var content = paragraph.content ?? []
+                        content.insert(prefixNode, at: 0)
+                        paragraph.content = content
+                        inner[firstIdx] = paragraph
+                    }
+                }
                 return PMNode(type: "list_item", content: inner.orNilIfEmpty())
             case "code_block":
                 let language = pn.attrs["language"]?.stringValue ?? ""
@@ -349,133 +370,6 @@ public struct ProseMirrorCodec {
         return out
     }
 
-    private func extractFlatBlocks(from storage: NSAttributedString) -> [FlatBlock] {
-        var blocks: [FlatBlock] = []
-        let ns = storage.string as NSString
-        var cursor = 0
-        while cursor < ns.length {
-            let lineRange = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
-            let spec = storage.blockSpec(at: lineRange.location) ?? .paragraph
-            let inlineNodes = extractInlineNodes(from: storage, range: lineRange)
-            blocks.append(FlatBlock(spec: spec, range: lineRange, inlineNodes: inlineNodes))
-            cursor = lineRange.location + lineRange.length
-        }
-        return blocks
-    }
-
-    private func extractInlineNodes(from storage: NSAttributedString, range: NSRange) -> [PMNode] {
-        var nodes: [PMNode] = []
-        storage.enumerateAttributes(in: range) { attrs, subRange, _ in
-            let text = (storage.string as NSString).substring(with: subRange)
-            let cleaned = text.replacingOccurrences(of: "\n", with: "")
-                .replacingOccurrences(of: "\u{FFFC}", with: "")
-            guard !cleaned.isEmpty else { return }
-            if (attrs[.proseListMarker] as? Bool) == true { return }
-            let marks = schemaMap.extractMarks(from: attrs)
-            var node = PMNode(type: "text", text: cleaned)
-            if !marks.isEmpty { node.marks = marks }
-            nodes.append(node)
-        }
-        return nodes
-    }
-
-    private func buildPMTree(from blocks: [FlatBlock]) -> [PMNode] {
-        var result: [PMNode] = []
-        var i = 0
-        while i < blocks.count {
-            let block = blocks[i]
-            if block.spec.blockquoteDepth > 0 {
-                let (node, consumed) = wrapBlockquote(blocks, from: i, atDepth: 1)
-                result.append(node)
-                i += consumed
-            } else if block.spec.isListItem {
-                let (node, consumed) = wrapList(blocks, from: i)
-                result.append(node)
-                i += consumed
-            } else {
-                result.append(blockToPMNode(block))
-                i += 1
-            }
-        }
-        return result
-    }
-
-    private func wrapBlockquote(_ blocks: [FlatBlock], from start: Int, atDepth: Int) -> (PMNode, Int) {
-        var consumed = 0
-        var children: [FlatBlock] = []
-        while start + consumed < blocks.count, blocks[start + consumed].spec.blockquoteDepth >= atDepth {
-            let original = blocks[start + consumed]
-            children.append(FlatBlock(
-                spec: BlockSpec(kind: original.spec.kind, blockquoteDepth: original.spec.blockquoteDepth - 1, listLevel: original.spec.listLevel),
-                range: original.range,
-                inlineNodes: original.inlineNodes
-            ))
-            consumed += 1
-        }
-        let inner = buildPMTree(from: children)
-        return (PMNode(type: "blockquote", content: inner), consumed)
-    }
-
-    private func wrapList(_ blocks: [FlatBlock], from start: Int) -> (PMNode, Int) {
-        let firstKind = blocks[start].spec.kind
-        let listType: String
-        switch firstKind {
-        case .orderedListItem: listType = "ordered_list"
-        default: listType = "bullet_list"
-        }
-        var items: [PMNode] = []
-        var i = start
-        while i < blocks.count, blocks[i].spec.isListItem {
-            let block = blocks[i]
-            var inlineNodes = block.inlineNodes
-            if case .taskListItem(let checked) = block.spec.kind {
-                let prefix = checked ? "[x] " : "[ ] "
-                inlineNodes.insert(PMNode(type: "text", text: prefix), at: 0)
-            }
-            let inner = PMNode(
-                type: "paragraph",
-                content: inlineNodes.isEmpty ? nil : inlineNodes
-            )
-            items.append(PMNode(type: "list_item", content: [inner]))
-            i += 1
-        }
-        var attrs: [String: PMValue]? = nil
-        if listType == "ordered_list" {
-            if case .orderedListItem(let idx) = firstKind, idx != 1 {
-                attrs = ["order": .int(idx)]
-            }
-        }
-        return (PMNode(type: listType, attrs: attrs, content: items), i - start)
-    }
-
-    private func blockToPMNode(_ block: FlatBlock) -> PMNode {
-        switch block.spec.kind {
-        case .paragraph:
-            return PMNode(type: "paragraph", content: block.inlineNodes.isEmpty ? nil : block.inlineNodes)
-        case .heading(let level):
-            return PMNode(
-                type: "heading",
-                attrs: ["level": .int(level)],
-                content: block.inlineNodes.isEmpty ? nil : block.inlineNodes
-            )
-        case .fencedCode(let lang):
-            return PMNode(
-                type: "code_block",
-                attrs: ["params": .string(lang ?? "")],
-                content: block.inlineNodes.isEmpty ? nil : block.inlineNodes
-            )
-        case .indentedCode:
-            return PMNode(
-                type: "code_block",
-                attrs: ["params": .string("")],
-                content: block.inlineNodes.isEmpty ? nil : block.inlineNodes
-            )
-        case .horizontalRule:
-            return PMNode(type: "horizontal_rule")
-        default:
-            return PMNode(type: "paragraph", content: block.inlineNodes.isEmpty ? nil : block.inlineNodes)
-        }
-    }
 }
 
 // MARK: - tree-direct helpers
@@ -530,12 +424,6 @@ struct BlockContext {
         }
         return BlockSpec(kind: finalKind, blockquoteDepth: blockquoteDepth, listLevel: listLevel)
     }
-}
-
-struct FlatBlock {
-    let spec: BlockSpec
-    let range: NSRange
-    let inlineNodes: [PMNode]
 }
 
 // MARK: - SchemaMap
