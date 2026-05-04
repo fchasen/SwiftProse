@@ -13,8 +13,21 @@ import SwiftTreeSitter
 public struct TreeSitterMapping {
     public let text: String
 
+    /// UTF-16 code-unit offsets at the start of each line. `lineStarts[0]`
+    /// is always 0; `lineStarts[k]` is the offset of the first code unit of
+    /// the k-th line. Computed once in init so `point(forByte:)` becomes
+    /// O(log N) instead of an O(N) walk per lookup.
+    private let lineStarts: [Int]
+
     public init(text: String) {
         self.text = text
+        var starts: [Int] = [0]
+        var i = 0
+        for codeUnit in text.utf16 {
+            i += 1
+            if codeUnit == 0x0A { starts.append(i) }
+        }
+        self.lineStarts = starts
     }
 
     /// UTF-16 code-unit offset (an `NSRange` location) → tree-sitter byte offset.
@@ -30,18 +43,16 @@ public struct TreeSitterMapping {
     /// Tree-sitter byte offset → `Point` (row + UTF-16-byte column).
     public func point(forByte byteOffset: UInt32) -> Point {
         let utf16Target = Int(byteOffset) / 2
-        var row: UInt32 = 0
-        var lineStartUtf16 = 0
-        var i = 0
-        for codeUnit in text.utf16 {
-            if i >= utf16Target { break }
-            if codeUnit == 0x0A {
-                row += 1
-                lineStartUtf16 = i + 1
-            }
-            i += 1
+        // Binary search for the largest line start <= utf16Target.
+        var lo = 0
+        var hi = lineStarts.count
+        while lo < hi {
+            let mid = (lo + hi) >> 1
+            if lineStarts[mid] <= utf16Target { lo = mid + 1 } else { hi = mid }
         }
-        let column = UInt32((utf16Target - lineStartUtf16) * 2)
+        let rowIdx = max(0, lo - 1)
+        let row = UInt32(rowIdx)
+        let column = UInt32((utf16Target - lineStarts[rowIdx]) * 2)
         return Point(row: row, column: column)
     }
 
