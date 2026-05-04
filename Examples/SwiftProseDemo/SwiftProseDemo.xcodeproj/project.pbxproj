@@ -3,10 +3,12 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		33EA192A2FA9203C0083368E /* SwiftProse in Frameworks */ = {isa = PBXBuildFile; productRef = 33EA19292FA9203C0083368E /* SwiftProse */; };
+		33EA192C2FA9203C0083368E /* SwiftProseSyntax in Frameworks */ = {isa = PBXBuildFile; productRef = 33EA192B2FA9203C0083368E /* SwiftProseSyntax */; };
 		B0010001000000000000B001 /* SwiftProseDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020001000000000000B002 /* SwiftProseDemoApp.swift */; };
 		B0010002000000000000B001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020002000000000000B002 /* ContentView.swift */; };
 		B0010003000000000000B001 /* SwiftProse in Frameworks */ = {isa = PBXBuildFile; productRef = B0050001000000000000B005 /* SwiftProse */; };
@@ -15,7 +17,7 @@
 		B0010007000000000000B001 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020006000000000000B002 /* MarkdownDocument.swift */; };
 		B0010008000000000000B001 /* TestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020008000000000000B002 /* TestHelpers.swift */; };
 		B0010009000000000000B001 /* CodeHighlighters.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020009000000000000B002 /* CodeHighlighters.swift */; };
-		B001000A000000000000B001 /* queries in Resources */ = {isa = PBXBuildFile; fileRef = B002000A000000000000B002 /* queries */; };
+		B001000A000000000000B001 /* Resources/queries in Resources */ = {isa = PBXBuildFile; fileRef = B002000A000000000000B002 /* Resources/queries */; };
 		B0E30001000000000000B0E3 /* TreeSitterSwift in Frameworks */ = {isa = PBXBuildFile; productRef = B0E20001000000000000B0E2 /* TreeSitterSwift */; };
 		B0E30002000000000000B0E3 /* TreeSitterJavaScript in Frameworks */ = {isa = PBXBuildFile; productRef = B0E20002000000000000B0E2 /* TreeSitterJavaScript */; };
 		B0E30003000000000000B0E3 /* TreeSitterCSS in Frameworks */ = {isa = PBXBuildFile; productRef = B0E20003000000000000B0E2 /* TreeSitterCSS */; };
@@ -41,7 +43,7 @@
 		B0020007000000000000B002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B0020008000000000000B002 /* TestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestHelpers.swift; sourceTree = "<group>"; };
 		B0020009000000000000B002 /* CodeHighlighters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeHighlighters.swift; sourceTree = "<group>"; };
-		B002000A000000000000B002 /* queries */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/queries; sourceTree = "<group>"; };
+		B002000A000000000000B002 /* Resources/queries */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/queries; sourceTree = "<group>"; };
 		B00F0001000000000000B00F /* SwiftProseDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwiftProseDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00F0002000000000000B00F /* SwiftProseDemoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftProseDemoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -51,8 +53,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				33EA192A2FA9203C0083368E /* SwiftProse in Frameworks */,
 				B0010003000000000000B001 /* SwiftProse in Frameworks */,
 				B0E30001000000000000B0E3 /* TreeSitterSwift in Frameworks */,
+				33EA192C2FA9203C0083368E /* SwiftProseSyntax in Frameworks */,
 				B0E30002000000000000B0E3 /* TreeSitterJavaScript in Frameworks */,
 				B0E30003000000000000B0E3 /* TreeSitterCSS in Frameworks */,
 				B0E30004000000000000B0E3 /* TreeSitterHTML in Frameworks */,
@@ -85,7 +89,7 @@
 				B0020002000000000000B002 /* ContentView.swift */,
 				B0020009000000000000B002 /* CodeHighlighters.swift */,
 				B0020006000000000000B002 /* MarkdownDocument.swift */,
-				B002000A000000000000B002 /* queries */,
+				B002000A000000000000B002 /* Resources/queries */,
 				B0020007000000000000B002 /* Info.plist */,
 			);
 			path = SwiftProseDemo;
@@ -132,6 +136,8 @@
 				B0E20002000000000000B0E2 /* TreeSitterJavaScript */,
 				B0E20003000000000000B0E2 /* TreeSitterCSS */,
 				B0E20004000000000000B0E2 /* TreeSitterHTML */,
+				33EA19292FA9203C0083368E /* SwiftProse */,
+				33EA192B2FA9203C0083368E /* SwiftProseSyntax */,
 			);
 			productName = SwiftProseDemo;
 			productReference = B00F0001000000000000B00F /* SwiftProseDemo.app */;
@@ -183,11 +189,11 @@
 			);
 			mainGroup = B0060001000000000000B006;
 			packageReferences = (
-				B00E0001000000000000B00E /* XCLocalSwiftPackageReference "../.." */,
 				B0E10001000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-swift" */,
 				B0E10002000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-javascript" */,
 				B0E10003000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-css" */,
 				B0E10004000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-html" */,
+				33EA19282FA9203C0083368E /* XCLocalSwiftPackageReference "../../../SwiftProse" */,
 			);
 			productRefGroup = B0060004000000000000B006 /* Products */;
 			projectDirPath = "";
@@ -204,7 +210,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B001000A000000000000B001 /* queries in Resources */,
+				B001000A000000000000B001 /* Resources/queries in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -427,9 +433,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		B00E0001000000000000B00E /* XCLocalSwiftPackageReference "../.." */ = {
+		33EA19282FA9203C0083368E /* XCLocalSwiftPackageReference "../../../SwiftProse" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../..;
+			relativePath = ../../../SwiftProse;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -469,6 +475,14 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		33EA19292FA9203C0083368E /* SwiftProse */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftProse;
+		};
+		33EA192B2FA9203C0083368E /* SwiftProseSyntax */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftProseSyntax;
+		};
 		B0050001000000000000B005 /* SwiftProse */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SwiftProse;
