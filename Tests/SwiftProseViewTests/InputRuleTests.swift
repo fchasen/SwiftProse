@@ -261,6 +261,112 @@ import UIKit
         #expect(inline == .codeSpan)
     }
 
+    // MARK: - fenced code block
+
+    /// Typing ` ``` ` on an empty line opens an empty fenced code block.
+    /// The line's spec flips from paragraph to `.fencedCode(language: nil)`
+    /// and storage grows to hold the open + close fences.
+    @Test func typingTripleBacktickOpensEmptyFencedBlock() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        type("```", in: controller)
+        let spec = controller.textStorage.blockSpec(at: 0)
+        guard case .fencedCode(let lang) = spec?.kind else {
+            Issue.record("expected fenced code spec, got \(String(describing: spec?.kind))")
+            return
+        }
+        #expect(lang == nil)
+        // Compiled empty block: "```\n\n```\n" — 9 UTF-16 code units.
+        #expect(controller.textStorage.length == 9)
+    }
+
+    /// Bug 3: invoking the fenced-code rule against a line whose spec is
+    /// already `.fencedCode` must return `nil` so we don't splice a fresh
+    /// empty block on top of an existing one. Driven directly through the
+    /// runner so the test isolates the rule's bail-out logic from
+    /// downstream demote/repair behavior in `EditorController`.
+    @Test func fencedCodeRuleBailsWhenLineAlreadyFenced() throws {
+        let storage = NSTextStorage(string: "```")
+        let spec = BlockSpec(kind: .fencedCode(language: "swift"))
+        storage.addAttribute(.proseBlockSpec,
+                             value: BlockSpecBox(spec),
+                             range: NSRange(location: 0, length: storage.length))
+        let runner = InputRuleRunner(rules: [InputRule.fencedCodeBlock])
+        let env = StepEnvironment(
+            compiler: try MarkdownAttributedCompiler(),
+            serializer: AttributedMarkdownSerializer(),
+            theme: .default
+        )
+        var dispatched = false
+        let fired = runner.evaluate(storage: storage, cursor: 3, env: env) { _ in
+            dispatched = true
+        }
+        #expect(fired == false)
+        #expect(dispatched == false)
+    }
+
+    /// Sanity check: same input, but with the line classified as a
+    /// paragraph. The rule fires and dispatches a transaction.
+    @Test func fencedCodeRuleFiresOnPlainParagraphLine() throws {
+        let storage = NSTextStorage(string: "```")
+        let spec = BlockSpec(kind: .paragraph)
+        storage.addAttribute(.proseBlockSpec,
+                             value: BlockSpecBox(spec),
+                             range: NSRange(location: 0, length: storage.length))
+        let runner = InputRuleRunner(rules: [InputRule.fencedCodeBlock])
+        let env = StepEnvironment(
+            compiler: try MarkdownAttributedCompiler(),
+            serializer: AttributedMarkdownSerializer(),
+            theme: .default
+        )
+        var dispatched = false
+        let fired = runner.evaluate(storage: storage, cursor: 3, env: env) { _ in
+            dispatched = true
+        }
+        #expect(fired == true)
+        #expect(dispatched == true)
+    }
+
+    /// Bug 2: pressing Enter at the end of a ` ```<lang> ` line that was
+    /// classified as a paragraph (e.g. from a paste or programmatic insert
+    /// that bypassed the bare-``` input rule) opens a fenced block carrying
+    /// the captured language. Storage is seeded with raw chars to set up
+    /// that "looks like a fence header but spec=paragraph" state without
+    /// going through the typing path.
+    @Test func enterAfterLanguageTagOpensFencedBlockWithLanguage() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        // Insert "```swift" as plain text. Spec stays at paragraph because
+        // multi-character inserts don't fire input rules and the line text
+        // doesn't carry a non-paragraph spec on its own.
+        let storage = controller.textStorage
+        storage.beginEditing()
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0),
+                                  with: NSAttributedString(string: "```swift"))
+        storage.endEditing()
+        #expect(storage.blockSpec(at: 0)?.kind == .paragraph)
+
+        controller.testSelection = NSRange(location: 8, length: 0)
+        let handled = controller.handleNewline()
+        #expect(handled == true)
+
+        let spec = controller.textStorage.blockSpec(at: 0)
+        guard case .fencedCode(let lang) = spec?.kind else {
+            Issue.record("expected fenced code spec after Enter, got \(String(describing: spec?.kind))")
+            return
+        }
+        #expect(lang == "swift")
+    }
+
+    /// Enter on a paragraph that *isn't* a `` ```<lang> `` shape must fall
+    /// through to the default Enter handling (no fenced conversion).
+    @Test func enterOnPlainParagraphDoesNotOpenFencedBlock() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        type("hello", in: controller)
+        controller.testSelection = NSRange(location: 5, length: 0)
+        _ = controller.handleNewline()
+        // The line is still a paragraph.
+        #expect(controller.textStorage.blockSpec(at: 0)?.kind == .paragraph)
+    }
+
     // MARK: - trigger gating
 
     @Test func setMarkdownDoesNotFireInputRules() throws {

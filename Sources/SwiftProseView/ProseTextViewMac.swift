@@ -39,7 +39,6 @@ public struct ProseTextViewMac: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.drawsBackground = false
-        textView.font = controller.theme.bodyFont
         textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
@@ -94,6 +93,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
                 width: containerWidth,
                 height: CGFloat.greatestFiniteMagnitude
             )
+            controller.scheduleTableHeightStamp(containerWidth: containerWidth)
         }
         let intrinsic = textView.intrinsicContentSize
         let width = proposal.width ?? intrinsic.width
@@ -292,8 +292,9 @@ final class ProseNSTextView: NSTextView {
                 }
             }
         }
-        // Pipe-table click handling: route to the controller for cell edit
-        // sheet (single click on cell) or raw-mode toggle (top-right button).
+        // Pipe-table click handling: only the top-right toggle is wired —
+        // it flips the whole table to raw monospace source. Cell-content
+        // edits aren't routed back through painted cells yet.
         if event.modifierFlags.intersection([.command, .option, .control]).isEmpty {
             if handleTableClick(at: event) { return }
         }
@@ -304,18 +305,10 @@ final class ProseNSTextView: NSTextView {
         guard let controller = proseController,
               let layoutManager = textLayoutManager else { return false }
         let point = convert(event.locationInWindow, from: nil)
-        // Translate from text-view coordinates to text-container coordinates
-        // (which is also the layout manager's coordinate space).
         let containerOrigin = textContainerOrigin
         let containerPoint = CGPoint(x: point.x - containerOrigin.x, y: point.y - containerOrigin.y)
-        // Find the fragment that contains this point. Use the line's
-        // vertical strip — for a short table line, the click might be past
-        // the text horizontally, so probe at x=0 (within the container) so
-        // textLayoutFragment(for:) resolves by row.
         let probePoint = CGPoint(x: 4, y: containerPoint.y)
         guard let frag = layoutManager.textLayoutFragment(for: probePoint) as? PipeTableLayoutFragment else { return false }
-        // Both toggleHitRect and columnXs are container-anchored x with
-        // y measured from the top of the fragment. Compute fragment-local y.
         let fragY = containerPoint.y - frag.layoutFragmentFrame.origin.y
         let local = CGPoint(x: containerPoint.x, y: fragY)
         // Toggle button hit (only valid on the first table line).
@@ -330,29 +323,7 @@ final class ProseNSTextView: NSTextView {
             needsDisplay = true
             return true
         }
-        // Cell edit hit.
-        guard let hit = frag.cellHitTest(at: local) else { return false }
-        guard let elementRange = frag.textElement?.elementRange,
-              let tcs = textLayoutManager?.textContentManager as? NSTextContentStorage else { return false }
-        let start = tcs.offset(from: tcs.documentRange.location, to: elementRange.location)
-        let probe = max(0, min(start, controller.textStorage.length - 1))
-        guard let model = PipeTableModel.parse(at: probe, in: controller.textStorage) else { return false }
-        let cellText: String
-        if hit.row == -1 {
-            cellText = model.headerCells.indices.contains(hit.column) ? model.headerCells[hit.column] : ""
-        } else if model.bodyRows.indices.contains(hit.row),
-                  model.bodyRows[hit.row].indices.contains(hit.column) {
-            cellText = model.bodyRows[hit.row][hit.column]
-        } else {
-            cellText = ""
-        }
-        controller.onTableCellTapped?(PipeTableCellHit(
-            tableRange: model.sourceRange,
-            row: hit.row,
-            column: hit.column,
-            cellText: cellText
-        ))
-        return true
+        return false
     }
 
     @objc func toggleBold(_ sender: Any?) {

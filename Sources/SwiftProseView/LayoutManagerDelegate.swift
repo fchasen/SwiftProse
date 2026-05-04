@@ -111,10 +111,14 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
             // Apply theme palette so callers can switch palettes per editor.
             let palette = controller.theme.tablePalette
             fragment.borderColor = palette.border
+            fragment.separatorColor = palette.separator
             fragment.headerBackgroundColor = palette.headerBackground
+            fragment.bodyAltBackgroundColor = palette.bodyAltBackground
             fragment.toggleColor = palette.toggle
-            // Raw mode: skip role/columnXs computation; the fragment falls
-            // through to default super.draw and the literal source prints.
+            // Whole-table raw mode toggle — falls through to `super.draw`
+            // so the literal source prints. Per-row editing is intentionally
+            // not wired here; cell-content edits aren't yet routed back into
+            // the painted cells.
             if controller.isTableExpanded(tableRange: tableRange) {
                 fragment.isRawMode = true
                 return fragment
@@ -124,19 +128,40 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
             fragment.containerWidth = containerWidth
             if let model = PipeTableModel.parse(at: elementStart, in: controller.textStorage),
                let lineIdx = model.lineRanges.firstIndex(where: { $0.location <= elementStart && elementStart < $0.location + max(1, $0.length) }) {
+                let theme = controller.theme
+                let bodyFormatter = PipeTableCellFormatters.body(theme: theme)
+                let headerFormatter = PipeTableCellFormatters.header(theme: theme)
+                let attributedHeader = model.headerCells.map { headerFormatter.format($0) }
+                let attributedBody: [[NSAttributedString]] = model.bodyRows.map { row in
+                    row.map { bodyFormatter.format($0) }
+                }
+                let columnWidths = PipeTableMetrics.columnWidths(
+                    natural: PipeTableMetrics.naturalColumnWidths(
+                        headerCells: attributedHeader,
+                        bodyRows: attributedBody,
+                        columnCount: model.columnCount
+                    ),
+                    containerWidth: usableTableWidth(controller: controller, containerWidth: containerWidth),
+                    cellPaddingHorizontal: fragment.cellPaddingHorizontal
+                )
+                fragment.columnXs = PipeTableMetrics.columnXs(widths: columnWidths)
+                fragment.alignments = model.alignments
                 switch model.lineKinds[lineIdx] {
                 case .header:
                     fragment.role = .header
-                    fragment.cells = model.headerCells
+                    fragment.attributedCells = attributedHeader
                 case .alignment:
                     fragment.role = .alignment
                 case .body(let row):
                     fragment.role = .body
                     fragment.bodyRowIndex = row
-                    fragment.cells = (row < model.bodyRows.count) ? model.bodyRows[row] : []
+                    fragment.attributedCells = (row < attributedBody.count) ? attributedBody[row] : []
                 }
-                fragment.alignments = model.alignments
-                fragment.columnXs = computeColumnXs(model: model, lineWidth: containerWidth)
+                // The row's paragraph style controls fragment height; ask
+                // the controller to stamp wrapped row heights so cells with
+                // multi-line content get enough vertical space. Async so we
+                // don't mutate storage attributes during layout.
+                controller.scheduleTableHeightStamp(containerWidth: containerWidth)
             }
             // Top-right toggle hit rect (only the first table line draws it).
             // Container-anchored coords; renderingSurfaceBounds extends to
@@ -160,22 +185,13 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
         controller.textContainer
     }
 
-    /// Distribute available width evenly across the table's columns. Markdown
-    /// has no column-width metadata so equal widths are the natural default
-    /// — the rendered chrome lines up cleanly while cell text inside still
-    /// wraps within its container as one paragraph.
-    private func computeColumnXs(model: PipeTableModel, lineWidth: CGFloat) -> [CGFloat] {
-        let cols = max(1, model.columnCount)
-        // Subtract the standard text-container padding TextKit applies.
-        let padding: CGFloat = 5
-        let usable = max(40, lineWidth - 2 * padding)
-        let step = usable / CGFloat(cols)
-        var xs: [CGFloat] = []
-        xs.reserveCapacity(cols + 1)
-        for i in 0...cols {
-            xs.append(CGFloat(i) * step)
-        }
-        return xs
+    /// Effective horizontal area available for the table chrome. The text
+    /// container reports its full width but TextKit reserves a small
+    /// `lineFragmentPadding` strip on each side; subtracting it keeps the
+    /// chrome from sliding under the right-edge gutter.
+    private func usableTableWidth(controller: EditorController, containerWidth: CGFloat) -> CGFloat {
+        let padding: CGFloat = controller.textContainer.lineFragmentPadding
+        return max(40, containerWidth - 2 * padding)
     }
 
     private func paragraphSpec(in storage: NSAttributedString, from lo: Int, to hi: Int) -> BlockSpec? {

@@ -30,12 +30,6 @@ public final class EditorController {
     /// `ProseTextViewMac` / `ProseTextViewIOS`.
     public var onSelectionChanged: ((NSRange) -> Void)?
 
-    /// Fires when the host text view detects a click inside a rendered
-    /// pipe-table cell. The SwiftUI surface presents an editing sheet bound
-    /// to the cell. `row == -1` is the header; otherwise it's the body row
-    /// index in the parsed `PipeTableModel`.
-    public var onTableCellTapped: ((PipeTableCellHit) -> Void)?
-
     /// Source ranges of pipe tables the user has flipped to raw monospace
     /// mode via the per-table toggle. Lives on the controller (presentation
     /// state, not part of the markdown round-trip). Range is in
@@ -68,11 +62,25 @@ public final class EditorController {
     /// one rebuild per main-runloop tick is a real win on long documents.
     private var resegmentScheduled = false
 
+    /// Union of `editedRange` values seen by the storage observer since the
+    /// last `resegment()` ran. Used by `resegment()` to find code-block runs
+    /// that were touched and re-stamp syntax highlight colors on their body
+    /// text. Cleared after the rehighlight pass.
+    private var pendingHighlightRange: NSRange?
+
     /// Generation counter for `setMarkdown(_:async:)`. Each call bumps this
     /// so that a compile result arriving back from the background queue can
     /// detect that a newer call has superseded it and drop on the floor
     /// (latest-wins). Wraparound is fine — only equality matters.
     private var compileGeneration: UInt64 = 0
+
+    /// Last container width the pipe-table row-height stamp ran against.
+    /// Used to skip redundant stamps when the layout system requests
+    /// fragments at an unchanged width and to coalesce burst layout
+    /// requests into one per width change.
+    private var lastTableLayoutWidth: CGFloat = -1
+    private var tableHeightStampScheduled = false
+
 
     /// Serial queue for off-main markdown compilation. Background compiles
     /// from rapid external binding writes serialize here so the dedicated
@@ -129,6 +137,7 @@ public final class EditorController {
             guard let self, !self.applyingMarkdown else { return }
             if self.textStorage.editedMask.contains(.editedCharacters) {
                 let changeInLength = self.textStorage.changeInLength
+                self.accumulateHighlightRange(self.textStorage.editedRange)
                 self.scrubTypedAttributes()
                 self.repairEditedLine()
                 self.demoteEmptyStyledLines()
@@ -246,12 +255,19 @@ public final class EditorController {
         return out
     }
 
-    /// After a character edit, scan the edited paragraphs and reset any
-    /// non-paragraph block attribution on lines whose content text is now
-    /// empty. Without this, deleting all of a heading's text leaves the
-    /// heading block attribute on the trailing newline (or on the text
-    /// view's `typingAttributes`) so the next keystroke continues to
-    /// render in heading style.
+    /// After a character edit, scan every line the edit touched and reset
+    /// the block attribution on any line whose content text is now empty —
+    /// "delete clears the formatting." Without this, emptying a heading
+    /// (or a blockquote, or an HR, …) leaves that line's spec on the
+    /// trailing newline so the next keystroke renders in the prior style.
+    ///
+    /// Skipped:
+    /// - plain paragraphs (depth 0): nothing to demote.
+    /// - list items: demote runs through `handleBackspace` at body-start
+    ///   so forward-delete / select-and-delete don't pull markers out.
+    /// - fenced/indented code and pipe tables: structural multi-line
+    ///   blocks. Demoting one body line would split the surrounding
+    ///   fence/table apart.
     private func demoteEmptyStyledLines() {
         let plainAttrs = theme.plainParagraphAttributes()
         if textStorage.length == 0 {
@@ -261,28 +277,57 @@ public final class EditorController {
         let editedRange = textStorage.editedRange
         let ns = textStorage.string as NSString
         guard editedRange.length >= 0, editedRange.location >= 0 else { return }
-        let probeRange = NSRange(location: editedRange.location, length: 0)
-            .clamped(to: ns.length)
-        let lineRange = ns.paragraphRange(for: probeRange)
-        guard lineRange.length > 0 else { return }
+        let scanRange = editedRange.clamped(to: ns.length)
+        let unionRange: NSRange = scanRange.length > 0
+            ? ns.paragraphRange(for: scanRange)
+            : ns.paragraphRange(for: NSRange(location: scanRange.location, length: 0))
+        guard unionRange.length > 0 else { return }
 
+        var demoted = false
+        var cursor = unionRange.location
+        let end = unionRange.location + unionRange.length
+        textStorage.beginEditing()
+        while cursor < end {
+            let lineRange = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
+            if demoteLineIfEmpty(lineRange: lineRange, plainAttrs: plainAttrs) {
+                demoted = true
+            }
+            let next = lineRange.location + lineRange.length
+            cursor = next > cursor ? next : cursor + 1
+        }
+        textStorage.endEditing()
+        if demoted {
+            applyTypingAttributes(plainAttrs)
+        }
+    }
+
+    /// Returns true when the given line's spec was reset to plain paragraph.
+    private func demoteLineIfEmpty(
+        lineRange: NSRange,
+        plainAttrs: [NSAttributedString.Key: Any]
+    ) -> Bool {
+        guard lineRange.length > 0,
+              lineRange.location + lineRange.length <= textStorage.length else {
+            return false
+        }
+        let ns = textStorage.string as NSString
         let lineText = ns.substring(with: lineRange)
         let stripped = lineText
             .replacingOccurrences(of: "\u{FFFC}", with: "")
             .replacingOccurrences(of: "\t", with: "")
             .replacingOccurrences(of: "\n", with: "")
-        guard stripped.isEmpty else { return }
+        guard stripped.isEmpty else { return false }
 
         let probe = lineRange.location
         guard probe < textStorage.length,
-              let spec = textStorage.blockSpec(at: probe),
-              spec.kind != .paragraph,
-              !spec.isListItem else { return }
+              let spec = textStorage.blockSpec(at: probe) else { return false }
+        if spec.kind == .paragraph, spec.blockquoteDepth == 0 { return false }
+        if spec.isListItem { return false }
+        if spec.isCodeBlock { return false }
+        if case .pipeTable = spec.kind { return false }
 
-        textStorage.beginEditing()
         textStorage.addAttributes(plainAttrs, range: lineRange)
-        textStorage.endEditing()
-        applyTypingAttributes(plainAttrs)
+        return true
     }
 
     /// Push our desired typing attributes into the host text view's cache.
@@ -395,6 +440,7 @@ public final class EditorController {
         #endif
         return NSRange(location: 0, length: 0)
     }
+
 
     /// Insert plain text at the host text view's cursor (or replace its
     /// selection). Cursor lands after the inserted text.
@@ -848,6 +894,11 @@ public final class EditorController {
             let isBlockquote = !isListItem && (spec?.blockquoteDepth ?? 0) > 0
             let orphanEmpty = !isListItem && !isBlockquote && isOrphanedEmptyMarkerLine(lineRange: lineRange)
 
+            if !isListItem, !isBlockquote, !orphanEmpty,
+               openFencedCodeFromLanguageLine(cursor: cursor, lineRange: lineRange, spec: spec) {
+                return true
+            }
+
             if isListItem {
                 var resulting: NSRange?
                 withCharacterMutation(range: lineRange) {
@@ -884,6 +935,53 @@ public final class EditorController {
             return splitHeadingIntoParagraph(at: cursor)
         }
         return false
+    }
+
+    /// If the current paragraph is exactly ` ```<language> ` (e.g.
+    /// ` ```swift `) and the user pressed Enter at end of that line, splice
+    /// in a fresh fenced code block carrying that language and place the
+    /// cursor on the body line. Complements the bare-`` ``` `` input rule
+    /// (which can't capture a language because it fires on the third
+    /// backtick before the user has typed any tag). Returns true when it
+    /// handled the keystroke.
+    private func openFencedCodeFromLanguageLine(
+        cursor: Int,
+        lineRange: NSRange,
+        spec: BlockSpec?
+    ) -> Bool {
+        // Only convert paragraph-shaped lines. Headings, lists, quotes,
+        // existing code blocks, etc. shouldn't transmute.
+        guard let kind = spec?.kind, case .paragraph = kind else { return false }
+        guard cursor == lineRange.location + lineRange.length ||
+              cursor == lineRange.location + lineRange.length - 1 else { return false }
+        let ns = textStorage.string as NSString
+        let lineText = ns.substring(with: lineRange)
+            .replacingOccurrences(of: "\n", with: "")
+        let pattern = "^```([\\w+#.-]+)$"
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(
+                  in: lineText,
+                  range: NSRange(location: 0, length: (lineText as NSString).length)
+              ),
+              match.numberOfRanges >= 2 else {
+            return false
+        }
+        let langRange = match.range(at: 1)
+        let language = (lineText as NSString).substring(with: langRange)
+
+        let block = compiler.compile("```\(language)\n\n```\n", theme: theme)
+        // Body line begins after "```<language>\n" — three backticks plus
+        // the language UTF-16 length plus one newline.
+        let bodyOffset = 4 + (language as NSString).length
+        let transaction = Transaction(steps: [
+            .replaceText(range: lineRange, with: block),
+            .replaceText(
+                range: NSRange(location: lineRange.location + bodyOffset, length: 0),
+                with: NSAttributedString()
+            )
+        ], label: "Code block")
+        _ = apply(transaction)
+        return true
     }
 
     private func handleBlockquoteNewline(lineRange: NSRange, depth: Int) -> NSRange {
@@ -1058,6 +1156,44 @@ public final class EditorController {
         return compiler.compile(markdown, theme: theme)
     }
 
+    /// Re-stamp pipe-table row heights for the current container width.
+    /// Called from `LayoutManagerDelegate` when a pipe-table fragment is
+    /// built at a width different from the last stamp, and from
+    /// `replaceStorage` so the very first paint already has correct row
+    /// heights. The stamp is debounced onto the next runloop tick so it
+    /// doesn't mutate storage while a layout pass is in flight.
+    public func scheduleTableHeightStamp(containerWidth: CGFloat) {
+        guard containerWidth > 0 else { return }
+        if abs(lastTableLayoutWidth - containerWidth) < 0.5 { return }
+        if tableHeightStampScheduled { return }
+        tableHeightStampScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.tableHeightStampScheduled = false
+            self.runTableHeightStamp(containerWidth: self.textContainer.size.width)
+        }
+    }
+
+    private func runTableHeightStamp(containerWidth: CGFloat) {
+        guard containerWidth > 0 else { return }
+        if abs(lastTableLayoutWidth - containerWidth) < 0.5 { return }
+        let stamper = PipeTableHeightStamper(
+            storage: textStorage,
+            theme: theme,
+            containerWidth: containerWidth,
+            cellPaddingHorizontal: 14,
+            cellPaddingVertical: 10,
+            minimumRowHeight: 36
+        )
+        applyingMarkdown = true
+        textStorage.beginEditing()
+        let changed = stamper.stamp()
+        textStorage.endEditing()
+        applyingMarkdown = false
+        lastTableLayoutWidth = containerWidth
+        if changed { intrinsicSizeInvalidator?() }
+    }
+
     private func replaceStorage(with attributed: NSAttributedString) {
         // Storage mutations and the host text view both require main-thread
         // access — but headless callers (unit tests, programmatic users
@@ -1076,6 +1212,13 @@ public final class EditorController {
         textStorage.endEditing()
         applyingMarkdown = false
         resegment()
+        // Fresh storage means the stamper has never seen this content; force
+        // a re-stamp by invalidating the cached width.
+        lastTableLayoutWidth = -1
+        let width = textContainer.size.width
+        if width > 0 {
+            runTableHeightStamp(containerWidth: width)
+        }
     }
 
     /// Test-only invocation counter; bumped at the start of every
@@ -1087,7 +1230,11 @@ public final class EditorController {
         resegmentRunCount += 1
         var segs: [BlockSegment] = []
         let total = textStorage.length
-        guard total > 0 else { self.blocks = []; return }
+        if total == 0 {
+            self.blocks = []
+            self.pendingHighlightRange = nil
+            return
+        }
         textStorage.enumerateBlockSpecs { range, spec in
             segs.append(BlockSegment(
                 range: range,
@@ -1102,6 +1249,72 @@ public final class EditorController {
             ))
         }
         self.blocks = segs
+
+        if let pending = pendingHighlightRange {
+            rehighlightCodeBlocks(intersecting: pending)
+            pendingHighlightRange = nil
+        }
+    }
+
+    /// Union the freshly-edited range into `pendingHighlightRange` so that
+    /// the next deferred `resegment()` knows which code blocks to re-color.
+    /// Clamped to current storage length on read.
+    private func accumulateHighlightRange(_ range: NSRange) {
+        guard range.location != NSNotFound else { return }
+        if let existing = pendingHighlightRange {
+            let lo = min(existing.location, range.location)
+            let hi = max(existing.location + existing.length, range.location + range.length)
+            pendingHighlightRange = NSRange(location: lo, length: hi - lo)
+        } else {
+            pendingHighlightRange = range
+        }
+    }
+
+    /// Walk `blocks` for fenced/indented code runs overlapping `range` and
+    /// ask the compiler to re-stamp syntax-highlight colors on their
+    /// bodies. Adjacent same-tag segments are merged into one logical block
+    /// — `BlockSpecBox` uses reference equality so each compiler-emitted
+    /// line is its own attribute run, and the highlighter needs the full
+    /// fence-body-fence span to peel the fences from the body. Recompile-
+    /// free path — the parser doesn't run, so the spec attribution is
+    /// trusted from the previous compile and only the colors refresh.
+    private func rehighlightCodeBlocks(intersecting range: NSRange) {
+        let total = textStorage.length
+        let safe = range.clamped(to: total)
+        let safeEnd = safe.location + safe.length
+
+        var i = 0
+        while i < blocks.count {
+            let tag = blocks[i].tag
+            guard tag == .fencedCode || tag == .indentedCode else {
+                i += 1
+                continue
+            }
+            // Greedy-extend through adjacent same-tag segments to recover
+            // the full code block.
+            var j = i
+            while j + 1 < blocks.count,
+                  blocks[j + 1].tag == tag,
+                  blocks[j].range.location + blocks[j].range.length == blocks[j + 1].range.location {
+                j += 1
+            }
+            let runStart = blocks[i].range.location
+            let runEnd = blocks[j].range.location + blocks[j].range.length
+            // Intersect with `safe`.
+            if runStart < safeEnd, safe.location < runEnd {
+                let language = blocks[i].language ?? blocks[j].language
+                applyingMarkdown = true
+                compiler.rehighlightCodeBlock(
+                    in: textStorage,
+                    blockRange: NSRange(location: runStart, length: runEnd - runStart),
+                    language: language,
+                    isFenced: tag == .fencedCode,
+                    theme: theme
+                )
+                applyingMarkdown = false
+            }
+            i = j + 1
+        }
     }
 
     private func tagFor(spec: BlockSpec) -> BlockTag {

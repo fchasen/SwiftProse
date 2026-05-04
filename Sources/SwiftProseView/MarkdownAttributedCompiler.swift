@@ -372,6 +372,82 @@ public final class MarkdownAttributedCompiler {
         return trimmed.allSatisfy { $0 == first }
     }
 
+    /// Re-run the registered `CodeBlockHighlighter` over the body of an
+    /// existing code-block run in `storage` and stamp its colors. Used by
+    /// `EditorController` after every typed keystroke that lands inside a
+    /// fenced or indented code block — the original `compile()` pass colored
+    /// the block when it was first laid down (often empty), but typing alone
+    /// never re-runs the highlighter. Without this, freshly-typed code in an
+    /// otherwise-classified block stays uncolored until the next full
+    /// recompile.
+    public func rehighlightCodeBlock(
+        in storage: NSTextStorage,
+        blockRange: NSRange,
+        language: String?,
+        isFenced: Bool,
+        theme: ProseTheme
+    ) {
+        guard let highlighter = codeBlockHighlighter else { return }
+        guard let body = codeBlockBody(in: storage, blockRange: blockRange, isFenced: isFenced) else { return }
+        let resolved: String?
+        if let language, !language.isEmpty {
+            resolved = language
+        } else {
+            resolved = highlighter.detectLanguage(for: body.text)
+        }
+        let bodyStart = blockRange.location + body.offsetInBlock
+        let bodyLength = (body.text as NSString).length
+        guard bodyStart >= 0,
+              bodyStart + bodyLength <= storage.length,
+              bodyLength > 0 else { return }
+        let bodyRange = NSRange(location: bodyStart, length: bodyLength)
+        storage.beginEditing()
+        // Reset prior colors before re-stamping so deleted/changed tokens
+        // don't leave stale highlight residue.
+        storage.addAttribute(.foregroundColor, value: theme.foregroundColor, range: bodyRange)
+        let spans = highlighter.highlights(for: body.text, language: resolved)
+        for span in spans {
+            guard let color = theme.codeColor(for: span.tag) else { continue }
+            let start = bodyStart + span.range.location
+            let end = start + span.range.length
+            guard start >= bodyStart, end <= bodyStart + bodyLength, start < end else { continue }
+            storage.addAttribute(
+                .foregroundColor,
+                value: color,
+                range: NSRange(location: start, length: end - start)
+            )
+        }
+        storage.endEditing()
+    }
+
+    /// Body extraction parallel to `codeBlockBody(segment:source:)` but
+    /// against an in-flight `NSAttributedString` rather than a parsed source
+    /// string. Same fence-stripping rules so the highlighter sees only code.
+    private func codeBlockBody(
+        in storage: NSAttributedString,
+        blockRange: NSRange,
+        isFenced: Bool
+    ) -> (text: String, offsetInBlock: Int)? {
+        let ns = storage.string as NSString
+        guard blockRange.location >= 0,
+              blockRange.location + blockRange.length <= ns.length,
+              blockRange.length > 0 else { return nil }
+        let raw = ns.substring(with: blockRange)
+        if isFenced {
+            let lines = raw.components(separatedBy: "\n")
+            guard lines.count >= 2 else { return nil }
+            let firstLineUTF16 = (lines[0] as NSString).length + 1
+            var bodyLines = Array(lines.dropFirst())
+            if bodyLines.last == "" { bodyLines.removeLast() }
+            if let last = bodyLines.last, isFenceLine(last) {
+                bodyLines.removeLast()
+            }
+            let body = bodyLines.joined(separator: "\n")
+            return (body, firstLineUTF16)
+        }
+        return (raw, 0)
+    }
+
     private func appendHorizontalRule(
         _ segment: BlockSegment,
         source: String,

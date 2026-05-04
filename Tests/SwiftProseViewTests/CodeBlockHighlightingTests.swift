@@ -206,4 +206,94 @@ private final class StubHighlighter: CodeBlockHighlighter {
         #expect(stub.detectionCalls.isEmpty)
         #expect(stub.languageSeen == "ruby")
     }
+
+    // MARK: - typing-time rehighlight (Bug 1)
+
+    /// Typing into a fenced code block re-runs the highlighter so freshly
+    /// typed code picks up token coloring. Before the fix the highlighter
+    /// only ran at compile time, so the post-typing body was uncolored.
+    /// Tests drive the headless path (no host text view) so `resegment()`
+    /// — and the rehighlight pass it kicks off — runs synchronously after
+    /// each typed character.
+    @Test func typingInsideFencedBlockReinvokesHighlighter() throws {
+        let stub = StubHighlighter(response: [])
+        let controller = try EditorController(
+            initialMarkdown: "```swift\n\n```\n",
+            codeBlockHighlighter: stub
+        )
+        // Initial compile already saw an empty body. Reset the stub's view
+        // so we can assert the typing-driven call distinctly.
+        stub.sourceSeen = nil
+        stub.languageSeen = nil
+        controller.testSelection = NSRange(location: 9, length: 0) // "```swift\n" = 9
+        type("let x = 1", in: controller)
+        #expect(stub.languageSeen == "swift")
+        #expect(stub.sourceSeen == "let x = 1")
+    }
+
+    /// The rehighlight stamps colors onto the typed body. With a stub that
+    /// returns a keyword span at offset 0..3, the body's "let" must end up
+    /// the palette's keyword color after typing.
+    @Test func typingInsideFencedBlockColorsTokensFromHighlighter() throws {
+        let stub = StubHighlighter(response: [
+            HighlightSpan(range: NSRange(location: 0, length: 3), tag: .keyword)
+        ])
+        let theme = ProseTheme.default
+        let controller = try EditorController(
+            initialMarkdown: "```swift\n\n```\n",
+            theme: theme,
+            codeBlockHighlighter: stub
+        )
+        controller.testSelection = NSRange(location: 9, length: 0)
+        type("let x = 1", in: controller)
+        let storage = controller.textStorage
+        let ns = storage.string as NSString
+        let letRange = ns.range(of: "let")
+        guard letRange.location != NSNotFound else {
+            Issue.record("typed 'let' not found in storage")
+            return
+        }
+        let color = storage.attribute(.foregroundColor, at: letRange.location, effectiveRange: nil) as? PlatformColor
+        #expect(color === theme.codePalette.keyword || color == theme.codePalette.keyword)
+    }
+
+    /// Typing outside any code block must NOT call the highlighter — it's a
+    /// per-edit cost we only pay when the edit lands on a code-block run.
+    @Test func typingOutsideCodeBlockSkipsHighlighter() throws {
+        let stub = StubHighlighter(response: [])
+        let controller = try EditorController(
+            initialMarkdown: "",
+            codeBlockHighlighter: stub
+        )
+        type("hello world", in: controller)
+        #expect(stub.sourceSeen == nil)
+    }
+
+    private func type(_ chars: String, in controller: EditorController) {
+        for char in chars {
+            insertSingleCharacter(String(char), in: controller)
+        }
+    }
+
+    private func insertSingleCharacter(_ char: String, in controller: EditorController) {
+        let selection = controller.testSelection ?? NSRange(location: 0, length: 0)
+        let storage = controller.textStorage
+        let typedLength = (char as NSString).length
+        let preLength = storage.length
+        storage.beginEditing()
+        storage.replaceCharacters(in: selection, with: char)
+        controller.testSelection = NSRange(
+            location: selection.location + typedLength,
+            length: 0
+        )
+        storage.endEditing()
+        let postLength = storage.length
+        if postLength != preLength + typedLength {
+            let ns = storage.string as NSString
+            let cursorPos = postLength > 0 && ns.character(at: postLength - 1) == 0x0A
+                ? postLength - 1
+                : postLength
+            controller.testSelection = NSRange(location: cursorPos, length: 0)
+        }
+    }
 }

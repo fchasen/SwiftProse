@@ -165,13 +165,26 @@ public extension InputRule {
     /// Triple backticks on their own line at the start of a paragraph.
     /// Fires the moment the third backtick is typed and replaces the line
     /// with an empty fenced code block; the cursor lands on the body line so
-    /// the user can start typing code immediately. The language tag is left
-    /// empty and editable inline (small text in the top-right of the code
-    /// block).
+    /// the user can start typing code immediately. To open a fence with a
+    /// language tag (e.g. ```` ```swift ````), type the language and press
+    /// Enter — `EditorController.handleNewline` picks that up since the
+    /// pattern below only matches a bare ` ``` `.
+    ///
+    /// The rule bails out when the line is already inside a `.fencedCode`
+    /// run: typing ` ``` ` to *close* an unclosed fence above must not
+    /// splice in a fresh empty block (which would compound the broken
+    /// state). Without a parser pass during typing the fence won't visually
+    /// close until the next recompile, but at least the keystrokes remain
+    /// faithful — the user can trigger a recompile via theme change or
+    /// `setMarkdown`.
     static let fencedCodeBlock = InputRule(
         id: "inputRule.fencedCodeBlock",
         pattern: "^```$"
     ) { match in
+        if let existing = match.storage.blockSpec(at: match.lineRange.location),
+           case .fencedCode = existing.kind {
+            return nil
+        }
         let env = match.env
         // Render the empty block once and splice it in. The compiler emits
         // "```\n\n```\n" so the body line sits at offset 4 from the start

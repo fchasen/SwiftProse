@@ -204,6 +204,65 @@ public struct PipeTableModel: Equatable, Hashable, Sendable {
         return NSRange(location: startLine.location, length: endLine.upperBound - startLine.location)
     }
 
+    // MARK: - Cell content location
+
+    /// Locate the absolute storage offset of cell `column`'s textual content
+    /// within `lineRange`. Used by the click handler to land a cursor inside
+    /// the cell's source text when the user taps a rendered table cell.
+    /// Skips the leading `|` (if present) and any whitespace padding so the
+    /// cursor lands on the first non-blank character.
+    public static func cellContentStart(
+        in attributed: NSAttributedString,
+        lineRange: NSRange,
+        column: Int
+    ) -> Int? {
+        let ns = attributed.string as NSString
+        guard lineRange.length > 0,
+              lineRange.location >= 0,
+              lineRange.location + lineRange.length <= ns.length,
+              column >= 0 else { return nil }
+        var raw = ns.substring(with: lineRange)
+        if raw.hasSuffix("\n") { raw = String(raw.dropLast()) }
+        let line = raw as NSString
+        guard line.length > 0 else { return nil }
+        // Collect unescaped pipe positions.
+        var pipes: [Int] = []
+        var i = 0
+        while i < line.length {
+            let c = line.character(at: i)
+            if c == 0x5C, i + 1 < line.length, line.character(at: i + 1) == 0x7C {
+                i += 2
+                continue
+            }
+            if c == 0x7C { pipes.append(i) }
+            i += 1
+        }
+        guard !pipes.isEmpty else { return nil }
+        let hasLeading = line.character(at: 0) == 0x7C
+        let cellStart: Int
+        let cellEnd: Int
+        if hasLeading {
+            guard column < pipes.count else { return nil }
+            cellStart = pipes[column] + 1
+            cellEnd = (column + 1 < pipes.count) ? pipes[column + 1] : line.length
+        } else {
+            if column == 0 {
+                cellStart = 0
+                cellEnd = pipes.first ?? line.length
+            } else {
+                guard column - 1 < pipes.count else { return nil }
+                cellStart = pipes[column - 1] + 1
+                cellEnd = (column < pipes.count) ? pipes[column] : line.length
+            }
+        }
+        var pos = cellStart
+        while pos < cellEnd {
+            let c = line.character(at: pos)
+            if c == 0x20 || c == 0x09 { pos += 1 } else { break }
+        }
+        return lineRange.location + pos
+    }
+
     // MARK: - Serialization
 
     /// Re-emit canonical pipe-table source from this model. Cells get one

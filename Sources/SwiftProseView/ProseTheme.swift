@@ -176,29 +176,48 @@ public struct ProseTheme: Equatable {
     public struct TablePalette: Equatable {
         /// Background tint stripe behind the header row.
         public var headerBackground: PlatformColor
-        /// Stroke color for cell borders.
+        /// Background tint for every other body row (zebra striping).
+        public var bodyAltBackground: PlatformColor
+        /// Stroke color for the rounded outer border of the table.
         public var border: PlatformColor
+        /// Stroke color for the thin separator lines between rows and
+        /// columns. Usually the same as `border`, but can be tinted lighter
+        /// when a theme wants the outer border to read more strongly than
+        /// the inner grid.
+        public var separator: PlatformColor
         /// Color of the small "raw / rendered" toggle drawn in the table's
         /// top-right corner.
         public var toggle: PlatformColor
 
-        public init(headerBackground: PlatformColor, border: PlatformColor, toggle: PlatformColor) {
+        public init(
+            headerBackground: PlatformColor,
+            bodyAltBackground: PlatformColor,
+            border: PlatformColor,
+            separator: PlatformColor,
+            toggle: PlatformColor
+        ) {
             self.headerBackground = headerBackground
+            self.bodyAltBackground = bodyAltBackground
             self.border = border
+            self.separator = separator
             self.toggle = toggle
         }
 
         public static var `default`: TablePalette {
             #if canImport(AppKit) && os(macOS)
             return TablePalette(
-                headerBackground: NSColor.tertiaryLabelColor.withAlphaComponent(0.10),
-                border: NSColor.tertiaryLabelColor,
+                headerBackground: NSColor.tertiaryLabelColor.withAlphaComponent(0.08),
+                bodyAltBackground: NSColor.tertiaryLabelColor.withAlphaComponent(0.04),
+                border: NSColor.tertiaryLabelColor.withAlphaComponent(0.45),
+                separator: NSColor.tertiaryLabelColor.withAlphaComponent(0.30),
                 toggle: NSColor.secondaryLabelColor
             )
             #else
             return TablePalette(
-                headerBackground: UIColor.tertiaryLabel.withAlphaComponent(0.10),
-                border: UIColor.tertiaryLabel,
+                headerBackground: UIColor.tertiaryLabel.withAlphaComponent(0.08),
+                bodyAltBackground: UIColor.tertiaryLabel.withAlphaComponent(0.04),
+                border: UIColor.tertiaryLabel.withAlphaComponent(0.45),
+                separator: UIColor.tertiaryLabel.withAlphaComponent(0.30),
                 toggle: UIColor.secondaryLabel
             )
             #endif

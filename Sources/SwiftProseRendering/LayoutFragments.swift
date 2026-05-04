@@ -318,11 +318,11 @@ public enum InlineCodePainter {
 /// In rendered mode we **do not** call `super.draw` — the literal source
 /// (pipes, dashes, padding spaces) would render misaligned with the column
 /// chrome since cell text in storage doesn't sit at the column boundaries.
-/// Instead we draw cell text manually from the parsed model into rects
-/// derived from `columnXs`, honoring per-column alignment. The fragment's
-/// `renderingSurfaceBounds` is extended to the full container width so the
-/// drawn chrome reaches the right edge and the toggle button at the
-/// rightmost extent is reachable by hit-testing.
+/// Instead we draw `attributedCells` (one per column) into rects derived
+/// from `columnXs`, honoring per-column alignment and wrapping cell text
+/// inside its column. The fragment's `renderingSurfaceBounds` is extended
+/// to the full container width so the drawn chrome reaches the right edge
+/// and the toggle button at the rightmost extent is reachable by hit-testing.
 ///
 /// In raw mode (`isRawMode == true`) we skip all chrome and call
 /// `super.draw` — the user sees the literal source for hand-editing.
@@ -334,14 +334,15 @@ public final class PipeTableLayoutFragment: NSTextLayoutFragment {
     }
 
     public var borderColor: PlatformColor = .pipeTableDefaultBorder
-    public var borderWidth: CGFloat = 0.5
+    public var separatorColor: PlatformColor = .pipeTableDefaultBorder
+    public var borderWidth: CGFloat = 1
     public var headerBackgroundColor: PlatformColor = .pipeTableHeaderDefaultBackground
+    public var bodyAltBackgroundColor: PlatformColor = .pipeTableBodyAltDefaultBackground
     public var toggleColor: PlatformColor = .pipeTableToggleDefault
-    public var cellTextColor: PlatformColor = .pipeTableCellTextDefault
-    public var cellFont: PlatformFont = .pipeTableCellDefaultFont
-    public var headerFont: PlatformFont = .pipeTableHeaderDefaultFont
     public var horizontalInset: CGFloat = 0
-    public var cellPadding: CGFloat = 6
+    public var cellPaddingHorizontal: CGFloat = 14
+    public var cellPaddingVertical: CGFloat = 10
+    public var cornerRadius: CGFloat = 6
     /// Width (container coords) the chrome should span. Set by
     /// `LayoutManagerDelegate`; defaults to 0 → falls back to `layoutFragmentFrame`.
     public var containerWidth: CGFloat = 0
@@ -353,9 +354,9 @@ public final class PipeTableLayoutFragment: NSTextLayoutFragment {
     public var columnXs: [CGFloat] = []
     public var isRawMode: Bool = false
     public var bodyRowIndex: Int = 0
-    /// Cell strings to draw in this row (index → column). Set by the host;
-    /// pass `headerCells` for a header row, `bodyRows[bodyRowIndex]` for body.
-    public var cells: [String] = []
+    /// Pre-formatted attributed cells with inline decorations applied
+    /// (bold/italic/code/link). Index → column.
+    public var attributedCells: [NSAttributedString] = []
     /// Per-column horizontal alignment for this row's cells. Empty falls
     /// back to natural (left-leading).
     public var alignments: [PipeTableAlignment] = []
@@ -389,32 +390,68 @@ public final class PipeTableLayoutFragment: NSTextLayoutFragment {
         context.saveGState()
         context.translateBy(x: point.x, y: point.y)
 
-        if role == .header {
-            context.setFillColor(headerBackgroundColor.cgColor)
-            context.fill(rect)
+        let topLeft = isFirstLine ? cornerRadius : 0
+        let topRight = isFirstLine ? cornerRadius : 0
+        let bottomLeft = isLastLine ? cornerRadius : 0
+        let bottomRight = isLastLine ? cornerRadius : 0
+
+        // Row background fill (rounded only on the outer table edges so
+        // mid-table fragments stitch into a flat-edged stripe).
+        if let fill = rowFillColor() {
+            let fillPath = roundedPath(
+                rect: rect,
+                topLeft: topLeft,
+                topRight: topRight,
+                bottomLeft: bottomLeft,
+                bottomRight: bottomRight
+            )
+            context.setFillColor(fill.cgColor)
+            context.addPath(fillPath)
+            context.fillPath()
         }
 
-        // Borders. Alignment row gets none either (rendered as a 1px gap).
+        // Vertical column separators — drawn before the outer border so
+        // they tuck under the rounded corners visually.
+        let xs = columnXs.isEmpty ? [0, rect.width] : columnXs
+        if xs.count > 2, role != .alignment {
+            context.setStrokeColor(separatorColor.cgColor)
+            context.setLineWidth(borderWidth)
+            let sep = CGMutablePath()
+            for i in 1..<(xs.count - 1) {
+                let x = rect.minX + xs[i]
+                sep.move(to: CGPoint(x: x, y: rect.minY))
+                sep.addLine(to: CGPoint(x: x, y: rect.maxY))
+            }
+            context.addPath(sep)
+            context.strokePath()
+        }
+
+        // Horizontal row divider between this row and the next. Suppressed
+        // on the last row (outer border handles it) and on the alignment
+        // row (collapsed to ~1px so the divider would look doubled).
+        if !isLastLine, role != .alignment {
+            context.setStrokeColor(separatorColor.cgColor)
+            context.setLineWidth(borderWidth)
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+            p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            context.addPath(p)
+            context.strokePath()
+        }
+
+        // Outer rounded border. Drawn per fragment so consecutive fragments
+        // stitch into one continuous border; mid-table fragments contribute
+        // only the left and right sides.
         context.setStrokeColor(borderColor.cgColor)
         context.setLineWidth(borderWidth)
-        let path = CGMutablePath()
-        if isFirstLine {
-            path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        }
-        if isLastLine {
-            path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        }
-        let xs = columnXs.isEmpty ? [rect.minX, rect.maxX] : columnXs
-        // Translate column xs into the rect's coordinate space (xs are
-        // already laid out relative to the container's leading edge, which
-        // matches rect.minX because we anchored at -bounds.origin.x above).
-        for x in xs {
-            path.move(to: CGPoint(x: rect.minX + x, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.minX + x, y: rect.maxY))
-        }
-        context.addPath(path)
+        let outer = outerBorderPath(
+            rect: rect,
+            topLeft: topLeft,
+            topRight: topRight,
+            bottomLeft: bottomLeft,
+            bottomRight: bottomRight
+        )
+        context.addPath(outer)
         context.strokePath()
 
         if role != .alignment {
@@ -430,47 +467,142 @@ public final class PipeTableLayoutFragment: NSTextLayoutFragment {
         // misalign with the chrome columns.
     }
 
+    private func rowFillColor() -> PlatformColor? {
+        switch role {
+        case .header: return headerBackgroundColor
+        case .alignment: return nil
+        case .body: return (bodyRowIndex % 2 == 1) ? bodyAltBackgroundColor : nil
+        }
+    }
+
+    /// Build the table's outer border for this fragment: full rounded box
+    /// when the table is a single line, top edge + sides + arcs on the
+    /// first line, bottom edge + sides + arcs on the last line, just the
+    /// vertical sides on mid-table fragments.
+    private func outerBorderPath(
+        rect: CGRect,
+        topLeft: CGFloat,
+        topRight: CGFloat,
+        bottomLeft: CGFloat,
+        bottomRight: CGFloat
+    ) -> CGPath {
+        let path = CGMutablePath()
+        // Top edge.
+        if isFirstLine {
+            path.move(to: CGPoint(x: rect.minX + topLeft, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX - topRight, y: rect.minY))
+            if topRight > 0 {
+                path.addArc(
+                    center: CGPoint(x: rect.maxX - topRight, y: rect.minY + topRight),
+                    radius: topRight,
+                    startAngle: -.pi / 2,
+                    endAngle: 0,
+                    clockwise: false
+                )
+            }
+        }
+        // Right side.
+        let rightStart = rect.minY + (isFirstLine ? topRight : 0)
+        let rightEnd = rect.maxY - (isLastLine ? bottomRight : 0)
+        path.move(to: CGPoint(x: rect.maxX, y: rightStart))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rightEnd))
+        // Bottom edge.
+        if isLastLine {
+            if bottomRight > 0 {
+                path.addArc(
+                    center: CGPoint(x: rect.maxX - bottomRight, y: rect.maxY - bottomRight),
+                    radius: bottomRight,
+                    startAngle: 0,
+                    endAngle: .pi / 2,
+                    clockwise: false
+                )
+            }
+            path.addLine(to: CGPoint(x: rect.minX + bottomLeft, y: rect.maxY))
+            if bottomLeft > 0 {
+                path.addArc(
+                    center: CGPoint(x: rect.minX + bottomLeft, y: rect.maxY - bottomLeft),
+                    radius: bottomLeft,
+                    startAngle: .pi / 2,
+                    endAngle: .pi,
+                    clockwise: false
+                )
+            }
+        }
+        // Left side.
+        let leftEnd = rect.maxY - (isLastLine ? bottomLeft : 0)
+        let leftStart = rect.minY + (isFirstLine ? topLeft : 0)
+        path.move(to: CGPoint(x: rect.minX, y: leftEnd))
+        path.addLine(to: CGPoint(x: rect.minX, y: leftStart))
+        if isFirstLine, topLeft > 0 {
+            path.addArc(
+                center: CGPoint(x: rect.minX + topLeft, y: rect.minY + topLeft),
+                radius: topLeft,
+                startAngle: .pi,
+                endAngle: 3 * .pi / 2,
+                clockwise: false
+            )
+        }
+        return path
+    }
+
     private func drawCellText(in rect: CGRect, columnXs xs: [CGFloat], context: CGContext) {
-        guard !cells.isEmpty else { return }
+        guard !attributedCells.isEmpty else { return }
         let columnCount = max(0, xs.count - 1)
         guard columnCount > 0 else { return }
-        let font = (role == .header) ? headerFont : cellFont
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: cellTextColor
-        ]
+        let drawingOpts: NSString.DrawingOptions = [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
         for i in 0..<columnCount {
-            let cellText = (i < cells.count) ? cells[i] : ""
-            guard !cellText.isEmpty else { continue }
+            guard i < attributedCells.count else { continue }
+            let cell = attributedCells[i]
+            guard cell.length > 0 else { continue }
             let alignment = (i < alignments.count) ? alignments[i] : .none
             let cellRect = CGRect(
-                x: rect.minX + xs[i] + cellPadding,
-                y: rect.minY,
-                width: max(0, xs[i + 1] - xs[i] - 2 * cellPadding),
-                height: rect.height
+                x: rect.minX + xs[i] + cellPaddingHorizontal,
+                y: rect.minY + cellPaddingVertical,
+                width: max(0, xs[i + 1] - xs[i] - 2 * cellPaddingHorizontal),
+                height: max(0, rect.height - 2 * cellPaddingVertical)
             )
-            let ns = cellText as NSString
-            let textSize = ns.size(withAttributes: attrs)
-            let x: CGFloat
-            switch alignment {
-            case .right:
-                x = cellRect.maxX - textSize.width
-            case .center:
-                x = cellRect.minX + (cellRect.width - textSize.width) / 2
-            case .left, .none:
-                x = cellRect.minX
-            }
-            let y = cellRect.minY + (cellRect.height - textSize.height) / 2
+            guard cellRect.width > 0, cellRect.height > 0 else { continue }
+            let aligned = applyAlignment(cell, alignment: alignment)
+            let bounding = aligned.boundingRect(
+                with: CGSize(width: cellRect.width, height: .greatestFiniteMagnitude),
+                options: drawingOpts,
+                context: nil
+            )
+            // Vertically center the wrapped text block in the cell rect so
+            // single-line cells align with multi-line peers.
+            let yOrigin = cellRect.minY + max(0, (cellRect.height - bounding.height) / 2)
+            let drawRect = CGRect(
+                x: cellRect.minX,
+                y: yOrigin,
+                width: cellRect.width,
+                height: max(bounding.height, cellRect.height)
+            )
             #if canImport(AppKit) && os(macOS)
             let nsContext = NSGraphicsContext(cgContext: context, flipped: layoutFragmentFrame.height > 0)
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = nsContext
-            ns.draw(at: CGPoint(x: x, y: y), withAttributes: attrs)
+            aligned.draw(with: drawRect, options: drawingOpts, context: nil)
             NSGraphicsContext.restoreGraphicsState()
             #else
-            ns.draw(at: CGPoint(x: x, y: y), withAttributes: attrs)
+            aligned.draw(with: drawRect, options: drawingOpts, context: nil)
             #endif
         }
+    }
+
+    /// Stamp the cell's paragraph alignment (left/right/center) without
+    /// disturbing the existing inline attributes (font, foreground, code-
+    /// span backdrop, link styling).
+    private func applyAlignment(_ s: NSAttributedString, alignment: PipeTableAlignment) -> NSAttributedString {
+        let para = NSMutableParagraphStyle()
+        switch alignment {
+        case .right: para.alignment = .right
+        case .center: para.alignment = .center
+        case .left, .none: para.alignment = .natural
+        }
+        para.lineBreakMode = .byWordWrapping
+        let mut = NSMutableAttributedString(attributedString: s)
+        mut.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: mut.length))
+        return mut
     }
 
     private func drawToggleIcon(in rect: CGRect, context: CGContext) {
@@ -497,13 +629,6 @@ public final class PipeTableLayoutFragment: NSTextLayoutFragment {
         guard !columnXs.isEmpty else { return nil }
         let bounds = layoutFragmentFrame
         guard point.y >= 0, point.y <= bounds.height else { return nil }
-        // columnXs are container-anchored; point is fragment-local. The
-        // fragment's renderingSurfaceBounds origin is `-bounds.origin.x`,
-        // so a click at point.x corresponds to container x of
-        // `point.x` (already in surface coords if we received it relative to
-        // surface) or `point.x + bounds.origin.x` if relative to fragment.
-        // The host calls with fragment-local coords from layoutFragmentFrame
-        // origin, so adjust by adding bounds.origin.x to land on container.
         let x = point.x
         var col: Int?
         for i in 0..<(columnXs.count - 1) {
@@ -641,6 +766,14 @@ extension PlatformColor {
         return NSColor.labelColor
         #else
         return UIColor.label
+        #endif
+    }
+
+    static var pipeTableBodyAltDefaultBackground: PlatformColor {
+        #if canImport(AppKit) && os(macOS)
+        return NSColor.tertiaryLabelColor.withAlphaComponent(0.05)
+        #else
+        return UIColor.tertiaryLabel.withAlphaComponent(0.05)
         #endif
     }
 }

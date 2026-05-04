@@ -74,19 +74,6 @@ public struct SwiftProseEditor: View {
         .onChange(of: theme) { _, newTheme in
             hosting.controller?.theme = newTheme
         }
-        .sheet(item: $hosting.activeTableCellEdit) { request in
-            TableCellEditSheet(request: request) { newText in
-                _ = hosting.controller?.applyTableCellEdit(
-                    tableRange: request.tableRange,
-                    row: request.row,
-                    column: request.column,
-                    text: newText
-                )
-                hosting.activeTableCellEdit = nil
-            } cancel: {
-                hosting.activeTableCellEdit = nil
-            }
-        }
     }
 
     @ViewBuilder
@@ -218,6 +205,14 @@ private func editMenuTitle(for action: SwiftProseEditor.Action) -> String {
     case .horizontalRule: return "Horizontal Rule"
     case .indent: return "Indent"
     case .outdent: return "Outdent"
+    case .insertTable: return "Insert Table"
+    case .insertTableRowAbove: return "Insert Row Above"
+    case .insertTableRowBelow: return "Insert Row Below"
+    case .insertTableColumnBefore: return "Insert Column Before"
+    case .insertTableColumnAfter: return "Insert Column After"
+    case .deleteTableRow: return "Delete Row"
+    case .deleteTableColumn: return "Delete Column"
+    case .setTableColumnAlignment: return "Column Alignment"
     }
 }
 
@@ -237,6 +232,14 @@ private func editMenuSymbol(for action: SwiftProseEditor.Action) -> String {
     case .horizontalRule: return "minus"
     case .indent: return "increase.indent"
     case .outdent: return "decrease.indent"
+    case .insertTable: return "tablecells"
+    case .insertTableRowAbove: return "rectangle.topthird.inset.filled"
+    case .insertTableRowBelow: return "rectangle.bottomthird.inset.filled"
+    case .insertTableColumnBefore: return "rectangle.leftthird.inset.filled"
+    case .insertTableColumnAfter: return "rectangle.rightthird.inset.filled"
+    case .deleteTableRow: return "minus.rectangle"
+    case .deleteTableColumn: return "minus.rectangle"
+    case .setTableColumnAlignment: return "text.alignleft"
     }
 }
 #endif
@@ -256,7 +259,6 @@ private struct SizingFrame: ViewModifier {
 final class ProseHosting: ObservableObject {
     @Published var controller: EditorController?
     @Published var selection: NSRange = NSRange(location: 0, length: 0)
-    @Published var activeTableCellEdit: TableCellEditRequest?
 
     func ensureController(
         initialText: String,
@@ -279,69 +281,5 @@ final class ProseHosting: ObservableObject {
         controller.onSelectionChanged = { [weak self] range in
             self?.selection = range
         }
-        controller.onTableCellTapped = { [weak self] hit in
-            self?.activeTableCellEdit = TableCellEditRequest(
-                id: UUID(),
-                tableRange: hit.tableRange,
-                row: hit.row,
-                column: hit.column,
-                initialText: hit.cellText
-            )
-        }
-    }
-}
-
-/// Identifiable payload backing the `.sheet(item:)` table-cell editor.
-/// Each tap creates a new `id` so SwiftUI re-presents the sheet even when
-/// the same cell is clicked twice.
-struct TableCellEditRequest: Identifiable, Equatable {
-    let id: UUID
-    let tableRange: NSRange
-    let row: Int
-    let column: Int
-    let initialText: String
-}
-
-/// Compact sheet for editing a single pipe-table cell. The text view inside
-/// the editor doesn't host editable cells (TextKit 2 has no real table
-/// support), so a click on a cell pops this up instead. Save dispatches an
-/// `applyTableCellEdit` transaction.
-struct TableCellEditSheet: View {
-    let request: TableCellEditRequest
-    let save: (String) -> Void
-    let cancel: () -> Void
-
-    @State private var text: String
-
-    init(request: TableCellEditRequest, save: @escaping (String) -> Void, cancel: @escaping () -> Void) {
-        self.request = request
-        self.save = save
-        self.cancel = cancel
-        self._text = State(initialValue: request.initialText)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(headerLabel)
-                .font(.headline)
-            TextField("Cell text", text: $text, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(3...8)
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { cancel() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save") { save(text) }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 360, minHeight: 180)
-    }
-
-    private var headerLabel: String {
-        let rowLabel = request.row == -1 ? "Header" : "Row \(request.row + 1)"
-        return "\(rowLabel) · Column \(request.column + 1)"
     }
 }
