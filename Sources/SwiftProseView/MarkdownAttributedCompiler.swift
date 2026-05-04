@@ -225,7 +225,11 @@ public final class MarkdownAttributedCompiler {
                 if k == .font {
                     if let baseRun = attributed.safeAttribute(.font, at: safe.location) as? PlatformFont,
                        let trait = (v as? PlatformFont)?.proseTraits {
-                        let merged = baseRun.withProseTraits(trait)
+                        // Combine traits with what the run already carries
+                        // — `withProseTraits` replaces, so a second pass
+                        // (italic on top of bold) would otherwise drop the
+                        // first trait. Union preserves both.
+                        let merged = baseRun.withProseTraits(baseRun.proseTraits.union(trait))
                         attributed.addAttribute(.font, value: merged, range: safe)
                     } else {
                         attributed.addAttribute(.font, value: v, range: safe)
