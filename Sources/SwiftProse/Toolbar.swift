@@ -50,7 +50,7 @@ struct ProseToolbar: View {
             ToolbarLabelButton(
                 label: "H\(level)",
                 help: help(for: .heading(level: level)),
-                shortcut: shortcut(for: .heading(level: level)),
+                shortcut: nil,
                 action: { perform(.heading(level: level)) }
             )
             .disabled(!canPerform(.heading(level: level)))
@@ -58,7 +58,7 @@ struct ProseToolbar: View {
             ToolbarActionButton(
                 systemImage: label(for: action),
                 help: help(for: action),
-                shortcut: shortcut(for: action),
+                shortcut: nil,
                 action: { perform(action) }
             )
             .disabled(!canPerform(action))
@@ -112,14 +112,12 @@ struct ProseToolbar: View {
         }
     }
 
-    /// SwiftUI `.keyboardShortcut` is window-scoped, so attaching one to a
-    /// toolbar button broadcasts the shortcut to every SwiftProseEditor in the
-    /// scene. Keyboard shortcuts are handled inside the focused text view's
-    /// `keyDown` (mac) and `keyCommands` (iOS) instead. Toolbar buttons
-    /// activate the action they're bound to without an explicit shortcut.
-    private func shortcut(for action: SwiftProseEditor.Action) -> KeyboardShortcut? {
-        nil
-    }
+    // SwiftUI `.keyboardShortcut` is window-scoped, so attaching one to a
+    // toolbar button broadcasts the shortcut to every SwiftProseEditor in
+    // the scene. Built-in actions handle their shortcuts inside the focused
+    // text view's `keyDown` (mac) / `keyCommands` (iOS) instead. Custom
+    // items can still pass an explicit shortcut, which `OptionalShortcut`
+    // applies below.
 }
 
 /// Splits the toolbar list into runs separated by `.divider` (which becomes a
