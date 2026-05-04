@@ -173,9 +173,12 @@ public struct AttrSpec: Sendable, Equatable, Hashable {
     }
 }
 
-/// Content rule for a node type. Phase 1 stores the raw ProseMirror
-/// expression string for round-trip plus a flat set of allowed direct
-/// children. Phase 9 replaces this with a real expression matcher.
+/// Content rule for a node type. Stores the raw ProseMirror expression
+/// string plus a flat set of allowed direct children for fast membership
+/// queries. The `matches(childTypes:)` matcher checks cardinality given
+/// the expression's trailing quantifier (`+`, `*`, `?`, or none); the
+/// schema only uses single-segment patterns so we don't need a full
+/// regex engine.
 public struct ContentExpression: Sendable, Equatable, Hashable {
     public let raw: String
     public let allowedNodes: Set<String>
@@ -187,6 +190,37 @@ public struct ContentExpression: Sendable, Equatable, Hashable {
 
     public func allows(child name: NodeType.Name) -> Bool {
         allowedNodes.contains(name)
+    }
+
+    public enum Quantifier: Sendable, Hashable {
+        case exactlyOne
+        case oneOrMore   // +
+        case zeroOrMore  // *
+        case zeroOrOne   // ?
+    }
+
+    public var quantifier: Quantifier {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        switch trimmed.last {
+        case "+": return .oneOrMore
+        case "*": return .zeroOrMore
+        case "?": return .zeroOrOne
+        default: return .exactlyOne
+        }
+    }
+
+    /// Whether `childTypes` satisfies this expression. Each child must be
+    /// in `allowedNodes`, and the count must satisfy the quantifier.
+    public func matches(childTypes: [NodeType.Name]) -> Bool {
+        for type in childTypes where !allowedNodes.contains(type) {
+            return false
+        }
+        switch quantifier {
+        case .exactlyOne: return childTypes.count == 1
+        case .oneOrMore: return childTypes.count >= 1
+        case .zeroOrMore: return true
+        case .zeroOrOne: return childTypes.count <= 1
+        }
     }
 }
 
