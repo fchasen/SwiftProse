@@ -55,7 +55,7 @@ public enum Step {
         mark: InlineMark,
         env: StepEnvironment
     ) -> AppliedStep {
-        let safe = clamp(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         let prior = storage.attributedSubstring(from: safe)
         let resulting: NSRange
         switch mark {
@@ -68,7 +68,7 @@ public enum Step {
         case .codeSpan:
             resulting = Operations.toggleCodeSpan(in: storage, range: range, theme: env.theme)
         }
-        let inverse = Step.replaceText(range: clamp(resulting, in: storage.length), with: prior)
+        let inverse = Step.replaceText(range: resulting.clamped(to: storage.length), with: prior)
         return AppliedStep(inverse: inverse, mappedRange: resulting, affectedLineRange: resulting, stepMap: .empty)
     }
 
@@ -77,7 +77,7 @@ public enum Step {
         range: NSRange,
         attributed: NSAttributedString
     ) -> AppliedStep {
-        let safe = clamp(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         let prior = storage.attributedSubstring(from: safe)
         storage.beginEditing()
         storage.replaceCharacters(in: safe, with: attributed)
@@ -94,7 +94,7 @@ public enum Step {
         spec: BlockSpec,
         env: StepEnvironment
     ) -> AppliedStep {
-        let safe = clamp(lineRange, in: storage.length)
+        let safe = lineRange.clamped(to: storage.length)
         let prior = storage.attributedSubstring(from: safe)
 
         let newAttr = render(spec: spec, replacing: prior, env: env)
@@ -238,12 +238,6 @@ public enum Step {
         return s.split(separator: "\n", omittingEmptySubsequences: false)
             .map { prefix + String($0) }
             .joined(separator: "\n")
-    }
-
-    private func clamp(_ range: NSRange, in length: Int) -> NSRange {
-        let location = max(0, min(range.location, length))
-        let remaining = max(0, length - location)
-        return NSRange(location: location, length: max(0, min(range.length, remaining)))
     }
 
     public func mapped(through mapping: Mapping) -> Step {

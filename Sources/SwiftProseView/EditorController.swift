@@ -129,10 +129,7 @@ public final class EditorController {
         // every paragraph the edit overlaps. Repairing only the line at
         // editedRange.location would miss multi-line pastes.
         let ns = textStorage.string as NSString
-        let probe = NSRange(
-            location: max(0, min(edited.location, max(0, total - 1))),
-            length: min(edited.length, total - min(edited.location, total))
-        )
+        let probe = edited.clamped(to: total)
         let lineRange = ns.paragraphRange(for: probe)
         applyingMarkdown = true
         SpecValidator.repair(in: textStorage, range: lineRange)
@@ -143,10 +140,7 @@ public final class EditorController {
     private func scrubTypedAttributes() {
         let editedRange = textStorage.editedRange
         guard editedRange.length > 0 else { return }
-        let safe = NSRange(
-            location: max(0, min(editedRange.location, textStorage.length)),
-            length: max(0, min(editedRange.length, textStorage.length - max(0, min(editedRange.location, textStorage.length))))
-        )
+        let safe = editedRange.clamped(to: textStorage.length)
         guard safe.length > 0 else { return }
         applyingMarkdown = true
         textStorage.beginEditing()
@@ -187,10 +181,8 @@ public final class EditorController {
         let editedRange = textStorage.editedRange
         let ns = textStorage.string as NSString
         guard editedRange.length >= 0, editedRange.location >= 0 else { return }
-        let probeRange = NSRange(
-            location: max(0, min(editedRange.location, ns.length)),
-            length: 0
-        )
+        let probeRange = NSRange(location: editedRange.location, length: 0)
+            .clamped(to: ns.length)
         let lineRange = ns.paragraphRange(for: probeRange)
         guard lineRange.length > 0 else { return }
 
@@ -510,7 +502,7 @@ public final class EditorController {
 
     func withCharacterMutation(range: NSRange, _ body: () -> Void) {
         let preLength = textStorage.length
-        let preRange = clamp(range, in: preLength)
+        let preRange = range.clamped(to: preLength)
         let pre = textStorage.attributedSubstring(from: preRange)
         let preSelection = currentSelection
         body()
@@ -522,7 +514,7 @@ public final class EditorController {
     }
 
     func withAttributeMutation(range: NSRange, _ body: () -> Void) {
-        let safe = clamp(range, in: textStorage.length)
+        let safe = range.clamped(to: textStorage.length)
         let runs = captureAttributeRuns(in: safe)
         let preSelection = currentSelection
         body()
@@ -538,7 +530,7 @@ public final class EditorController {
     ) {
         undoManager.registerUndo(withTarget: self) { [weak self] _ in
             guard let self else { return }
-            let safe = self.clamp(range, in: self.textStorage.length)
+            let safe = range.clamped(to: self.textStorage.length)
             let redoContent = self.textStorage.attributedSubstring(from: safe)
             let redoSelection = self.currentSelection
             self.applyingMarkdown = true
@@ -561,13 +553,13 @@ public final class EditorController {
     ) {
         undoManager.registerUndo(withTarget: self) { [weak self] _ in
             guard let self else { return }
-            let safe = self.clamp(range, in: self.textStorage.length)
+            let safe = range.clamped(to: self.textStorage.length)
             let redoRuns = self.captureAttributeRuns(in: safe)
             let redoSelection = self.currentSelection
             self.applyingMarkdown = true
             self.textStorage.beginEditing()
             for run in runs {
-                let runSafe = self.clamp(run.range, in: self.textStorage.length)
+                let runSafe = run.range.clamped(to: self.textStorage.length)
                 if runSafe.length > 0 {
                     self.textStorage.setAttributes(run.attrs, range: runSafe)
                 }
@@ -592,12 +584,6 @@ public final class EditorController {
             runs.append(AttributeRun(range: subRange, attrs: attrs))
         }
         return runs
-    }
-
-    private func clamp(_ range: NSRange, in length: Int) -> NSRange {
-        let location = max(0, min(range.location, length))
-        let remaining = max(0, length - location)
-        return NSRange(location: location, length: max(0, min(range.length, remaining)))
     }
 
     /// After programmatic storage edits, NSTextView's `typingAttributes`
@@ -963,13 +949,7 @@ public final class EditorController {
     }
 
     private func setHostSelection(_ range: NSRange) {
-        let total = textStorage.length
-        let safeLocation = max(0, min(range.location, total))
-        let remaining = max(0, total - safeLocation)
-        let safe = NSRange(
-            location: safeLocation,
-            length: max(0, min(range.length, remaining))
-        )
+        let safe = range.clamped(to: textStorage.length)
         #if canImport(AppKit) && os(macOS)
         if let tv = hostTextView as? NSTextView { tv.setSelectedRange(safe) }
         #elseif canImport(UIKit)

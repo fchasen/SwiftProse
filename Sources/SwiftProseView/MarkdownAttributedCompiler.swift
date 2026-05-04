@@ -267,7 +267,7 @@ public final class MarkdownAttributedCompiler {
         // length and bold "**bold**" would land on the marker glyph
         // instead of the word.
         for (range, attrs) in styleRuns {
-            let safe = clampedRange(range, in: attributed.length)
+            let safe = range.clamped(to: attributed.length)
             guard safe.length > 0 else { continue }
             for (k, v) in attrs {
                 if k == .font {
@@ -562,12 +562,6 @@ public final class MarkdownAttributedCompiler {
         return a.location < bEnd && b.location < aEnd
     }
 
-    private func clampedRange(_ range: NSRange, in length: Int) -> NSRange {
-        let location = max(0, min(range.location, length))
-        let remaining = max(0, length - location)
-        return NSRange(location: location, length: max(0, min(range.length, remaining)))
-    }
-
     /// Walk forward from a strip range's end as long as the next character
     /// is a horizontal whitespace (` ` or `\t`). Used to absorb the trailing
     /// space that follows block-markup tokens like `#`, `>`, list markers.
@@ -639,10 +633,7 @@ public final class MarkdownAttributedCompiler {
         source: NSString,
         stripping ranges: [NSRange]
     ) -> StripResult {
-        let safe = NSRange(
-            location: max(0, min(range.location, source.length)),
-            length: max(0, min(range.length, source.length - max(0, min(range.location, source.length))))
-        )
+        let safe = range.clamped(to: source.length)
         var out = ""
         out.reserveCapacity(safe.length)
         var projection: [Int] = Array(repeating: -1, count: safe.length)

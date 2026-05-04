@@ -18,7 +18,7 @@ public enum Operations {
         replacing range: NSRange,
         with text: String
     ) -> NSRange {
-        let safe = clampedRange(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         let attrs = inheritedAttributes(in: storage, at: safe.location)
         let attributed = NSAttributedString(string: text, attributes: attrs)
         storage.beginEditing()
@@ -38,7 +38,7 @@ public enum Operations {
         url: String,
         theme: ProseTheme
     ) -> NSRange {
-        let safe = clampedRange(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         var attrs = inheritedAttributes(in: storage, at: safe.location)
         attrs[.link] = url
         attrs[.proseLink] = url
@@ -155,7 +155,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         theme: ProseTheme
     ) -> NSRange? {
-        let safe = clampedRange(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         let ns = storage.string as NSString
         let lineRange = storage.length == 0
             ? NSRange(location: 0, length: 0)
@@ -208,7 +208,7 @@ public enum Operations {
         compiler: MarkdownAttributedCompiler,
         theme: ProseTheme
     ) -> NSRange? {
-        let safe = clampedRange(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         let ns = storage.string as NSString
         let lineRange = storage.length == 0
             ? NSRange(location: 0, length: 0)
@@ -301,7 +301,7 @@ public enum Operations {
         theme: ProseTheme
     ) -> NSRange? {
         guard storage.length > 0 else { return nil }
-        let safe = clampedRange(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         let probe = max(0, min(safe.location, storage.length - 1))
         guard let spec = storage.blockSpec(at: probe), spec.isListItem else {
             return nil
@@ -431,7 +431,7 @@ public enum Operations {
         env: StepEnvironment,
         transform: (BlockSpec) -> BlockSpec
     ) -> NSRange {
-        let safe = clampedRange(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         let lineRanges = paragraphRanges(in: storage, covering: safe)
         guard !lineRanges.isEmpty else {
             let step = Step.setSpec(lineRange: NSRange(location: 0, length: 0), transform(.paragraph))
@@ -512,9 +512,9 @@ public enum Operations {
         theme: ProseTheme
     ) -> NSRange {
         if range.length == 0 {
-            return clampedRange(range, in: storage.length)
+            return range.clamped(to: storage.length)
         }
-        let safe = clampedRange(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         let allOn = isUniformAttribute(in: storage, range: safe, key: .strikethroughStyle) { value in
             (value as? Int).map { $0 != 0 } ?? false
         }
@@ -535,9 +535,9 @@ public enum Operations {
         theme: ProseTheme
     ) -> NSRange {
         if range.length == 0 {
-            return clampedRange(range, in: storage.length)
+            return range.clamped(to: storage.length)
         }
-        let safe = clampedRange(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         let allOn = isUniformAttribute(in: storage, range: safe, key: .proseInline) { value in
             (value as? InlineTag) == .codeSpan
         }
@@ -567,9 +567,9 @@ public enum Operations {
         placeholder: String
     ) -> NSRange {
         if range.length == 0 {
-            return clampedRange(range, in: storage.length)
+            return range.clamped(to: storage.length)
         }
-        let safe = clampedRange(range, in: storage.length)
+        let safe = range.clamped(to: storage.length)
         let allOn = isUniformFontTrait(in: storage, range: safe, trait: trait)
         storage.beginEditing()
         storage.enumerateAttribute(.font, in: safe) { value, subRange, _ in
@@ -626,12 +626,6 @@ public enum Operations {
     }
 
     // MARK: - helpers
-
-    private static func clampedRange(_ range: NSRange, in length: Int) -> NSRange {
-        let location = max(0, min(range.location, length))
-        let remaining = max(0, length - location)
-        return NSRange(location: location, length: max(0, min(range.length, remaining)))
-    }
 
     private static func hasTrait(_ trait: FontTrait, on font: PlatformFont) -> Bool {
         #if canImport(AppKit) && os(macOS)

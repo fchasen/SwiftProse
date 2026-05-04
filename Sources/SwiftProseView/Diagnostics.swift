@@ -116,10 +116,7 @@ public enum SpecValidator {
     ) {
         guard storage.length > 0 else { return }
         let ns = storage.string as NSString
-        let safe = NSRange(
-            location: max(0, min(range.location, ns.length)),
-            length: max(0, min(range.length, ns.length - max(0, min(range.location, ns.length))))
-        )
+        let safe = range.clamped(to: ns.length)
         // A zero-length range pins to the single paragraph containing the
         // location; without this guard the loop would walk every paragraph
         // until end-of-storage.
