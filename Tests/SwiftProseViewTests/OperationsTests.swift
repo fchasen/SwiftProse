@@ -150,7 +150,10 @@ import UIKit
                 theme: .default
             )
         }
-        #expect(serialize(storage) == "one\ntwo\n")
+        // Tree-driven emit separates two top-level paragraphs with a blank
+        // line (GFM convention); legacy spec-walking emit packed them
+        // together. Tree behavior is canonical now.
+        #expect(serialize(storage) == "one\n\ntwo\n")
     }
 
     @Test func toggleBlockquoteAddsMarker() throws {

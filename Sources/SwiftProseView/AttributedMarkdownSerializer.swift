@@ -7,9 +7,13 @@ import AppKit
 import UIKit
 #endif
 
+/// Serializes a styled `NSAttributedString` back to markdown by walking
+/// the tree projection (`proseNodePath` + `proseMarks`) and emitting via
+/// `MarkdownTreeSerializer`. The legacy `proseBlockSpec`-walking emit
+/// path was retired in Phase 10 cleanup; storage that lacks tree
+/// attributes goes through `NodePathSynthesizer.stamp` first to derive
+/// them from `proseBlockSpec` (or sensible defaults).
 public final class AttributedMarkdownSerializer {
-    /// Schema for the tree-driven emit path. Defaults to the markdown
-    /// schema; callers with custom schemas can pass their own.
     public let schema: Schema
 
     public init(schema: Schema = .defaultMarkdown) {
@@ -17,195 +21,18 @@ public final class AttributedMarkdownSerializer {
     }
 
     public func serialize(_ attributed: NSAttributedString) -> String {
-        let total = attributed.length
-        guard total > 0 else { return "" }
-        var out = ""
-        var emittedSomething = false
-        let fullRange = NSRange(location: 0, length: total)
-        attributed.enumerateAttribute(.proseBlockSpec, in: fullRange) { value, range, _ in
-            if emittedSomething { out.append("\n") }
-            if let spec = (value as? BlockSpecBox)?.spec {
-                out.append(emitBlock(spec, attributed: attributed, range: range))
-            } else {
-                out.append(attributed.attributedSubstring(from: range).string)
-            }
-            emittedSomething = true
-        }
-        return ensureTrailingNewline(out)
+        serializeFromTree(attributed)
     }
 
-    /// Tree-driven emit path. Reconstructs a `ProseDocument` from the
-    /// storage's `proseNodePath` runs and walks it via
-    /// `MarkdownTreeSerializer`. Re-derives `proseNodePath` from the
-    /// legacy `proseBlockSpec` first so post-mutation storage that lost
-    /// the tree attribute (e.g. `setAttributes(plainAttrs, …)` paths in
-    /// EditorController) still serializes correctly.
+    /// Tree-driven emit path. Re-derives `proseNodePath` from
+    /// `proseBlockSpec` if missing so post-mutation storage that only
+    /// carries the legacy attribute (e.g. `setAttributes(plainAttrs, …)`
+    /// paths in EditorController) still serializes correctly.
     public func serializeFromTree(_ attributed: NSAttributedString) -> String {
+        guard attributed.length > 0 else { return "" }
         let mutable = NSMutableAttributedString(attributedString: attributed)
         NodePathSynthesizer(schema: schema).stamp(into: mutable)
         let tree = ProseDocument.from(storage: mutable, schema: schema)
         return MarkdownTreeSerializer(schema: schema).serialize(tree)
     }
-
-    private func emitBlock(
-        _ spec: BlockSpec,
-        attributed: NSAttributedString,
-        range: NSRange
-    ) -> String {
-        let inner = inlineMarkdown(of: attributed, range: range, in: spec)
-        let trimmed = stripOneTrailingNewline(inner)
-        let blockquotePrefix = String(repeating: "> ", count: max(0, spec.blockquoteDepth))
-        let listIndent = String(repeating: "  ", count: max(0, spec.listLevel))
-
-        switch spec.kind {
-        case .heading(let level):
-            let lvl = max(1, min(6, level))
-            let prefix = String(repeating: "#", count: lvl) + " "
-            return blockquotePrefix + prefix + trimmed
-        case .paragraph:
-            return prefixLines(trimmed, with: blockquotePrefix)
-        case .unorderedListItem:
-            return blockquotePrefix + listIndent + "- " + trimmed
-        case .orderedListItem(let index):
-            return blockquotePrefix + listIndent + "\(index). " + trimmed
-        case .taskListItem(let checked):
-            return blockquotePrefix + listIndent + "- [\(checked ? "x" : " ")] " + trimmed
-        case .fencedCode(let language):
-            let lang = language ?? ""
-            let body = stripOneTrailingNewline(attributed.attributedSubstring(from: range).string)
-            if body.hasPrefix("```") || body.hasPrefix("~~~") {
-                return body
-            }
-            return "```\(lang)\n" + body + "\n```"
-        case .indentedCode:
-            let body = stripOneTrailingNewline(attributed.attributedSubstring(from: range).string)
-            return body
-        case .horizontalRule:
-            return "---"
-        case .htmlBlock, .linkReferenceDefinition:
-            return stripOneTrailingNewline(attributed.attributedSubstring(from: range).string)
-        }
-    }
-
-    private func inlineMarkdown(
-        of attributed: NSAttributedString,
-        range: NSRange,
-        in spec: BlockSpec
-    ) -> String {
-        var out = ""
-        var cursor = range.location
-        let end = range.location + range.length
-        while cursor < end {
-            var runRange = NSRange(location: cursor, length: 0)
-            let attrs = attributed.safeAttributes(
-                at: cursor,
-                longestEffectiveRange: &runRange,
-                in: NSRange(location: cursor, length: end - cursor)
-            )
-            let runLen = runRange.length > 0 ? runRange.length : 1
-            let actualRange = NSRange(location: cursor, length: min(runLen, end - cursor))
-            let runText = (attributed.string as NSString).substring(with: actualRange)
-            out.append(emitInlineRun(text: runText, attrs: attrs, in: spec))
-            cursor += actualRange.length
-        }
-        return out
-    }
-
-    private func paragraphImpliedBold(for spec: BlockSpec) -> Bool {
-        if case .heading = spec.kind { return true }
-        return false
-    }
-
-    private func emitInlineRun(
-        text: String,
-        attrs: [NSAttributedString.Key: Any],
-        in spec: BlockSpec
-    ) -> String {
-        if text == "\n" { return "\n" }
-
-        if attrs[.attachment] != nil {
-            return ""
-        }
-        if let flag = attrs[.proseListMarker] as? Bool, flag {
-            return ""
-        }
-
-        var content = text
-        var prefix = ""
-        var suffix = ""
-
-        if let url = (attrs[.proseLink] as? String) ?? linkURLString(from: attrs[.link]) {
-            let label = stripTrailingNewline(content)
-            return "[\(label)](\(url))"
-        }
-
-        if let inline = attrs[.proseInline] as? InlineTag, inline == .codeSpan {
-            let label = stripTrailingNewline(content)
-            return "`\(label)`"
-        }
-        if let font = attrs[.font] as? PlatformFont, font.isMonospace {
-            let label = stripTrailingNewline(content)
-            return "`\(label)`"
-        }
-
-        if let font = attrs[.font] as? PlatformFont {
-            let traits = font.proseTraits
-            let bold = traits.contains(.bold) && !paragraphImpliedBold(for: spec)
-            let italic = traits.contains(.italic)
-            if bold && italic {
-                prefix = "***"; suffix = "***"
-            } else if bold {
-                prefix = "**"; suffix = "**"
-            } else if italic {
-                prefix = "*"; suffix = "*"
-            }
-        }
-
-        if let style = attrs[.strikethroughStyle] as? Int, style != 0 {
-            prefix = "~~" + prefix
-            suffix = suffix + "~~"
-        }
-
-        let (body, tail) = splitTrailingNewline(content)
-        content = body
-        return prefix + content + suffix + tail
-    }
-
-    // MARK: - helpers
-
-    private func stripOneTrailingNewline(_ s: String) -> String {
-        if s.hasSuffix("\n") { return String(s.dropLast()) }
-        return s
-    }
-
-    private func stripTrailingNewline(_ s: String) -> String {
-        var out = s
-        while out.hasSuffix("\n") { out.removeLast() }
-        return out
-    }
-
-    private func splitTrailingNewline(_ s: String) -> (String, String) {
-        if s.hasSuffix("\n") { return (String(s.dropLast()), "\n") }
-        return (s, "")
-    }
-
-    private func ensureTrailingNewline(_ s: String) -> String {
-        if s.isEmpty { return "" }
-        if s.hasSuffix("\n") { return s }
-        return s + "\n"
-    }
-
-    private func prefixLines(_ s: String, with prefix: String) -> String {
-        guard !prefix.isEmpty else { return s }
-        return s.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { prefix + String($0) }
-            .joined(separator: "\n")
-    }
-
-    private func linkURLString(from any: Any?) -> String? {
-        if let url = any as? URL { return url.absoluteString }
-        if let s = any as? String { return s }
-        return nil
-    }
-
 }
