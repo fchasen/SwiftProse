@@ -42,6 +42,13 @@ public final class EditorController {
     /// sync without polling. Forwarded by the platform coordinators in
     /// `ProseTextViewMac` / `ProseTextViewIOS`.
     public var onSelectionChanged: ((NSRange) -> Void)?
+    /// Fires after each character edit with the freshly-derived
+    /// `ProseDocument` and a `Step.replaceText` describing the storage
+    /// edit. Wire this to maintain a tree mirror, drive collaborative-
+    /// editing transport, or react to document changes in general. Skipped
+    /// for attribute-only edits (font traits etc.) since those don't have
+    /// a clean `replaceText` mapping; the cache still invalidates.
+    public var onDocumentChange: ((ProseDocument, Step) -> Void)?
 
     /// Source ranges of pipe tables the user has flipped to raw monospace
     /// mode via the per-table toggle. Lives on the controller (presentation
@@ -154,6 +161,11 @@ public final class EditorController {
             // re-derives from the new content.
             if !self.textStorage.editedMask.isEmpty {
                 self.cachedDocument = nil
+            }
+            if self.textStorage.editedMask.contains(.editedCharacters),
+               let onDocumentChange = self.onDocumentChange {
+                let derived = self.deriveReplaceTextStep()
+                onDocumentChange(self.document, derived)
             }
             guard !self.applyingMarkdown else { return }
             if self.textStorage.editedMask.contains(.editedCharacters) {
@@ -1188,6 +1200,22 @@ public final class EditorController {
     /// text view ended up reporting.
     public func setSelection(_ range: NSRange) {
         setHostSelection(range)
+    }
+
+    /// Build a `Step.replaceText` describing the most recent storage edit,
+    /// using `editedRange` and `changeInLength` from the in-flight notification.
+    /// The pre-edit range is reconstructed by subtracting `changeInLength`;
+    /// the post-edit content is read from current storage. The returned step
+    /// is forward-only — callers that want an inverse must capture pre-edit
+    /// content separately.
+    private func deriveReplaceTextStep() -> Step {
+        let editedRange = textStorage.editedRange
+        let changeInLength = textStorage.changeInLength
+        let preLength = max(0, editedRange.length - changeInLength)
+        let preRange = NSRange(location: editedRange.location, length: preLength)
+        let safeEdited = editedRange.clamped(to: textStorage.length)
+        let content = textStorage.attributedSubstring(from: safeEdited)
+        return .replaceText(range: preRange, with: content)
     }
 
     // MARK: - private

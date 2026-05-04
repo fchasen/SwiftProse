@@ -120,4 +120,35 @@ import UIKit
         #expect(afterId != nil)
         #expect(beforeId != afterId, "edit should invalidate the cached tree")
     }
+
+    @Test func documentChangeCallbackFiresAfterEdit() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        var fireCount = 0
+        var receivedDoc: ProseDocument?
+        controller.onDocumentChange = { doc, _ in
+            fireCount += 1
+            receivedDoc = doc
+        }
+        controller.testSelection = NSRange(location: 5, length: 0)
+        controller.insert(text: "!")
+        #expect(fireCount >= 1)
+        #expect(receivedDoc != nil)
+    }
+
+    @Test func documentChangeCallbackProvidesReplaceTextStep() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        var capturedStep: Step?
+        controller.onDocumentChange = { _, step in
+            capturedStep = step
+        }
+        controller.testSelection = NSRange(location: 5, length: 0)
+        controller.insert(text: "!")
+        guard case .replaceText(let range, let content) = capturedStep else {
+            Issue.record("expected replaceText step, got \(String(describing: capturedStep))")
+            return
+        }
+        #expect(range.location == 5)
+        #expect(range.length == 0)
+        #expect(content.string == "!")
+    }
 }
