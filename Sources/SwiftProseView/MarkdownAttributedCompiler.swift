@@ -12,20 +12,50 @@ public final class MarkdownAttributedCompiler {
     private let blockParser: MarkdownParser
     private let inlineParser: MarkdownParser
     private let highlighter: HighlightApplier
+    /// ProseMirror-aligned schema used by the Phase-2 stamping pass that
+    /// adds `proseNodePath` and `proseMarks` to compiled storage. Defaults
+    /// to `Schema.defaultMarkdown`; callers wanting a custom schema can
+    /// supply one at init.
+    public let schema: Schema
     public var codeBlockHighlighter: CodeBlockHighlighter?
 
-    public init(codeBlockHighlighter: CodeBlockHighlighter? = nil) throws {
+    public init(
+        codeBlockHighlighter: CodeBlockHighlighter? = nil,
+        schema: Schema = .defaultMarkdown
+    ) throws {
         self.blockParser = try MarkdownParser(grammar: .block)
         self.inlineParser = try MarkdownParser(grammar: .inline)
         self.highlighter = try HighlightApplier()
         self.codeBlockHighlighter = codeBlockHighlighter
+        self.schema = schema
     }
 
     public func compile(
         _ markdown: String,
         theme: ProseTheme
     ) -> NSAttributedString {
-        compileRich(markdown, theme: theme)
+        let rich = compileRich(markdown, theme: theme)
+        // Phase 2: stamp `proseNodePath` + `proseMarks` alongside the
+        // existing `proseBlockSpec` and rendering attributes so downstream
+        // consumers can either dispatch on the legacy spec (current) or
+        // walk the structural tree (Phase 4+).
+        let mutable = NSMutableAttributedString(attributedString: rich)
+        NodePathSynthesizer(schema: schema).stamp(into: mutable)
+        return mutable
+    }
+
+    /// Compile a markdown source into a `ProseDocument` tree by going
+    /// through the storage pipeline (so the tree shares the same parser,
+    /// highlighter, and stamp logic) and reverse-projecting via
+    /// `ProseDocument.from(storage:)`. Phase 4 will add a more direct
+    /// tree-builder path that skips storage as an intermediate; until then
+    /// this round-trips through `NSAttributedString`.
+    public func compileToTree(
+        _ markdown: String,
+        theme: ProseTheme
+    ) -> ProseDocument {
+        let storage = compile(markdown, theme: theme)
+        return ProseDocument.from(storage: storage, schema: schema)
     }
 
     private func compileRich(
