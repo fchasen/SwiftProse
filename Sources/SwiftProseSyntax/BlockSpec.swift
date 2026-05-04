@@ -20,7 +20,6 @@ public struct BlockSpec: Equatable, Hashable, Sendable {
         case horizontalRule
         case htmlBlock
         case linkReferenceDefinition
-        case pipeTable
     }
 
     public init(kind: Kind, blockquoteDepth: Int = 0, listLevel: Int = 0) {
@@ -79,7 +78,10 @@ public extension BlockSpec {
         case .linkReferenceDefinition:
             self.init(kind: .linkReferenceDefinition, blockquoteDepth: depth)
         case .pipeTable:
-            self.init(kind: .pipeTable, blockquoteDepth: depth)
+            // Pipe tables are emitted as plain paragraphs by the compiler
+            // (no more rendered cell chrome); the legacy BlockTag is kept
+            // for compiler dispatch but the BlockSpec carries paragraph.
+            self.init(kind: .paragraph, blockquoteDepth: depth)
         }
     }
 }

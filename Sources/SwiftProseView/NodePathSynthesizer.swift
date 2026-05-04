@@ -65,46 +65,12 @@ public struct NodePathSynthesizer {
     public func stamp(into storage: NSMutableAttributedString) {
         guard storage.length > 0 else { return }
         let docNode = ProseNode(type: schema.topNodeName, attrs: schema.topNode.defaultAttrs())
-        var tableRunNode: ProseNode? = nil
-        var lastWasPipeTable = false
         var openLists: [OpenList] = []
         storage.beginEditing()
         storage.enumerateBlockSpecs { blockRange, spec in
-            if case .pipeTable = spec.kind {
-                if !lastWasPipeTable || tableRunNode == nil {
-                    tableRunNode = ProseNode(type: "table")
-                }
-                lastWasPipeTable = true
-                // Pipe-table block ranges cover multiple source lines under
-                // a single BlockSpecBox. Walk lines so each row stamps its
-                // own paragraph leaf — without this the tree would collapse
-                // every row into one paragraph child of `table`.
-                let ns = storage.string as NSString
-                var cursor = blockRange.location
-                let end = blockRange.location + blockRange.length
-                while cursor < end {
-                    let lineRange = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
-                    let clipped = NSIntersectionRange(lineRange, blockRange)
-                    guard clipped.length > 0 else { break }
-                    let path = nodePath(
-                        for: spec,
-                        doc: docNode,
-                        tableNode: tableRunNode,
-                        openLists: &openLists
-                    )
-                    storage.setNodePath(path, in: clipped)
-                    stampMarks(in: storage, blockRange: clipped, blockKind: spec.kind)
-                    let next = lineRange.location + lineRange.length
-                    cursor = (next > cursor) ? next : cursor + 1
-                }
-                return
-            }
-            tableRunNode = nil
-            lastWasPipeTable = false
             let path = nodePath(
                 for: spec,
                 doc: docNode,
-                tableNode: tableRunNode,
                 openLists: &openLists
             )
             storage.setNodePath(path, in: blockRange)
@@ -135,7 +101,6 @@ public struct NodePathSynthesizer {
     private func nodePath(
         for spec: BlockSpec,
         doc: ProseNode,
-        tableNode: ProseNode?,
         openLists: inout [OpenList]
     ) -> NodePath {
         var nodes: [ProseNode] = [doc]
@@ -151,8 +116,7 @@ public struct NodePathSynthesizer {
             }
             // Ensure ancestors at every shallower depth exist; outer
             // wrappers default to bullet_list because per-line synthesis
-            // doesn't know the outer list kind. Phase 4's direct tree
-            // compile will close this gap.
+            // doesn't know the outer list kind.
             while openLists.count < depth {
                 openLists.append(OpenList(
                     kind: .bullet,
@@ -181,12 +145,6 @@ public struct NodePathSynthesizer {
         } else {
             // Non-list-item lines close any open lists.
             openLists.removeAll(keepingCapacity: true)
-        }
-        // Table envelope: every pipe-table paragraph in a run shares one
-        // table node. Phase 6 will replace this best-effort wrapping with
-        // table_row + table_cell ancestors per cell paragraph.
-        if case .pipeTable = spec.kind, let tableNode {
-            nodes.append(tableNode)
         }
         // Leaf node — the type that corresponds to this block's kind.
         nodes.append(leafNode(for: spec.kind))
@@ -261,11 +219,6 @@ public struct NodePathSynthesizer {
             return ProseNode(type: "html_block")
         case .linkReferenceDefinition:
             return ProseNode(type: "link_reference")
-        case .pipeTable:
-            // One paragraph per source line in Phase 2 — the surrounding
-            // `table` envelope makes the path well-formed even though
-            // row/cell structure isn't modeled yet.
-            return ProseNode(type: "paragraph")
         }
     }
 

@@ -207,36 +207,4 @@ import UIKit
         #expect(code?.attrs?["params"]?.stringValue == "swift")
     }
 
-    @Test func encodeFromTreeEmitsTable() throws {
-        let document = try compileTree("| h1 | h2 |\n| --- | --- |\n| a | b |\n")
-        let pm = ProseMirrorCodec().encode(document: document)
-        let table = pm.content?.first
-        #expect(table?.type == "table")
-        #expect(table?.content?.count == 2) // header + one body row
-        let firstRow = table?.content?.first
-        #expect(firstRow?.type == "table_row")
-        #expect(firstRow?.content?.first?.type == "table_header")
-    }
-
-    @Test func encodeFromTreeCellTextIsLiteral() throws {
-        // The compiler emits pipe-table cells verbatim — it doesn't inline-
-        // parse `**bold**` inside cells, so cell content surfaces in the PM
-        // tree as plain text with the literal markup. True mark round-trip
-        // in cells requires Phase 6's per-cell paragraph storage, which
-        // would let the compiler run inline parsing on each cell.
-        let document = try compileTree("| **bold** | rest |\n| --- | --- |\n| a | b |\n")
-        let pm = ProseMirrorCodec().encode(document: document)
-        let cellText = pm.content?.first?.content?.first?.content?.first?.content?.first?.content?.first
-        #expect(cellText?.type == "text")
-        #expect(cellText?.text == "**bold**")
-    }
-
-    @Test func encodeFromTreePreservesColumnAlignment() throws {
-        let document = try compileTree("| h1 | h2 |\n| :--- | ---: |\n| a | b |\n")
-        let pm = ProseMirrorCodec().encode(document: document)
-        let table = pm.content?.first
-        let headerRow = table?.content?.first
-        #expect(headerRow?.content?[0].attrs?["align"]?.stringValue == "left")
-        #expect(headerRow?.content?[1].attrs?["align"]?.stringValue == "right")
-    }
 }

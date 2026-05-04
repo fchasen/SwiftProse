@@ -75,26 +75,6 @@ import UIKit
         }
     }
 
-    @Test func pipeTableLineKeepsSpecWhenEmptied() throws {
-        let md = "| a | b |\n| - | - |\n| 1 | 2 |\n"
-        let controller = try EditorController(initialMarkdown: md)
-        // Find the second body row and delete its text inside, leaving
-        // the line empty. The spec must stay `.pipeTable`.
-        let ns = controller.textStorage.string as NSString
-        let totalLength = ns.length
-        // Probe the third line (body row).
-        let line3 = ns.paragraphRange(for: NSRange(location: totalLength - 2, length: 0))
-        controller.textStorage.beginEditing()
-        controller.textStorage.replaceCharacters(in: line3, with: "\n")
-        controller.textStorage.endEditing()
-        let spec = controller.textStorage.blockSpec(at: line3.location)
-        if case .pipeTable = spec?.kind {
-            // ok
-        } else {
-            Issue.record("expected pipe-table spec on emptied row, got \(String(describing: spec?.kind))")
-        }
-    }
-
     @Test func listItemDoesNotDemoteOnSelectAndDelete() throws {
         // Selecting just the body text of a bullet and pressing delete
         // leaves the marker; the line spec must remain a list item so

@@ -50,13 +50,6 @@ public final class EditorController {
     /// a clean `replaceText` mapping; the cache still invalidates.
     public var onDocumentChange: ((ProseDocument, Step) -> Void)?
 
-    /// Source ranges of pipe tables the user has flipped to raw monospace
-    /// mode via the per-table toggle. Lives on the controller (presentation
-    /// state, not part of the markdown round-trip). Range is in
-    /// `textStorage` coordinates and represents the table's run at the time
-    /// the toggle was set; `isTableExpanded` looks up by overlap so a
-    /// recompile that shifts ranges still resolves correctly.
-    private var expandedTableRanges: [NSRange] = []
     public let commands: CommandRegistry
     public let inputRules: InputRuleRunner
 
@@ -94,14 +87,6 @@ public final class EditorController {
     /// detect that a newer call has superseded it and drop on the floor
     /// (latest-wins). Wraparound is fine — only equality matters.
     private var compileGeneration: UInt64 = 0
-
-    /// Last container width the pipe-table row-height stamp ran against.
-    /// Used to skip redundant stamps when the layout system requests
-    /// fragments at an unchanged width and to coalesce burst layout
-    /// requests into one per width change.
-    private var lastTableLayoutWidth: CGFloat = -1
-    private var tableHeightStampScheduled = false
-
 
     /// Serial queue for off-main markdown compilation. Background compiles
     /// from rapid external binding writes serialize here so the dedicated
@@ -357,7 +342,6 @@ public final class EditorController {
         if spec.kind == .paragraph, spec.blockquoteDepth == 0 { return false }
         if spec.isListItem { return false }
         if spec.isCodeBlock { return false }
-        if case .pipeTable = spec.kind { return false }
 
         textStorage.addAttributes(plainAttrs, range: lineRange)
         return true
@@ -1226,43 +1210,10 @@ public final class EditorController {
         return compiler.compile(markdown, theme: theme)
     }
 
-    /// Re-stamp pipe-table row heights for the current container width.
-    /// Called from `LayoutManagerDelegate` when a pipe-table fragment is
-    /// built at a width different from the last stamp, and from
-    /// `replaceStorage` so the very first paint already has correct row
-    /// heights. The stamp is debounced onto the next runloop tick so it
-    /// doesn't mutate storage while a layout pass is in flight.
-    public func scheduleTableHeightStamp(containerWidth: CGFloat) {
-        guard containerWidth > 0 else { return }
-        if abs(lastTableLayoutWidth - containerWidth) < 0.5 { return }
-        if tableHeightStampScheduled { return }
-        tableHeightStampScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.tableHeightStampScheduled = false
-            self.runTableHeightStamp(containerWidth: self.textContainer.size.width)
-        }
-    }
-
-    private func runTableHeightStamp(containerWidth: CGFloat) {
-        guard containerWidth > 0 else { return }
-        if abs(lastTableLayoutWidth - containerWidth) < 0.5 { return }
-        let stamper = PipeTableHeightStamper(
-            storage: textStorage,
-            theme: theme,
-            containerWidth: containerWidth,
-            cellPaddingHorizontal: 14,
-            cellPaddingVertical: 10,
-            minimumRowHeight: 36
-        )
-        applyingMarkdown = true
-        textStorage.beginEditing()
-        let changed = stamper.stamp()
-        textStorage.endEditing()
-        applyingMarkdown = false
-        lastTableLayoutWidth = containerWidth
-        if changed { intrinsicSizeInvalidator?() }
-    }
+    /// No-op kept for ABI stability. Pipe-table row-height stamping was
+    /// retired alongside the rendered table chrome; tables now render as
+    /// plain monospace paragraphs.
+    public func scheduleTableHeightStamp(containerWidth: CGFloat) {}
 
     private func replaceStorage(with attributed: NSAttributedString) {
         // Storage mutations and the host text view both require main-thread
@@ -1282,13 +1233,6 @@ public final class EditorController {
         textStorage.endEditing()
         applyingMarkdown = false
         resegment()
-        // Fresh storage means the stamper has never seen this content; force
-        // a re-stamp by invalidating the cached width.
-        lastTableLayoutWidth = -1
-        let width = textContainer.size.width
-        if width > 0 {
-            runTableHeightStamp(containerWidth: width)
-        }
     }
 
     /// Test-only invocation counter; bumped at the start of every
@@ -1399,7 +1343,6 @@ public final class EditorController {
         case .horizontalRule: return .horizontalRule
         case .htmlBlock: return .htmlBlock
         case .linkReferenceDefinition: return .linkReferenceDefinition
-        case .pipeTable: return .pipeTable
         }
     }
 
@@ -1423,77 +1366,16 @@ public final class EditorController {
         return nil
     }
 
-    // MARK: - Pipe-table presentation state
+    // MARK: - Pipe-table presentation state (retired no-ops)
 
-    /// Returns true if any of `expandedTableRanges` overlaps `tableRange`.
-    /// Overlap (rather than equality) so a recompile that shifts the table's
-    /// source range by inserting characters above doesn't lose the user's
-    /// "raw mode" selection.
-    public func isTableExpanded(tableRange: NSRange) -> Bool {
-        let qEnd = tableRange.location + tableRange.length
-        for r in expandedTableRanges {
-            let rEnd = r.location + r.length
-            if r.location < qEnd, tableRange.location < rEnd { return true }
-        }
-        return false
-    }
+    /// No-op kept for ABI stability. Tables no longer have an "expanded"
+    /// raw-mode toggle since the rendered chrome was retired.
+    public func isTableExpanded(tableRange: NSRange) -> Bool { false }
 
-    /// Toggle a table between rendered chrome and raw monospace source.
-    /// `tableRange` is whatever the host knows about the table at the click
-    /// site; we store it as-is and compare by overlap on next paint.
-    public func toggleTableExpansion(tableRange: NSRange) {
-        if let i = expandedTableRanges.firstIndex(where: {
-            let qEnd = tableRange.location + tableRange.length
-            let rEnd = $0.location + $0.length
-            return $0.location < qEnd && tableRange.location < rEnd
-        }) {
-            expandedTableRanges.remove(at: i)
-        } else {
-            expandedTableRanges.append(tableRange)
-        }
-        // Force the affected layout range to re-fragment so the chrome
-        // appears or disappears immediately.
-        let elementRange = textElementRange(for: tableRange)
-        layoutManager.invalidateLayout(for: elementRange ?? layoutManager.documentRange)
-    }
+    /// No-op kept for ABI stability.
+    public func toggleTableExpansion(tableRange: NSRange) {}
 
-    /// Drop any expansion entries whose stored range no longer overlaps a
-    /// pipeTable run. Called after large recompiles (e.g. setMarkdown) so
-    /// stale state doesn't persist when the user replaces the document.
-    public func compactExpandedTableRanges() {
-        expandedTableRanges = expandedTableRanges.filter { range in
-            let probe = min(max(0, range.location), max(0, textStorage.length - 1))
-            guard probe < textStorage.length else { return false }
-            guard let spec = textStorage.blockSpec(at: probe) else { return false }
-            if case .pipeTable = spec.kind { return true }
-            return false
-        }
-    }
-
-    private func textElementRange(for storageRange: NSRange) -> NSTextRange? {
-        guard let start = contentStorage.location(contentStorage.documentRange.location, offsetBy: storageRange.location),
-              let end = contentStorage.location(start, offsetBy: storageRange.length) else { return nil }
-        return NSTextRange(location: start, end: end)
-    }
+    /// No-op kept for ABI stability.
+    public func compactExpandedTableRanges() {}
 }
 
-/// Hit information for a click inside a rendered pipe-table cell. Surfaced
-/// to the SwiftUI surface via `EditorController.onTableCellTapped`.
-public struct PipeTableCellHit: Equatable, Sendable {
-    /// Source range of the entire table (so the caller can dispatch a
-    /// `Step.setTableCellText` against the right table even after recompiles
-    /// shift offsets).
-    public let tableRange: NSRange
-    /// `-1` for the header row; otherwise the body row index.
-    public let row: Int
-    public let column: Int
-    /// Current text of the cell at hit time, for prefilling the editor.
-    public let cellText: String
-
-    public init(tableRange: NSRange, row: Int, column: Int, cellText: String) {
-        self.tableRange = tableRange
-        self.row = row
-        self.column = column
-        self.cellText = cellText
-    }
-}

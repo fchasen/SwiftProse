@@ -295,35 +295,7 @@ final class ProseNSTextView: NSTextView {
         // Pipe-table click handling: only the top-right toggle is wired —
         // it flips the whole table to raw monospace source. Cell-content
         // edits aren't routed back through painted cells yet.
-        if event.modifierFlags.intersection([.command, .option, .control]).isEmpty {
-            if handleTableClick(at: event) { return }
-        }
         super.mouseDown(with: event)
-    }
-
-    private func handleTableClick(at event: NSEvent) -> Bool {
-        guard let controller = proseController,
-              let layoutManager = textLayoutManager else { return false }
-        let point = convert(event.locationInWindow, from: nil)
-        let containerOrigin = textContainerOrigin
-        let containerPoint = CGPoint(x: point.x - containerOrigin.x, y: point.y - containerOrigin.y)
-        let probePoint = CGPoint(x: 4, y: containerPoint.y)
-        guard let frag = layoutManager.textLayoutFragment(for: probePoint) as? PipeTableLayoutFragment else { return false }
-        let fragY = containerPoint.y - frag.layoutFragmentFrame.origin.y
-        let local = CGPoint(x: containerPoint.x, y: fragY)
-        // Toggle button hit (only valid on the first table line).
-        if frag.isFirstLine, !frag.toggleHitRect.isEmpty, frag.toggleHitRect.contains(local) {
-            guard let elementRange = frag.textElement?.elementRange,
-                  let tcs = textLayoutManager?.textContentManager as? NSTextContentStorage else { return false }
-            let start = tcs.offset(from: tcs.documentRange.location, to: elementRange.location)
-            let probe = max(0, min(start, controller.textStorage.length - 1))
-            let runRange = PipeTableModel.pipeTableRunRange(at: probe, in: controller.textStorage)
-                ?? NSRange(location: start, length: 0)
-            controller.toggleTableExpansion(tableRange: runRange)
-            needsDisplay = true
-            return true
-        }
-        return false
     }
 
     @objc func toggleBold(_ sender: Any?) {

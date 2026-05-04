@@ -97,20 +97,6 @@ struct NodePathSynthesizerTests {
     }
 
     @Test
-    func tableParagraphsShareOneTableEnvelopeNode() throws {
-        let storage = try compile("| a | b |\n| - | - |\n| 1 | 2 |\n")
-        let firstRowProbe = (storage.string as NSString).range(of: "a").location
-        let bodyRowProbe = (storage.string as NSString).range(of: "1").location
-        let p1 = probePath(storage, at: firstRowProbe)!
-        let p2 = probePath(storage, at: bodyRowProbe)!
-        // Both rows pass through the same table node id.
-        let tableId1 = p1.nodes.first(where: { $0.type == "table" })?.id
-        let tableId2 = p2.nodes.first(where: { $0.type == "table" })?.id
-        #expect(tableId1 != nil)
-        #expect(tableId1 == tableId2)
-    }
-
-    @Test
     func compileToTreeReturnsEquivalentDocument() throws {
         let compiler = try MarkdownAttributedCompiler()
         let document = compiler.compileToTree("# Hi\n\nworld\n", theme: .default)

@@ -151,7 +151,7 @@ public final class MarkdownAttributedCompiler {
         case .horizontalRule:
             appendHorizontalRule(segment, source: source, theme: theme, into: out)
         case .pipeTable:
-            appendPipeTableSegment(segment, source: source, theme: theme, into: out)
+            appendPipeTableAsParagraphs(segment, source: source, theme: theme, into: out)
         case .htmlBlock, .linkReferenceDefinition:
             // Emit verbatim with block tag so the serializer can round-trip.
             appendOpaqueBlock(segment, source: source, theme: theme, into: out)
@@ -542,24 +542,13 @@ public final class MarkdownAttributedCompiler {
         )
     }
 
-    /// Compile a `.pipeTable` segment. The segment's source range covers all
-    /// table lines (one block per pipe-table run, since `BlockSegmenter` emits
-    /// the whole `pipe_table` node as a single segment). We split the source
-    /// into per-line paragraphs, parse the structure with `PipeTableModel` to
-    /// know which line is header / alignment / body, and tag accordingly:
-    ///
-    /// - Header line gets bold font + `.proseTableHeader` flag (layout
-    ///   fragment paints a tinted backdrop).
-    /// - Alignment line gets `.proseTableAlignmentRow` flag (layout fragment
-    ///   suppresses drawing in rendered mode; raw mode prints normally).
-    /// - Body lines get plain monospace.
-    ///
-    /// Per-column horizontal alignment is **not** projected onto cell text
-    /// today — the renderer would need to subdivide each line into per-cell
-    /// text containers, which TextKit 2 doesn't natively offer for a single
-    /// paragraph. The alignment is preserved in the source and surfaced via
-    /// the layout fragment's column metrics for chrome (border ticks etc.).
-    private func appendPipeTableSegment(
+    /// Emit a pipe-table segment as plain per-line paragraphs. Pipe
+    /// characters survive as literal text — there's no rendered cell
+    /// chrome and no inline parsing inside cells. Tables become readable
+    /// monospace source lines that round-trip losslessly through the
+    /// markdown serializer; structural editing waits for the tree-native
+    /// rebuild (Phase 6).
+    private func appendPipeTableAsParagraphs(
         _ segment: BlockSegment,
         source: String,
         theme: ProseTheme,
@@ -568,48 +557,20 @@ public final class MarkdownAttributedCompiler {
         let nsSource = source as NSString
         var content = nsSource.substring(with: segment.range)
         if !content.hasSuffix("\n") { content.append("\n") }
-        // Parse the source so we know which absolute line is which kind.
-        let model = PipeTableModel.parse(source: content, sourceLocation: 0)
-        let baseAttrs: [NSAttributedString.Key: Any] = [
+        let attrs: [NSAttributedString.Key: Any] = [
             .font: theme.monospaceFont,
             .foregroundColor: theme.foregroundColor
         ]
-        let result = NSMutableAttributedString(string: content, attributes: baseAttrs)
-        if let model {
-            // Collapse the alignment row line so the rendered table has no
-            // visible gap between header and first body row. We do this via
-            // paragraph-style maxLineHeight, applied unconditionally — in
-            // raw mode the user sees a thin line where the dashes live,
-            // which is acceptable for a fallback editing affordance.
-            let collapsedAlignmentStyle = NSMutableParagraphStyle()
-            collapsedAlignmentStyle.maximumLineHeight = 1
-            collapsedAlignmentStyle.minimumLineHeight = 1
-            collapsedAlignmentStyle.lineSpacing = 0
-            collapsedAlignmentStyle.paragraphSpacing = 0
-            collapsedAlignmentStyle.paragraphSpacingBefore = 0
-
-            for (lineIndex, lineRange) in model.lineRanges.enumerated() {
-                guard lineRange.length > 0 else { continue }
-                guard lineRange.upperBound <= result.length else { continue }
-                let kind = model.lineKinds[lineIndex]
-                switch kind {
-                case .header:
-                    result.addAttribute(.proseTableHeader, value: true, range: lineRange)
-                    result.addAttribute(.font, value: theme.monospaceFont.withProseTraits(.bold), range: lineRange)
-                    // Hide the literal pipes/text under the rendered cells
-                    // by clearing foreground; the fragment paints cell text
-                    // manually from the model.
-                    result.addAttribute(.foregroundColor, value: PlatformColor.clear, range: lineRange)
-                case .alignment:
-                    result.addAttribute(.proseTableAlignmentRow, value: true, range: lineRange)
-                    result.addAttribute(.foregroundColor, value: PlatformColor.clear, range: lineRange)
-                    result.addAttribute(.paragraphStyle, value: collapsedAlignmentStyle, range: lineRange)
-                case .body:
-                    result.addAttribute(.foregroundColor, value: PlatformColor.clear, range: lineRange)
-                }
-            }
+        let depth = segment.blockquoteDepth
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.isEmpty { continue }
+            let lineText = String(line) + "\n"
+            appendStyled(
+                NSAttributedString(string: lineText, attributes: attrs),
+                spec: BlockSpec(kind: .paragraph, blockquoteDepth: depth),
+                into: out
+            )
         }
-        appendStyled(result, spec: BlockSpec(blockSegment: segment), into: out)
     }
 
     private func appendVerbatim(

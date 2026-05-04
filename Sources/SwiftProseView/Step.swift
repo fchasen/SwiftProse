@@ -273,7 +273,7 @@ public enum Step {
             return prefixLines(body, with: "    ")
         case .horizontalRule:
             return "---"
-        case .htmlBlock, .linkReferenceDefinition, .pipeTable:
+        case .htmlBlock, .linkReferenceDefinition:
             return body
         }
     }

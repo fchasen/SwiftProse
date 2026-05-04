@@ -81,7 +81,7 @@ public struct ProseMirrorCodec {
         case "horizontal_rule":
             appendLeafBlock(spec: BlockSpec(kind: .horizontalRule), into: result)
         case "table":
-            decodeTable(node, into: result, context: &context)
+            decodeTableAsPlaintext(node, into: result, context: &context)
         default:
             if node.content != nil {
                 let spec = context.makeBlockSpec(kind: .paragraph)
@@ -90,55 +90,47 @@ public struct ProseMirrorCodec {
         }
     }
 
-    /// Decode a `table` PM node into one `.pipeTable` paragraph per source
-    /// line. We synthesize the GFM source from the model and run it through
-    /// the same emit machinery the markdown compiler uses (per-line spec +
-    /// header/alignment-row attribute flags) so storage looks identical to
-    /// a freshly parsed table.
-    private func decodeTable(_ node: PMNode, into result: NSMutableAttributedString, context: inout BlockContext) {
+    /// PM `table` nodes decode to flat paragraphs with literal pipe-table
+    /// source, matching the editor's stripped-down table support. Each row
+    /// becomes a single paragraph line; header / alignment / body all share
+    /// the same plain paragraph spec. Marks within cells are flattened to
+    /// plain text. Tree-native tables (Phase 6 future) would rebuild this.
+    private func decodeTableAsPlaintext(
+        _ node: PMNode,
+        into result: NSMutableAttributedString,
+        context: inout BlockContext
+    ) {
         let rows = node.content ?? []
         guard !rows.isEmpty else { return }
-        // Pull header text + alignments from the first row.
-        let headerCells: [String] = (rows.first?.content ?? []).map { cellText(in: $0) }
-        let alignments: [PipeTableAlignment] = (rows.first?.content ?? []).map { cellAlignment(in: $0) }
-        let bodyRows: [[String]] = rows.dropFirst().map { row in
-            (row.content ?? []).map { cellText(in: $0) }
+        let headerCells: [String] = (rows.first?.content ?? []).map { plainCellText(in: $0) }
+        let alignmentTokens: [String] = (rows.first?.content ?? []).map { cell in
+            guard let attr = cell.attrs?["align"]?.stringValue else { return "---" }
+            switch attr {
+            case "left": return ":---"
+            case "right": return "---:"
+            case "center": return ":---:"
+            default: return "---"
+            }
         }
-        let columnCount = max(
-            headerCells.count,
-            alignments.count,
-            bodyRows.map(\.count).max() ?? 0
-        )
-        let model = PipeTableModel(
-            sourceRange: NSRange(location: 0, length: 0),
-            lineRanges: [],
-            lineKinds: [],
-            headerCells: headerCells,
-            alignments: alignments,
-            bodyRows: bodyRows,
-            columnCount: columnCount
-        )
-        let source = model.renderSource()
-        // Lay out one paragraph per source line, all spec'd as .pipeTable.
-        let blockquoteDepth = context.blockquoteDepth
-        let spec = BlockSpec(kind: .pipeTable, blockquoteDepth: blockquoteDepth)
-        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
-        for (lineIndex, line) in lines.enumerated() {
-            guard !line.isEmpty || lineIndex < lines.count - 1 else { continue }
+        let bodyRows: [[String]] = rows.dropFirst().map { row in
+            (row.content ?? []).map { plainCellText(in: $0) }
+        }
+        let columnCount = max(headerCells.count, alignmentTokens.count, bodyRows.map(\.count).max() ?? 0)
+        var lines: [String] = []
+        lines.append(rowLine(headerCells, columnCount: columnCount))
+        lines.append(rowLine(alignmentTokens, columnCount: columnCount))
+        for body in bodyRows {
+            lines.append(rowLine(body, columnCount: columnCount))
+        }
+        let spec = context.makeBlockSpec(kind: .paragraph)
+        for line in lines {
             var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
             attrs[.proseBlockSpec] = BlockSpecBox(spec)
-            // Identify header (line 0) vs alignment (line 1) for chrome.
-            if lineIndex == 0 {
-                attrs[.proseTableHeader] = true
-            } else if lineIndex == 1 {
-                attrs[.proseTableAlignmentRow] = true
-            }
-            result.append(NSAttributedString(string: String(line) + "\n", attributes: attrs))
+            result.append(NSAttributedString(string: line + "\n", attributes: attrs))
         }
     }
 
-    private func cellText(in cell: PMNode) -> String {
-        // table_cell / table_header → paragraph → text nodes
+    private func plainCellText(in cell: PMNode) -> String {
         guard let inner = cell.content else { return "" }
         var pieces: [String] = []
         for block in inner {
@@ -150,14 +142,13 @@ public struct ProseMirrorCodec {
         return pieces.joined()
     }
 
-    private func cellAlignment(in cell: PMNode) -> PipeTableAlignment {
-        guard let attr = cell.attrs?["align"]?.stringValue else { return .none }
-        switch attr {
-        case "left": return .left
-        case "right": return .right
-        case "center": return .center
-        default: return .none
+    private func rowLine(_ cells: [String], columnCount: Int) -> String {
+        var parts: [String] = []
+        for i in 0..<columnCount {
+            let cell = i < cells.count ? cells[i] : ""
+            parts.append(" \(cell) ")
         }
+        return "|" + parts.joined(separator: "|") + "|"
     }
 
     private func detectTaskListPrefix(in node: PMNode) -> (checked: Bool, stripped: PMNode)? {
@@ -293,7 +284,23 @@ public struct ProseMirrorCodec {
                     content: inner
                 )
             case "table":
-                return encodeTableFromTree(kids)
+                // Tables retired alongside the rendered chrome — emit as
+                // joined plain paragraph text. Phase 6 (future) would
+                // reinstate tree-native table emit.
+                let lines = kids.compactMap { kid -> String? in
+                    guard case .structural(let pn, let inlineKids) = kid, pn.type == "paragraph" else { return nil }
+                    return inlineKids.compactMap {
+                        if case .inline(let text, _) = $0 { return text }
+                        return nil
+                    }.joined()
+                }
+                let textNodes = lines.enumerated().flatMap { idx, text -> [PMNode] in
+                    var out: [PMNode] = []
+                    if idx > 0 { out.append(PMNode(type: "hard_break")) }
+                    if !text.isEmpty { out.append(PMNode(type: "text", text: text)) }
+                    return out
+                }
+                return PMNode(type: "paragraph", content: textNodes.isEmpty ? nil : textNodes)
             default:
                 return nil
             }
@@ -310,158 +317,6 @@ public struct ProseMirrorCodec {
             // Top-level inline — wrap in a paragraph.
             return PMNode(type: "paragraph", content: encodeInlines([node]).orNilIfEmpty())
         }
-    }
-
-    /// Walk a table envelope's flat paragraph children, parse pipe content
-    /// while tracking inline marks per character, and emit a PM table with
-    /// row/cell structure. Marks survive into cell text — the output of
-    /// `**bold**` inside a cell becomes a `text` node carrying a `strong`
-    /// mark, which the existing storage-path encoder loses by joining
-    /// inline runs to a flat string before parsing.
-    private func encodeTableFromTree(_ kids: [TreeNode]) -> PMNode? {
-        let lineRuns: [[(text: String, marks: MarkSet)]] = kids.compactMap { kid in
-            guard case .structural(let pn, let inlines) = kid, pn.type == "paragraph" else { return nil }
-            return inlines.compactMap { node -> (String, MarkSet)? in
-                if case .inline(let text, let marks) = node { return (text, marks) }
-                return nil
-            }
-        }
-        guard lineRuns.count >= 2 else { return nil }
-        // Identify alignment row by scanning line cells for `:?-+:?`.
-        var alignmentLineIdx: Int? = nil
-        for (idx, runs) in lineRuns.enumerated() {
-            let cellTexts = splitLineByPipes(runs).map { runsToText($0) }
-            if !cellTexts.isEmpty,
-               cellTexts.allSatisfy({ PipeTableAlignment(alignmentRowCell: $0.trimmingCharacters(in: .whitespaces)) != nil }) {
-                alignmentLineIdx = idx
-                break
-            }
-        }
-        guard let alignIdx = alignmentLineIdx, alignIdx > 0 else { return nil }
-        let alignmentTexts = splitLineByPipes(lineRuns[alignIdx]).map { runsToText($0) }
-        let alignments: [PipeTableAlignment] = alignmentTexts.map {
-            PipeTableAlignment(alignmentRowCell: $0.trimmingCharacters(in: .whitespaces)) ?? .none
-        }
-        // Header row — line before alignment.
-        let headerCells = splitLineByPipes(lineRuns[alignIdx - 1])
-        // Body rows — lines after alignment.
-        let bodyCellsByRow: [[[(text: String, marks: MarkSet)]]] = lineRuns
-            .dropFirst(alignIdx + 1)
-            .map { splitLineByPipes($0) }
-        let columnCount = max(
-            headerCells.count,
-            alignments.count,
-            bodyCellsByRow.map(\.count).max() ?? 0
-        )
-        var rows: [PMNode] = []
-        rows.append(makeTableRowFromTreeRuns(
-            cells: headerCells,
-            alignments: alignments,
-            columnCount: columnCount,
-            isHeader: true
-        ))
-        for body in bodyCellsByRow {
-            rows.append(makeTableRowFromTreeRuns(
-                cells: body,
-                alignments: alignments,
-                columnCount: columnCount,
-                isHeader: false
-            ))
-        }
-        return PMNode(type: "table", content: rows)
-    }
-
-    private func makeTableRowFromTreeRuns(
-        cells: [[(text: String, marks: MarkSet)]],
-        alignments: [PipeTableAlignment],
-        columnCount: Int,
-        isHeader: Bool
-    ) -> PMNode {
-        var cellNodes: [PMNode] = []
-        for col in 0..<columnCount {
-            let runs = (col < cells.count) ? cells[col] : []
-            let alignment = (col < alignments.count) ? alignments[col] : .none
-            var attrs: [String: PMValue] = [
-                "colspan": .int(1),
-                "rowspan": .int(1)
-            ]
-            if let alignString = pmAlignString(for: alignment) {
-                attrs["align"] = .string(alignString)
-            }
-            let textNodes = runs.compactMap { run -> PMNode? in
-                guard !run.text.isEmpty else { return nil }
-                var pm = PMNode(type: "text", text: run.text)
-                if !run.marks.isEmpty {
-                    pm.marks = run.marks.marks.map { PMMark(type: $0.type, attrs: nil) }
-                }
-                return pm
-            }
-            let paragraph = PMNode(type: "paragraph", content: textNodes.isEmpty ? nil : textNodes)
-            cellNodes.append(PMNode(
-                type: isHeader ? "table_header" : "table_cell",
-                attrs: attrs,
-                content: [paragraph]
-            ))
-        }
-        return PMNode(type: "table_row", content: cellNodes)
-    }
-
-    /// Split a line's inline runs into cells by walking unescaped `|`. Each
-    /// cell preserves the (text, marks) shape of the runs that fall within
-    /// it, with leading/trailing whitespace trimmed and empty leading/
-    /// trailing cells (from outer pipes) dropped.
-    private func splitLineByPipes(
-        _ runs: [(text: String, marks: MarkSet)]
-    ) -> [[(text: String, marks: MarkSet)]] {
-        // Char-stream representation: each character with its source marks.
-        var stream: [(Character, MarkSet)] = []
-        for run in runs {
-            for ch in run.text {
-                stream.append((ch, run.marks))
-            }
-        }
-        var cells: [[(Character, MarkSet)]] = []
-        var current: [(Character, MarkSet)] = []
-        var prevEscape = false
-        for (ch, marks) in stream {
-            if ch == "|", !prevEscape {
-                cells.append(current)
-                current = []
-            } else {
-                current.append((ch, marks))
-            }
-            prevEscape = (ch == "\\" && !prevEscape)
-        }
-        cells.append(current)
-        // Drop optional empty leading/trailing cells from outer pipes.
-        if cells.first?.isEmpty == true { cells.removeFirst() }
-        if cells.last?.isEmpty == true { cells.removeLast() }
-        // Trim each cell's leading/trailing whitespace.
-        let trimmed: [[(Character, MarkSet)]] = cells.map { cell in
-            var c = cell
-            while let first = c.first, first.0.isWhitespace { c.removeFirst() }
-            while let last = c.last, last.0.isWhitespace { c.removeLast() }
-            return c
-        }
-        // Group consecutive same-mark characters into runs.
-        return trimmed.map { cell in
-            var out: [(text: String, marks: MarkSet)] = []
-            var i = 0
-            while i < cell.count {
-                let marks = cell[i].1
-                var text = ""
-                while i < cell.count, cell[i].1 == marks {
-                    text.append(cell[i].0)
-                    i += 1
-                }
-                out.append((text, marks))
-            }
-            return out
-        }
-    }
-
-    private func runsToText(_ runs: [(text: String, marks: MarkSet)]) -> String {
-        runs.map(\.text).joined()
     }
 
     private func encodeInlines(_ nodes: [TreeNode]) -> [PMNode] {
@@ -537,86 +392,12 @@ public struct ProseMirrorCodec {
                 let (node, consumed) = wrapList(blocks, from: i)
                 result.append(node)
                 i += consumed
-            } else if case .pipeTable = block.spec.kind {
-                let (node, consumed) = wrapPipeTable(blocks, from: i)
-                result.append(node)
-                i += consumed
             } else {
                 result.append(blockToPMNode(block))
                 i += 1
             }
         }
         return result
-    }
-
-    /// Merge consecutive `.pipeTable` blocks into a single `table` PM node.
-    /// Each block here is one source line (the segmenter emits per-line);
-    /// joining them and re-parsing with `PipeTableModel` is cheaper than
-    /// reaching back into storage for the original source.
-    private func wrapPipeTable(_ blocks: [FlatBlock], from start: Int) -> (PMNode, Int) {
-        var i = start
-        var lineTexts: [String] = []
-        while i < blocks.count, case .pipeTable = blocks[i].spec.kind {
-            // inlineNodes is text-only post-stripping; rebuild the line.
-            let line = blocks[i].inlineNodes.compactMap(\.text).joined()
-            lineTexts.append(line)
-            i += 1
-        }
-        let consumed = i - start
-        let source = lineTexts.joined(separator: "\n") + "\n"
-        guard let model = PipeTableModel.parse(source: source) else {
-            // Couldn't parse — fall back to one paragraph per line so the
-            // round-trip preserves text even if structure is lost.
-            let paragraphs = lineTexts.map { line in
-                PMNode(type: "paragraph", content: [PMNode(type: "text", text: line)])
-            }
-            return (PMNode(type: "doc", content: paragraphs), consumed)
-        }
-        var rows: [PMNode] = []
-        rows.append(makeTableRow(cells: model.headerCells, alignments: model.alignments, columnCount: model.columnCount, isHeader: true))
-        for body in model.bodyRows {
-            rows.append(makeTableRow(cells: body, alignments: model.alignments, columnCount: model.columnCount, isHeader: false))
-        }
-        return (PMNode(type: "table", content: rows), consumed)
-    }
-
-    private func makeTableRow(
-        cells: [String],
-        alignments: [PipeTableAlignment],
-        columnCount: Int,
-        isHeader: Bool
-    ) -> PMNode {
-        var cellNodes: [PMNode] = []
-        for col in 0..<columnCount {
-            let text = (col < cells.count) ? cells[col] : ""
-            let alignment = (col < alignments.count) ? alignments[col] : .none
-            var attrs: [String: PMValue] = [
-                "colspan": .int(1),
-                "rowspan": .int(1)
-            ]
-            if let alignString = pmAlignString(for: alignment) {
-                attrs["align"] = .string(alignString)
-            }
-            let inner: [PMNode] = text.isEmpty
-                ? []
-                : [PMNode(type: "text", text: text)]
-            let paragraph = PMNode(type: "paragraph", content: inner.isEmpty ? nil : inner)
-            cellNodes.append(PMNode(
-                type: isHeader ? "table_header" : "table_cell",
-                attrs: attrs,
-                content: [paragraph]
-            ))
-        }
-        return PMNode(type: "table_row", content: cellNodes)
-    }
-
-    private func pmAlignString(for alignment: PipeTableAlignment) -> String? {
-        switch alignment {
-        case .none: return nil
-        case .left: return "left"
-        case .right: return "right"
-        case .center: return "center"
-        }
     }
 
     private func wrapBlockquote(_ blocks: [FlatBlock], from start: Int, atDepth: Int) -> (PMNode, Int) {

@@ -82,7 +82,7 @@ public final class AttributedMarkdownSerializer {
             return body
         case .horizontalRule:
             return "---"
-        case .htmlBlock, .linkReferenceDefinition, .pipeTable:
+        case .htmlBlock, .linkReferenceDefinition:
             return stripOneTrailingNewline(attributed.attributedSubstring(from: range).string)
         }
     }
