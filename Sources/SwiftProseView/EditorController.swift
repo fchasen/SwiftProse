@@ -57,6 +57,26 @@ public final class EditorController {
     /// one rebuild per main-runloop tick is a real win on long documents.
     private var resegmentScheduled = false
 
+    /// Generation counter for `setMarkdown(_:async:)`. Each call bumps this
+    /// so that a compile result arriving back from the background queue can
+    /// detect that a newer call has superseded it and drop on the floor
+    /// (latest-wins). Wraparound is fine — only equality matters.
+    private var compileGeneration: UInt64 = 0
+
+    /// Serial queue for off-main markdown compilation. Background compiles
+    /// from rapid external binding writes serialize here so the dedicated
+    /// `backgroundCompiler` is touched from one thread at a time.
+    private let compileQueue = DispatchQueue(
+        label: "dev.swiftprose.compile",
+        qos: .userInitiated
+    )
+
+    /// Separate compiler instance reserved for background work. Sharing the
+    /// main-thread `compiler` with off-main calls would race on the
+    /// underlying `MarkdownParser` state — `Step` operations regularly call
+    /// `compiler.compile` from main during a transaction.
+    private let backgroundCompiler: MarkdownAttributedCompiler
+
     public init(
         initialMarkdown: String = "",
         theme: ProseTheme = .default,
@@ -70,6 +90,7 @@ public final class EditorController {
         self.commands = commands
         self.inputRules = inputRules
         self.compiler = try MarkdownAttributedCompiler()
+        self.backgroundCompiler = try MarkdownAttributedCompiler()
         self.serializer = AttributedMarkdownSerializer()
 
         self.textStorage = NSTextStorage()
@@ -286,9 +307,42 @@ public final class EditorController {
         }
     }
 
-    public func setMarkdown(_ markdown: String) {
-        let compiled = compileFor(markdown)
-        replaceStorage(with: compiled)
+    /// Replace the document with `markdown`. When a host text view is
+    /// attached we compile off the main thread on `compileQueue` and apply
+    /// the result back on main; the latest-wins generation counter discards
+    /// stale results when rapid binding writes pile up. Headless callers
+    /// (no host) and explicit `async: false` callers stay synchronous so
+    /// existing tests reading `markdown()` immediately after `setMarkdown`
+    /// see the new content on return.
+    public func setMarkdown(_ markdown: String, async: Bool = true) {
+        if async, hostTextView != nil {
+            setMarkdownAsync(markdown)
+        } else {
+            let compiled = compileFor(markdown)
+            replaceStorage(with: compiled)
+        }
+    }
+
+    private func setMarkdownAsync(_ markdown: String) {
+        compileGeneration &+= 1
+        let myGeneration = compileGeneration
+        let mode = self.mode
+        let theme = self.theme
+        compileQueue.async { [weak self] in
+            guard let self else { return }
+            let compiled = self.backgroundCompiler.compile(
+                markdown,
+                mode: mode,
+                theme: theme
+            )
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                // Newer setMarkdown call has bumped the generation; this
+                // result is stale.
+                guard self.compileGeneration == myGeneration else { return }
+                self.replaceStorage(with: compiled)
+            }
+        }
     }
 
     public var text: String {
@@ -969,6 +1023,16 @@ public final class EditorController {
     }
 
     private func replaceStorage(with attributed: NSAttributedString) {
+        // Storage mutations and the host text view both require main-thread
+        // access — but headless callers (unit tests, programmatic users
+        // without a host attached) may legitimately drive the controller
+        // from any thread. Only enforce the main-thread invariant when a
+        // host is attached; the async setMarkdown path explicitly marshals
+        // back to main before reaching here.
+        if hostTextView != nil {
+            precondition(Thread.isMainThread,
+                         "replaceStorage must be called on the main thread when a host text view is attached")
+        }
         applyingMarkdown = true
         let total = NSRange(location: 0, length: textStorage.length)
         textStorage.beginEditing()
