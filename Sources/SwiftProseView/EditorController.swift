@@ -32,6 +32,10 @@ public final class EditorController {
 
     private(set) var compiler: MarkdownAttributedCompiler
     private(set) var serializer: AttributedMarkdownSerializer
+
+    private static let carryForwardAttributeKeys: [NSAttributedString.Key] = [
+        .font, .foregroundColor, .paragraphStyle, .proseBlockSpec
+    ]
     private let layoutDelegate: LayoutManagerDelegate
     private var storageObserver: NSObjectProtocol?
     private var applyingMarkdown = false
@@ -592,21 +596,13 @@ public final class EditorController {
         if total > 0 {
             let probe = max(0, min(location, total - 1))
             let raw = textStorage.safeAttributes(at: probe)
-            for key: NSAttributedString.Key in [
-                .font,
-                .foregroundColor,
-                .paragraphStyle,
-                .proseBlockSpec
-            ] {
+            // Carry forward only the paragraph-level attributes. Inline-only
+            // flags (.proseListMarker, .proseInline, .attachment, .link,
+            // .proseLink, .strikethroughStyle) deliberately do not appear in
+            // this whitelist so they cannot bleed into typed text.
+            for key in EditorController.carryForwardAttributeKeys {
                 if let v = raw[key] { attrs[key] = v }
             }
-            // Inline-only flags must NOT bleed into typed text.
-            attrs.removeValue(forKey: .proseListMarker)
-            attrs.removeValue(forKey: .proseInline)
-            attrs.removeValue(forKey: .attachment)
-            attrs.removeValue(forKey: .link)
-            attrs.removeValue(forKey: .proseLink)
-            attrs.removeValue(forKey: .strikethroughStyle)
         }
         if let anchor = storedMarksAnchor, anchor == location, !storedInlineMarks.isEmpty {
             attrs = applyingStoredMarks(to: attrs)
