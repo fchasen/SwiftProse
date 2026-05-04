@@ -12,7 +12,7 @@ import UIKit
 
     private func compile(_ markdown: String) throws -> NSTextStorage {
         let compiler = try MarkdownAttributedCompiler()
-        let attr = compiler.compile(markdown, mode: .rich, theme: .default)
+        let attr = compiler.compile(markdown, theme: .default)
         return NSTextStorage(attributedString: attr)
     }
 

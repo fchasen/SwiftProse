@@ -8,7 +8,7 @@ import SwiftProseSyntax
     private func roundTrip(_ markdown: String) throws -> String {
         let compiler = try MarkdownAttributedCompiler()
         let serializer = AttributedMarkdownSerializer()
-        let attributed = compiler.compile(markdown, mode: .rich, theme: .default)
+        let attributed = compiler.compile(markdown, theme: .default)
         return serializer.serialize(attributed)
     }
 

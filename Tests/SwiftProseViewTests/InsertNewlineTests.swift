@@ -13,7 +13,7 @@ import UIKit
 
     private func storage(from markdown: String) throws -> NSTextStorage {
         let compiler = try MarkdownAttributedCompiler()
-        let attr = compiler.compile(markdown, mode: .rich, theme: .default)
+        let attr = compiler.compile(markdown, theme: .default)
         return NSTextStorage(attributedString: attr)
     }
 
@@ -87,7 +87,7 @@ import UIKit
 
     @Test func nestedOrderedRendersAsAlpha() throws {
         let compiler = try MarkdownAttributedCompiler()
-        let attr = compiler.compile("1. one\n   1. nested\n", mode: .rich, theme: .default)
+        let attr = compiler.compile("1. one\n   1. nested\n", theme: .default)
         let storage = NSTextStorage(attributedString: attr)
         let raw = storage.string
         #expect(raw.contains("a. "))
@@ -96,7 +96,7 @@ import UIKit
 
     @Test func bulletStorageHasAttachmentMarker() throws {
         let compiler = try MarkdownAttributedCompiler()
-        let attr = compiler.compile("- one\n", mode: .rich, theme: .default)
+        let attr = compiler.compile("- one\n", theme: .default)
         let storage = NSTextStorage(attributedString: attr)
         // The first character should be U+FFFC carrying a BulletGlyphAttachment.
         let firstChar = (storage.string as NSString).character(at: 0)
@@ -114,7 +114,7 @@ import UIKit
         let compiler = try MarkdownAttributedCompiler()
         let attr = compiler.compile(
             "1. one\n   1. nested\n      1. deeper\n",
-            mode: .rich, theme: .default
+            theme: .default
         )
         let storage = NSTextStorage(attributedString: attr)
         let raw = storage.string

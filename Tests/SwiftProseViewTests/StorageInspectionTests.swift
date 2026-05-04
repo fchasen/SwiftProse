@@ -13,7 +13,7 @@ import UIKit
 
     private func compile(_ markdown: String) throws -> NSAttributedString {
         let compiler = try MarkdownAttributedCompiler()
-        return compiler.compile(markdown, mode: .rich, theme: .default)
+        return compiler.compile(markdown, theme: .default)
     }
 
     /// Documents a limitation: tree-sitter's CommonMark grammar does NOT

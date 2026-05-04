@@ -327,13 +327,11 @@ public final class EditorController {
     private func setMarkdownAsync(_ markdown: String) {
         compileGeneration &+= 1
         let myGeneration = compileGeneration
-        let mode = self.mode
         let theme = self.theme
         compileQueue.async { [weak self] in
             guard let self else { return }
             let compiled = self.backgroundCompiler.compile(
                 markdown,
-                mode: mode,
                 theme: theme
             )
             DispatchQueue.main.async { [weak self] in
@@ -1020,7 +1018,7 @@ public final class EditorController {
     // MARK: - private
 
     private func compileFor(_ markdown: String) -> NSAttributedString {
-        return compiler.compile(markdown, mode: mode, theme: theme)
+        return compiler.compile(markdown, theme: theme)
     }
 
     private func replaceStorage(with attributed: NSAttributedString) {

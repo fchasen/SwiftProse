@@ -23,7 +23,7 @@ import UIKit
 
     private func storage(from md: String) throws -> NSTextStorage {
         let env = try env()
-        let attr = env.compiler.compile(md, mode: .rich, theme: .default)
+        let attr = env.compiler.compile(md, theme: .default)
         return NSTextStorage(attributedString: attr)
     }
 

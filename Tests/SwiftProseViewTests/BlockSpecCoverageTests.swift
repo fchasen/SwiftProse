@@ -7,7 +7,7 @@ import SwiftProseSyntax
 
     private func compiled(_ md: String) throws -> NSAttributedString {
         let compiler = try MarkdownAttributedCompiler()
-        return compiler.compile(md, mode: .rich, theme: .default)
+        return compiler.compile(md, theme: .default)
     }
 
     @Test func paragraphCoverage() throws {

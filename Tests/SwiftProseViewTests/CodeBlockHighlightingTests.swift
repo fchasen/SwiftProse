@@ -46,7 +46,7 @@ private final class StubHighlighter: CodeBlockHighlighter {
         let lang = language.map { " " + $0 } ?? ""
         let md = "```\(lang)\n\(body)\n```\n"
         let compiler = try MarkdownAttributedCompiler(codeBlockHighlighter: highlighter)
-        return compiler.compile(md, mode: .rich, theme: .default)
+        return compiler.compile(md, theme: .default)
     }
 
     /// The compiler asks the highlighter for body text only (not the fence
@@ -192,7 +192,7 @@ private final class StubHighlighter: CodeBlockHighlighter {
         let body = "let x = 1\nlet y = 2"
         let md = "```\n\(body)\n```\n"
         let compiler = try MarkdownAttributedCompiler(codeBlockHighlighter: stub)
-        _ = compiler.compile(md, mode: .rich, theme: .default)
+        _ = compiler.compile(md, theme: .default)
         #expect(stub.detectionCalls == [body])
         #expect(stub.languageSeen == "swift")
     }
@@ -202,7 +202,7 @@ private final class StubHighlighter: CodeBlockHighlighter {
         let stub = StubHighlighter(response: [], detectionResponse: "swift")
         let md = "```ruby\nputs 'hi'\n```\n"
         let compiler = try MarkdownAttributedCompiler(codeBlockHighlighter: stub)
-        _ = compiler.compile(md, mode: .rich, theme: .default)
+        _ = compiler.compile(md, theme: .default)
         #expect(stub.detectionCalls.isEmpty)
         #expect(stub.languageSeen == "ruby")
     }

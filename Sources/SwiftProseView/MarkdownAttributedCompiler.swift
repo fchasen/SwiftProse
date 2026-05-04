@@ -23,46 +23,9 @@ public final class MarkdownAttributedCompiler {
 
     public func compile(
         _ markdown: String,
-        mode: Mode,
         theme: ProseTheme
     ) -> NSAttributedString {
-        switch mode {
-        case .source: return compileSource(markdown, theme: theme)
-        case .rich: return compileRich(markdown, theme: theme)
-        }
-    }
-
-    private func compileSource(
-        _ markdown: String,
-        theme: ProseTheme
-    ) -> NSAttributedString {
-        let result = NSMutableAttributedString(
-            string: markdown,
-            attributes: [
-                .font: theme.monospaceFont,
-                .foregroundColor: theme.foregroundColor
-            ]
-        )
-        let highlights = parseAndHighlight(markdown)
-        for span in highlights {
-            switch span.tag {
-            case .punctuationSpecial, .punctuationDelimiter:
-                result.addAttribute(.foregroundColor, value: theme.markupColor, range: span.range)
-            case .textTitle:
-                result.addAttribute(.foregroundColor, value: theme.linkColor, range: span.range)
-            case .textURI:
-                result.addAttribute(.foregroundColor, value: theme.linkURLColor, range: span.range)
-            case .textReference:
-                result.addAttribute(.foregroundColor, value: theme.linkColor, range: span.range)
-            case .textLiteral, .stringEscape, .textEmphasis, .textStrong, .none, .unknown,
-                 .punctuationBracket,
-                 .keyword, .string, .comment, .number, .boolean, .constant,
-                 .function, .method, .variable, .parameter, .type,
-                 .attribute, .property, .label, .op, .tag:
-                break
-            }
-        }
-        return result
+        compileRich(markdown, theme: theme)
     }
 
     private func compileRich(
@@ -121,24 +84,6 @@ public final class MarkdownAttributedCompiler {
             appendVerbatim(in: tail, source: markdown, theme: theme, into: result)
         }
         return result
-    }
-
-    private func parseAndHighlight(_ markdown: String) -> [HighlightSpan] {
-        guard let blockTree = blockParser.parse(markdown),
-              let blockRoot = blockTree.rootNode else { return [] }
-        let blockMapping = blockParser.mapping
-        let blockSpans = highlighter.highlights(
-            rootNode: blockRoot, in: blockTree, mapping: blockMapping, grammar: .block
-        )
-        let inlineTree = inlineParser.parse(markdown)
-        let inlineMapping = inlineParser.mapping
-        var inlineSpans: [HighlightSpan] = []
-        if let inlineRoot = inlineTree?.rootNode, let it = inlineTree {
-            inlineSpans = highlighter.highlights(
-                rootNode: inlineRoot, in: it, mapping: inlineMapping, grammar: .inline
-            )
-        }
-        return blockSpans + inlineSpans
     }
 
     // MARK: - segment emission

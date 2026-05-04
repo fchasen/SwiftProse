@@ -134,7 +134,7 @@ public enum Step {
         }
         let newMarkdown = compose(spec: spec, body: body)
         let normalized = newMarkdown.hasSuffix("\n") ? newMarkdown : newMarkdown + "\n"
-        return env.compiler.compile(normalized, mode: env.mode, theme: env.theme)
+        return env.compiler.compile(normalized, theme: env.theme)
     }
 
     private func renderEmpty(

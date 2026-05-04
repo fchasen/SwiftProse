@@ -125,7 +125,7 @@ import UIKit
 
     @Test func taskItemEncodesAsBulletWithBracketPrefix() throws {
         let compiler = try MarkdownAttributedCompiler()
-        let attributed = compiler.compile("- [x] done\n- [ ] todo\n", mode: .rich, theme: .default)
+        let attributed = compiler.compile("- [x] done\n- [ ] todo\n", theme: .default)
         let pm = ProseMirrorCodec().encode(attributed)
         #expect(pm.content?.first?.type == "bullet_list")
         let firstItemFirstText = pm.content?.first?.content?.first?.content?.first?.content?.first?.text

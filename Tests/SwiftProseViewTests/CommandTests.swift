@@ -18,7 +18,7 @@ import UIKit
 
     private func storage(from markdown: String) throws -> NSTextStorage {
         let compiler = try MarkdownAttributedCompiler()
-        let attributed = compiler.compile(markdown, mode: .rich, theme: .default)
+        let attributed = compiler.compile(markdown, theme: .default)
         let storage = NSTextStorage()
         storage.append(attributed)
         return storage
