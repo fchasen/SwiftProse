@@ -103,8 +103,9 @@ public class CodeBlockLayoutFragment: NSTextLayoutFragment {
     public var containerWidth: CGFloat = 0
     /// Right-edge breathing room reserved for the scrollbar gutter / overlay
     /// scroller. Carved off the fill's right edge so the bg doesn't sit under
-    /// the scroller.
-    public var trailingInset: CGFloat = 5
+    /// the scroller. Defaults to 0; hosts that embed in a scroll view set it
+    /// to the scroller's width.
+    public var trailingInset: CGFloat = 0
     public var isFirstLine: Bool = false
     public var isLastLine: Bool = false
 
