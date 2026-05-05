@@ -92,4 +92,52 @@ import UIKit
             Issue.record("expected setSpec step on empty storage")
         }
     }
+
+    @Test func toggleCodeBlockOnEmptyParagraphProducesEmptyBody() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        controller.testSelection = NSRange(location: 0, length: 0)
+        _ = controller.perform(.codeBlock)
+        // A freshly-toggled empty code block should hold a single-line empty
+        // body (just "\n"), not two empty lines.
+        #expect(controller.textStorage.length == 1)
+        let spec = controller.textStorage.blockSpec(at: 0)
+        if case .fencedCode = spec?.kind {
+            // ok
+        } else {
+            Issue.record("expected fenced code spec, got \(String(describing: spec?.kind))")
+        }
+    }
+
+    @Test func toggleCodeBlockOnNonEmptyParagraphKeepsContent() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        controller.testSelection = NSRange(location: 0, length: 0)
+        _ = controller.perform(.codeBlock)
+        // The block's body should be just "hello\n" — the original line —
+        // not "hello\n\n" (extra blank tail).
+        #expect(controller.textStorage.length == 6,
+                "expected single-line body, got length \(controller.textStorage.length): \(String(reflecting: controller.textStorage.string))")
+        #expect(controller.textStorage.string == "hello\n")
+        let spec = controller.textStorage.blockSpec(at: 0)
+        if case .fencedCode = spec?.kind {
+            // ok
+        } else {
+            Issue.record("expected fenced code spec, got \(String(describing: spec?.kind))")
+        }
+    }
+
+    @Test func toggleCodeBlockSerializesWithoutExtraBlankLine() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        controller.testSelection = NSRange(location: 0, length: 0)
+        _ = controller.perform(.codeBlock)
+        let md = controller.markdown()
+        #expect(md == "```\nhello\n```\n",
+                "expected canonical fenced output, got \(String(reflecting: md))")
+    }
+
+    @Test func toggleCodeBlockAtCursorEndOfContent() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        controller.testSelection = NSRange(location: 6, length: 0)
+        _ = controller.perform(.codeBlock)
+        #expect(controller.markdown() == "```\nhello\n```\n")
+    }
 }
