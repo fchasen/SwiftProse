@@ -151,4 +151,30 @@ import UIKit
         #expect(range.length == 0)
         #expect(content.string == "!")
     }
+
+    @Test func exitCodeBlockFromNonEmptyBlockAddsParagraphAfter() throws {
+        let controller = try EditorController(initialMarkdown: "```\nlet x = 1\n```\n")
+        controller.testSelection = NSRange(location: 9, length: 0)
+        let exited = controller.exitCodeBlock()
+        #expect(exited == true)
+        // Typing after exit must land in a fresh paragraph below the block.
+        let cursor = controller.testSelection?.location ?? 0
+        controller.testSelection = NSRange(location: cursor, length: 0)
+        controller.insert(text: "after")
+        #expect(controller.markdown() == "```\nlet x = 1\n```\n\nafter\n")
+    }
+
+    @Test func exitCodeBlockFromEmptyBlockReplacesWithParagraph() throws {
+        let controller = try EditorController(initialMarkdown: "```\n```\n")
+        controller.testSelection = NSRange(location: 0, length: 0)
+        let exited = controller.exitCodeBlock()
+        #expect(exited == true)
+        #expect(controller.markdown() == "")
+    }
+
+    @Test func exitCodeBlockOutsideCodeReturnsFalse() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        controller.testSelection = NSRange(location: 0, length: 0)
+        #expect(controller.exitCodeBlock() == false)
+    }
 }

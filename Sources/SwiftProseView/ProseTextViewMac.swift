@@ -314,6 +314,12 @@ final class ProseNSTextView: NSTextView {
     override func keyDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command),
            !event.modifierFlags.contains(.control),
+           event.keyCode == 36,
+           proseController?.exitCodeBlock() == true {
+            return
+        }
+        if event.modifierFlags.contains(.command),
+           !event.modifierFlags.contains(.control),
            let chars = event.charactersIgnoringModifiers?.lowercased(),
            let action = shortcutAction(forCommandKey: chars,
                                        shift: event.modifierFlags.contains(.shift)) {

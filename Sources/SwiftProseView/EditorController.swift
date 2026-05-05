@@ -910,6 +910,63 @@ public final class EditorController {
         return true
     }
 
+    /// Move the cursor out of the current code block. If the block is empty,
+    /// remove it entirely. If non-empty, insert a fresh paragraph after it
+    /// and place the cursor there. Returns false when the cursor isn't in
+    /// a code block. Wired to `Mod-Enter` (PM convention) by the host.
+    @discardableResult
+    public func exitCodeBlock() -> Bool {
+        let total = textStorage.length
+        guard total > 0 else { return false }
+        let cursor = currentSelection.location
+        let probe = max(0, min(cursor, total - 1))
+        guard textStorage.blockSpec(at: probe)?.isCodeBlock == true else {
+            return false
+        }
+        var blockStart = probe
+        while blockStart > 0,
+              textStorage.blockSpec(at: blockStart - 1)?.isCodeBlock == true {
+            blockStart -= 1
+        }
+        var blockEnd = probe
+        while blockEnd < total,
+              textStorage.blockSpec(at: blockEnd)?.isCodeBlock == true {
+            blockEnd += 1
+        }
+        let blockRange = NSRange(location: blockStart, length: blockEnd - blockStart)
+        let bodyText = (textStorage.string as NSString).substring(with: blockRange)
+        let isEmpty = bodyText
+            .replacingOccurrences(of: "\n", with: "")
+            .trimmingCharacters(in: .whitespaces)
+            .isEmpty
+
+        let plainAttrs = theme.plainParagraphAttributes()
+        let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
+        let mutationRange: NSRange
+        let landing: Int
+        if isEmpty {
+            mutationRange = blockRange
+            landing = blockStart
+        } else {
+            mutationRange = NSRange(location: blockEnd, length: 0)
+            landing = blockEnd
+        }
+        withCharacterMutation(range: mutationRange) {
+            applyingMarkdown = true
+            textStorage.beginEditing()
+            textStorage.replaceCharacters(in: mutationRange, with: blank)
+            textStorage.endEditing()
+            applyingMarkdown = false
+            resegment()
+            intrinsicSizeInvalidator?()
+        }
+        let landingRange = NSRange(location: landing, length: 0)
+        setHostSelection(landingRange)
+        testSelection = landingRange
+        applyTypingAttributes(plainAttrs)
+        return true
+    }
+
     @discardableResult
     public func handleNewline() -> Bool {
         let cursor = currentSelection.location
