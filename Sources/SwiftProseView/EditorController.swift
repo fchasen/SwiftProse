@@ -922,11 +922,6 @@ public final class EditorController {
             let isBlockquote = !isListItem && (spec?.blockquoteDepth ?? 0) > 0
             let orphanEmpty = !isListItem && !isBlockquote && isOrphanedEmptyMarkerLine(lineRange: lineRange)
 
-            if !isListItem, !isBlockquote, !orphanEmpty,
-               openFencedCodeFromLanguageLine(cursor: cursor, lineRange: lineRange, spec: spec) {
-                return true
-            }
-
             if isListItem {
                 var resulting: NSRange?
                 withCharacterMutation(range: lineRange) {
@@ -963,46 +958,6 @@ public final class EditorController {
             return splitHeadingIntoParagraph(at: cursor)
         }
         return false
-    }
-
-    /// If the current paragraph is exactly ` ```<language> ` (e.g.
-    /// ` ```swift `) and the user pressed Enter at end of that line, splice
-    /// in a fresh fenced code block carrying that language and place the
-    /// cursor on the body line. Complements the bare-`` ``` `` input rule
-    /// (which can't capture a language because it fires on the third
-    /// backtick before the user has typed any tag). Returns true when it
-    /// handled the keystroke.
-    private func openFencedCodeFromLanguageLine(
-        cursor: Int,
-        lineRange: NSRange,
-        spec: BlockSpec?
-    ) -> Bool {
-        // Only convert paragraph-shaped lines. Headings, lists, quotes,
-        // existing code blocks, etc. shouldn't transmute.
-        guard let kind = spec?.kind, case .paragraph = kind else { return false }
-        guard cursor == lineRange.location + lineRange.length ||
-              cursor == lineRange.location + lineRange.length - 1 else { return false }
-        let ns = textStorage.string as NSString
-        let lineText = ns.substring(with: lineRange)
-            .replacingOccurrences(of: "\n", with: "")
-        let pattern = "^```([\\w+#.-]+)$"
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(
-                  in: lineText,
-                  range: NSRange(location: 0, length: (lineText as NSString).length)
-              ),
-              match.numberOfRanges >= 2 else {
-            return false
-        }
-        let langRange = match.range(at: 1)
-        let language = (lineText as NSString).substring(with: langRange)
-
-        let block = compiler.compile("```\(language)\n\n```\n", theme: theme)
-        let transaction = Transaction(steps: [
-            .replaceText(range: lineRange, with: block)
-        ], label: "Code block")
-        _ = apply(transaction)
-        return true
     }
 
     private func handleBlockquoteNewline(lineRange: NSRange, depth: Int) -> NSRange {

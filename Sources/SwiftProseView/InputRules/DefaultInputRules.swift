@@ -162,31 +162,21 @@ public extension InputRule {
         ], label: "Horizontal rule")
     }
 
-    /// Triple backticks on their own line at the start of a paragraph.
-    /// Fires the moment the third backtick is typed and replaces the line
-    /// with an empty fenced code block; the cursor lands on the body line so
-    /// the user can start typing code immediately. To open a fence with a
-    /// language tag (e.g. ```` ```swift ````), type the language and press
-    /// Enter — `EditorController.handleNewline` picks that up since the
-    /// pattern below only matches a bare ` ``` `.
-    ///
-    /// The rule bails out when the line is already inside a `.fencedCode`
-    /// run: typing ` ``` ` to *close* an unclosed fence above must not
-    /// splice in a fresh empty block (which would compound the broken
-    /// state). Without a parser pass during typing the fence won't visually
-    /// close until the next recompile, but at least the keystrokes remain
-    /// faithful — the user can trigger a recompile via theme change or
-    /// `setMarkdown`.
+    /// Triple backticks plus an optional language tag, terminated by Enter.
+    /// `^```([\w+#.-]*)\n$` captures the language (empty for bare ```). The
+    /// line is replaced with an empty fenced code block whose leaf attrs
+    /// carry the language; storage holds only the body.
     static let fencedCodeBlock = InputRule(
         id: "inputRule.fencedCodeBlock",
-        pattern: "^```$"
+        pattern: "^```([\\w+#.-]*)\\n$"
     ) { match in
         if let existing = match.storage.blockSpec(at: match.lineRange.location),
            case .fencedCode = existing.kind {
             return nil
         }
         let env = match.env
-        let block = env.compiler.compile("```\n\n```\n", theme: env.theme)
+        let language = match.capture(1) ?? ""
+        let block = env.compiler.compile("```\(language)\n\n```\n", theme: env.theme)
         return Transaction(steps: [
             .replaceText(range: match.lineRange, with: block)
         ], label: "Code block")

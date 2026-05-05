@@ -55,7 +55,7 @@ import UIKit
         // line spec must remain `.fencedCode` after the body goes empty
         // again so the leaf survives.
         let controller = try EditorController(initialMarkdown: "")
-        type("```", in: controller)
+        type("```\n", in: controller)
         controller.testSelection = NSRange(location: 0, length: 0)
         controller.insert(text: "x")
         let storage = controller.textStorage
