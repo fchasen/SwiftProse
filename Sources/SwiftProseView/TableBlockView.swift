@@ -30,6 +30,118 @@ public final class TableBlockView: PlatformView {
     /// the user's current cell.
     public internal(set) var activeCell: (row: Int, column: Int)?
 
+    /// Move focus to the cell at `(row, column)`. Out-of-range targets
+    /// are clamped — used by Tab/arrow navigation in stage 8.
+    @discardableResult
+    public func focusCell(row rowIdx: Int, column colIdx: Int) -> Bool {
+        guard rowIdx >= 0, rowIdx < cellViews.count else { return false }
+        let row = cellViews[rowIdx]
+        guard colIdx >= 0, colIdx < row.count else { return false }
+        return row[colIdx].becomeCellFirstResponder()
+    }
+
+    /// Tab / arrow-edge navigation entry point.
+    /// `forward` advances cell-by-cell row-major; reaching past the
+    /// last cell of the last row inserts a new body row and lands the
+    /// caret in the new row's first cell (only when `dispatch` is set
+    /// — otherwise we just stop at the boundary).
+    @discardableResult
+    public func advanceCellFocus(forward: Bool) -> Bool {
+        guard let active = activeCell else {
+            return focusCell(row: 0, column: 0)
+        }
+        let dims = TableBlockView.dimensions(of: subtree)
+        guard dims.cols > 0, dims.rows > 0 else { return false }
+        var row = active.row
+        var col = active.column
+        if forward {
+            col += 1
+            if col >= dims.cols { col = 0; row += 1 }
+            if row >= dims.rows {
+                if let dispatch = dispatch,
+                   case .structural(let table, _) = subtree,
+                   let last = lastRowIndex() {
+                    // Emit an insert-row-below transaction targeting
+                    // the last row; the apply path will append the row
+                    // and re-render the grid.
+                    var rows = subtreeRows()
+                    let aligns = columnAlignments()
+                    let newRow = makeBlankRow(
+                        columnCount: dims.cols,
+                        alignments: aligns,
+                        isHeader: false
+                    )
+                    rows.insert(newRow, at: last + 1)
+                    let newSubtree = TreeNode.structural(table, rows)
+                    dispatch(Transaction(steps: [
+                        .setTableSubtree(tableID: table.id, subtree: newSubtree)
+                    ]))
+                    return focusCell(row: last + 1, column: 0)
+                }
+                return false
+            }
+        } else {
+            col -= 1
+            if col < 0 {
+                row -= 1
+                col = dims.cols - 1
+            }
+            if row < 0 { return false }
+        }
+        return focusCell(row: row, column: col)
+    }
+
+    /// Resign first responder on the active cell — Escape handler.
+    public func resignActiveCell() {
+        guard let active = activeCell,
+              active.row < cellViews.count,
+              active.column < cellViews[active.row].count else { return }
+        cellViews[active.row][active.column].resignCellFirstResponder()
+    }
+
+    private func lastRowIndex() -> Int? {
+        guard case .structural(_, let rows) = subtree else { return nil }
+        return rows.isEmpty ? nil : rows.count - 1
+    }
+    private func subtreeRows() -> [TreeNode] {
+        if case .structural(_, let rows) = subtree { return rows }
+        return []
+    }
+    private func columnAlignments() -> [ProseAttrValue] {
+        guard case .structural(_, let rows) = subtree,
+              let firstRow = rows.first,
+              case .structural(_, let cells) = firstRow else { return [] }
+        return cells.compactMap {
+            if case .structural(let n, _) = $0 { return n.attrs["align"] ?? .null }
+            return nil
+        }
+    }
+    private func makeBlankRow(
+        columnCount: Int,
+        alignments: [ProseAttrValue],
+        isHeader: Bool
+    ) -> TreeNode {
+        var cells: [TreeNode] = []
+        for col in 0..<columnCount {
+            let align = col < alignments.count ? alignments[col] : .null
+            let cellNode = ProseNode(
+                type: isHeader ? "table_header" : "table_cell",
+                attrs: [
+                    "align": align,
+                    "colspan": .int(1),
+                    "rowspan": .int(1),
+                    "colwidth": .null
+                ]
+            )
+            let para = TreeNode.structural(ProseNode(type: "paragraph"), [])
+            cells.append(.structural(cellNode, [para]))
+        }
+        return .structural(
+            ProseNode(type: "table_row", attrs: ["header": .bool(isHeader)]),
+            cells
+        )
+    }
+
     private(set) var cellViews: [[CellView]] = []
 
     /// Minimum cell height. Cell typography sets a higher one if needed.
@@ -644,6 +756,9 @@ public final class CellView: PlatformView {
             },
             onFocus: { [weak self] in
                 self?.markActive()
+            },
+            onCommand: { [weak self] selector in
+                self?.handleCellCommand(selector) ?? false
             }
         )
         self.delegateProxy = proxy
@@ -652,13 +767,39 @@ public final class CellView: PlatformView {
         #else
         textView.delegate = proxy
         #endif
+    }
+
+    fileprivate func handleCellCommand(_ selector: Selector) -> Bool {
+        guard let table = tableParent() else { return false }
+        if selector == #selector(NSResponder.insertTab(_:)) {
+            return table.advanceCellFocus(forward: true)
+        }
+        if selector == #selector(NSResponder.insertBacktab(_:)) {
+            return table.advanceCellFocus(forward: false)
+        }
+        if selector == #selector(NSResponder.cancelOperation(_:)) {
+            table.resignActiveCell()
+            return true
+        }
+        return false
+    }
+
+    /// Make this cell's text view the first responder. Used by Tab /
+    /// click navigation.
+    @discardableResult
+    public func becomeCellFirstResponder() -> Bool {
         #if canImport(AppKit) && os(macOS)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleFocusChange(_:)),
-            name: NSWindow.didBecomeKeyNotification,
-            object: nil
-        )
+        return textView.window?.makeFirstResponder(textView) == true
+        #else
+        return textView.becomeFirstResponder()
+        #endif
+    }
+
+    public func resignCellFirstResponder() {
+        #if canImport(AppKit) && os(macOS)
+        textView.window?.makeFirstResponder(nil)
+        #else
+        textView.resignFirstResponder()
         #endif
     }
 
@@ -679,23 +820,25 @@ public final class CellView: PlatformView {
         return nil
     }
 
-    @objc private func handleFocusChange(_ note: Notification) {
-        // No-op stub for macOS responder change wiring; the delegate's
-        // textViewDidBeginEditing path triggers `markActive` directly.
-    }
-
     private var delegateProxy: CellEditDelegate?
 }
 
 /// Bridges the text view's edit notification across platforms into a
 /// single callback. Held strongly by `CellView` so the delegate doesn't
-/// dangle.
+/// dangle. Also routes selector-based commands (Tab / Shift-Tab /
+/// Escape) so the parent `TableBlockView` can handle navigation.
 private final class CellEditDelegate: NSObject {
     private let onChange: () -> Void
     private let onFocus: () -> Void
-    init(onChange: @escaping () -> Void, onFocus: @escaping () -> Void) {
+    private let onCommand: (Selector) -> Bool
+    init(
+        onChange: @escaping () -> Void,
+        onFocus: @escaping () -> Void,
+        onCommand: @escaping (Selector) -> Bool
+    ) {
         self.onChange = onChange
         self.onFocus = onFocus
+        self.onCommand = onCommand
     }
 
     #if canImport(AppKit) && os(macOS)
@@ -709,7 +852,11 @@ private final class CellEditDelegate: NSObject {
 }
 
 #if canImport(AppKit) && os(macOS)
-extension CellEditDelegate: NSTextViewDelegate {}
+extension CellEditDelegate: NSTextViewDelegate {
+    @objc func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        return onCommand(commandSelector)
+    }
+}
 #elseif canImport(UIKit)
 extension CellEditDelegate: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
@@ -717,6 +864,18 @@ extension CellEditDelegate: UITextViewDelegate {
     }
     func textViewDidBeginEditing(_ textView: UITextView) {
         onFocus()
+    }
+    func textView(
+        _ textView: UITextView,
+        shouldChangeTextIn range: NSRange,
+        replacementText text: String
+    ) -> Bool {
+        // Tab on iOS arrives as "\t". Shift-Tab not exposed; advance only.
+        if text == "\t" {
+            _ = onCommand(#selector(NSObject.cut))
+            return false
+        }
+        return true
     }
 }
 #endif
