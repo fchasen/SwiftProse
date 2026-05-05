@@ -690,14 +690,25 @@ public final class EditorController {
 
     func evaluateInputRules() {
         let cursor = currentSelection.location
+        var didFire = false
         _ = inputRules.evaluate(
             storage: textStorage,
             cursor: cursor,
             env: makeStepEnvironment(),
             apply: { [weak self] tx in
                 _ = self?.apply(tx)
+                didFire = true
             }
         )
+        if didFire {
+            // Inline rules (bold, italic, code-span, etc.) conclude a
+            // styling event — the user has just closed `**bold**` or `` `code` ``.
+            // Reset typing attributes to plain so the next typed character
+            // escapes the inline mark instead of inheriting it from the
+            // run that the rule just stamped.
+            applyTypingAttributes(theme.plainParagraphAttributes())
+            clearStoredInlineMarks()
+        }
     }
 
     private func performLink(url: String?, label: String?) -> NSRange {

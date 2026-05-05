@@ -134,10 +134,13 @@ public struct ToggleCodeBlockCommand: Command {
                 BlockSpec(kind: .fencedCode(language: nil), blockquoteDepth: current.blockquoteDepth)
             }
         }
-        // Non-empty line: insert a fresh empty code block AFTER the line,
-        // separated by a blank line so markdown round-trips cleanly. The
-        // existing prose stays untouched.
-        let prefix = endsWithNewline ? "\n" : "\n\n"
+        // Non-empty line: insert a fresh empty code block AFTER the line.
+        // The existing prose stays untouched; we land the block flush with
+        // the paragraph break so the user sees one new line below the
+        // existing text (the empty block body) rather than an extra blank
+        // separator before it. Round-tripped markdown keeps a canonical
+        // blank line via the serializer.
+        let prefix = endsWithNewline ? "" : "\n"
         let block = env.compiler.compile("\(prefix)```\n\n```\n", theme: env.theme)
         let insertAt = NSRange(location: lineRange.location + lineRange.length, length: 0)
         return Transaction(steps: [
