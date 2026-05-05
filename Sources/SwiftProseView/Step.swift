@@ -135,6 +135,7 @@ public enum Step {
         cells[colIdx] = .structural(cellNode, cellKids)
         rows[rowIdx] = .structural(rowNode, cells)
         attachment.update(subtree: .structural(table, rows))
+        attachment.boundView?.updateCellInline(row: rowIdx, column: colIdx, runs: runs)
         let inverse = Step.replaceCellInline(
             tableID: tableID, row: rowIdx, column: colIdx, runs: priorRuns
         )
@@ -161,6 +162,7 @@ public enum Step {
         }
         let prior = attachment.subtree
         attachment.update(subtree: subtree)
+        attachment.boundView?.update(subtree: subtree)
         let inverse = Step.setTableSubtree(tableID: tableID, subtree: prior)
         return AppliedStep(
             inverse: inverse,

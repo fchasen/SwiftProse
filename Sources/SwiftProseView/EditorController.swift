@@ -146,6 +146,12 @@ public final class EditorController {
         ensureTrailingParagraph()
         resegment()
 
+        // Wire the table view provider's dispatch back into this
+        // controller now that `self` is fully initialized.
+        TableAttachmentViewProvider.sharedDispatch = { [weak self] tx in
+            _ = self?.apply(tx)
+        }
+
         storageObserver = NotificationCenter.default.addObserver(
             forName: NSTextStorage.didProcessEditingNotification,
             object: textStorage,

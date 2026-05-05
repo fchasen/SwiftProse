@@ -396,9 +396,20 @@ public final class CellView: PlatformView {
             theme: theme
         )
         #if canImport(AppKit) && os(macOS)
+        // Skip the rewrite when the rendered text matches what's already
+        // shown — the typing path round-trips through here and resetting
+        // the storage would jump the cursor home on every keystroke.
+        if textView.textStorage?.string == attributed.string { return }
+        let priorSelection = textView.selectedRange()
         textView.textStorage?.setAttributedString(attributed)
+        let clampedLoc = min(priorSelection.location, attributed.length)
+        textView.setSelectedRange(NSRange(location: clampedLoc, length: 0))
         #else
+        if textView.text == attributed.string { return }
+        let priorSelection = textView.selectedRange
         textView.attributedText = attributed
+        let clampedLoc = min(priorSelection.location, attributed.length)
+        textView.selectedRange = NSRange(location: clampedLoc, length: 0)
         #endif
     }
 
