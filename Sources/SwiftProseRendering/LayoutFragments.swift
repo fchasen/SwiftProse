@@ -106,26 +106,32 @@ public class CodeBlockLayoutFragment: NSTextLayoutFragment {
     /// the scroller. Defaults to 0; hosts that embed in a scroll view set it
     /// to the scroller's width.
     public var trailingInset: CGFloat = 0
+    /// Symmetric vertical breathing room above and below the line fragments.
+    public var verticalPadding: CGFloat = 4
     public var isFirstLine: Bool = false
     public var isLastLine: Bool = false
 
     public override var renderingSurfaceBounds: CGRect {
         let bounds = layoutFragmentFrame
         let width = effectiveWidth(bounds: bounds)
-        // Origin is fragment-local; AppKit translates by layoutFragmentFrame.origin
-        // before invoking draw(at:in:), so we anchor at -origin.x to push the
-        // surface to the leading edge of the container.
-        return CGRect(x: -bounds.origin.x, y: 0, width: width, height: bounds.height)
+        let extent = contentVerticalExtent(in: bounds)
+        return CGRect(
+            x: -bounds.origin.x,
+            y: extent.minY,
+            width: width,
+            height: extent.height
+        )
     }
 
     public override func draw(at point: CGPoint, in context: CGContext) {
         let bounds = layoutFragmentFrame
         let width = effectiveWidth(bounds: bounds)
+        let extent = contentVerticalExtent(in: bounds)
         let rect = CGRect(
             x: horizontalInset - bounds.origin.x,
-            y: 0,
+            y: extent.minY,
             width: max(0, width - 2 * horizontalInset - trailingInset),
-            height: bounds.height
+            height: extent.height
         )
 
         context.saveGState()
@@ -143,6 +149,28 @@ public class CodeBlockLayoutFragment: NSTextLayoutFragment {
         context.restoreGState()
 
         super.draw(at: point, in: context)
+    }
+
+    /// Vertical span the BG should cover: the union of the line fragments'
+    /// typographic bounds with `verticalPadding` added on each side. Clamps
+    /// to `bounds` so the BG never escapes the layout fragment frame.
+    fileprivate func contentVerticalExtent(in bounds: CGRect) -> (minY: CGFloat, height: CGFloat) {
+        let lines = textLineFragments
+        guard !lines.isEmpty else {
+            return (0, bounds.height)
+        }
+        var minY: CGFloat = .greatestFiniteMagnitude
+        var maxY: CGFloat = -.greatestFiniteMagnitude
+        var sawAny = false
+        for line in lines where line.typographicBounds.height > 0 {
+            minY = min(minY, line.typographicBounds.minY)
+            maxY = max(maxY, line.typographicBounds.maxY)
+            sawAny = true
+        }
+        guard sawAny else { return (0, bounds.height) }
+        let paddedMinY = max(0, minY - verticalPadding)
+        let paddedMaxY = min(bounds.height, maxY + verticalPadding)
+        return (paddedMinY, paddedMaxY - paddedMinY)
     }
 
     fileprivate func effectiveWidth(bounds: CGRect) -> CGFloat {
@@ -169,11 +197,12 @@ public final class FencedCodeBlockLayoutFragment: CodeBlockLayoutFragment {
         guard isFirstLine, let language, !language.isEmpty else { return }
         let bounds = layoutFragmentFrame
         let width = effectiveWidth(bounds: bounds)
+        let extent = contentVerticalExtent(in: bounds)
         let rect = CGRect(
             x: horizontalInset - bounds.origin.x,
-            y: 0,
+            y: extent.minY,
             width: max(0, width - 2 * horizontalInset - trailingInset),
-            height: bounds.height
+            height: extent.height
         )
         let attrs: [NSAttributedString.Key: Any] = [
             .font: codeBlockTagFont(),
