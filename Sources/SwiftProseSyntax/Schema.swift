@@ -70,6 +70,12 @@ public struct NodeType: Sendable, Equatable, Hashable {
     /// code-text contexts (the `code` mark on text inside `code_block` would
     /// be redundant; emit none).
     public let allowsMarks: Bool
+    /// Marks the node as a self-managed subtree — a `NodeViewProvider`
+    /// renders the storage anchor as a single attachment that owns its own
+    /// editing surface (cell grid, image gallery, embedded editor). The
+    /// reverse-projection lifts the attachment's structural subtree back
+    /// into the document tree at this point.
+    public let isolating: Bool
 
     public init(
         name: Name,
@@ -79,7 +85,8 @@ public struct NodeType: Sendable, Equatable, Hashable {
         isLeaf: Bool = false,
         isText: Bool = false,
         attrs: [AttrSpec] = [],
-        allowsMarks: Bool = true
+        allowsMarks: Bool = true,
+        isolating: Bool = false
     ) {
         var resolved = groups
         if let group, !group.isEmpty {
@@ -94,6 +101,7 @@ public struct NodeType: Sendable, Equatable, Hashable {
         self.isText = isText
         self.attrs = attrs
         self.allowsMarks = allowsMarks
+        self.isolating = isolating
     }
 
     public var group: String? { groups.first }
@@ -334,7 +342,8 @@ private func makeDefaultMarkdownSchema() -> Schema {
             NodeType(
                 name: "table",
                 group: "block",
-                content: ContentExpression("table_row+", allowedNodes: ["table_row"])
+                content: ContentExpression("table_row+", allowedNodes: ["table_row"]),
+                isolating: true
             ),
             NodeType(
                 name: "table_row",
