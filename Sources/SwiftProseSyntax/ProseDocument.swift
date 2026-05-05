@@ -274,13 +274,11 @@ public extension ProseDocument {
             if openEvenWhenEmpty {
                 openTo(parent: blockPath, stack: &stack, openPath: &openPath)
             }
-            // Inline runs — split by `proseMarks` boundaries, then split
-            // each run further around presentation markers (list bullet
-            // glyphs etc.) so a marker at position 0 of a run doesn't make
-            // us skip the trailing content.
             storage.enumerateAttribute(.proseMarks, in: blockRange) { value, runRange, _ in
                 guard runRange.length > 0 else { return }
                 let marks = (value as? MarkSetBox)?.marks ?? MarkSet()
+                let ns = storage.string as NSString
+                var accumulated = ""
                 var cursor = runRange.location
                 let runEnd = runRange.location + runRange.length
                 while cursor < runEnd {
@@ -293,14 +291,13 @@ public extension ProseDocument {
                           !isPresentationMarker(in: storage, at: segEnd) {
                         segEnd += 1
                     }
-                    let segRange = NSRange(location: cursor, length: segEnd - cursor)
+                    accumulated.append(ns.substring(with: NSRange(location: cursor, length: segEnd - cursor)))
                     cursor = segEnd
-                    let raw = (storage.string as NSString).substring(with: segRange)
-                    let text = stripTrailingNewlines(raw)
-                    if text.isEmpty { continue }
-                    openTo(parent: blockPath, stack: &stack, openPath: &openPath)
-                    stack[stack.count - 1].kids.append(.inline(text: text, marks: marks))
                 }
+                let text = stripTrailingNewlines(accumulated)
+                if text.isEmpty { return }
+                openTo(parent: blockPath, stack: &stack, openPath: &openPath)
+                stack[stack.count - 1].kids.append(.inline(text: text, marks: marks))
             }
         }
 

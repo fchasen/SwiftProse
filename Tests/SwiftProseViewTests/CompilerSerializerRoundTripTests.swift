@@ -92,4 +92,14 @@ import SwiftProseSyntax
         #expect(out == "```swift\nlet x = 1\nlet y = 2\n```\n")
     }
 
+    @Test func indentedCodeBlock() throws {
+        let out = try roundTrip("    let x = 1\n")
+        #expect(out == "    let x = 1\n")
+    }
+
+    @Test func indentedCodeBlockMultipleLines() throws {
+        let out = try roundTrip("    let x = 1\n    let y = 2\n")
+        #expect(out == "    let x = 1\n    let y = 2\n")
+    }
+
 }
