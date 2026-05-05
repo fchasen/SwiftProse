@@ -768,10 +768,8 @@ public final class MarkdownAttributedCompiler {
                     isHeader: row.header,
                     alignment: alignment
                 )
-                let cellBody = NSMutableAttributedString(
-                    string: cellText,
-                    attributes: baseAttrs
-                )
+                let cellInline = compileCellInline(cellText, theme: theme, baseAttrs: baseAttrs)
+                let cellBody = NSMutableAttributedString(attributedString: cellInline)
                 cellBody.append(NSAttributedString(string: "\n", attributes: baseAttrs))
 
                 let cellStart = out.length
@@ -895,6 +893,93 @@ public final class MarkdownAttributedCompiler {
             aligns.append(a)
         }
         return aligns
+    }
+
+    /// Render a single pipe-table cell's text as inline-marked content.
+    /// Runs the inline parser on `text` in isolation so marks inside
+    /// cells (`**bold**`, `*em*`, `` `code` ``, `[link](url)`) survive.
+    /// Emits a flat attributed string; per-cell `proseNodePath` is
+    /// stamped by the caller after `appendStyled`.
+    private func compileCellInline(
+        _ text: String,
+        theme: ProseTheme,
+        baseAttrs: [NSAttributedString.Key: Any]
+    ) -> NSAttributedString {
+        guard !text.isEmpty,
+              let tree = inlineParser.parse(text),
+              let root = tree.rootNode else {
+            return NSAttributedString(string: text, attributes: baseAttrs)
+        }
+        let mapping = inlineParser.mapping
+        let highlights = highlighter.highlights(
+            rootNode: root, in: tree, mapping: mapping, grammar: .inline
+        )
+        let regions = InlineClassifier.classify(rootNode: root, mapping: mapping)
+        let nsText = text as NSString
+        let segRange = NSRange(location: 0, length: nsText.length)
+        let stripRanges = highlights
+            .filter { $0.tag == .punctuationDelimiter }
+            .map { $0.range }
+        let strip = unionRanges(stripRanges)
+        let stripped = stripCharacters(in: segRange, source: nsText, stripping: strip)
+
+        var styleRuns: [(NSRange, [NSAttributedString.Key: Any])] = []
+        for span in highlights where span.tag != .punctuationDelimiter {
+            guard let projected = stripped.project(sourceRange: span.range) else { continue }
+            switch span.tag {
+            case .textStrong:
+                styleRuns.append((projected, [.font: theme.bodyFont.withProseTraits(.bold)]))
+            case .textEmphasis:
+                styleRuns.append((projected, [.font: theme.bodyFont.withProseTraits(.italic)]))
+            case .textLiteral:
+                styleRuns.append((projected, [
+                    .font: theme.monospaceFont,
+                    .proseInline: InlineTag.codeSpan
+                ]))
+            case .textStrike:
+                styleRuns.append((projected, [
+                    .strikethroughStyle: NSUnderlineStyle.single.rawValue
+                ]))
+            case .textURI, .textReference:
+                var linkAttrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: theme.linkColor,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    .proseInline: InlineTag.link
+                ]
+                if let dest = linkDestination(for: span.range, in: regions) {
+                    linkAttrs[.proseLink] = dest
+                    if let url = URL(string: dest) {
+                        linkAttrs[.link] = url
+                    } else {
+                        linkAttrs[.link] = dest
+                    }
+                }
+                styleRuns.append((projected, linkAttrs))
+            default:
+                break
+            }
+        }
+
+        let attributed = NSMutableAttributedString(string: stripped.text, attributes: baseAttrs)
+        for (range, runAttrs) in styleRuns {
+            let safe = range.clamped(to: attributed.length)
+            guard safe.length > 0 else { continue }
+            for (k, v) in runAttrs {
+                if k == .font {
+                    if let baseRun = attributed.safeAttribute(.font, at: safe.location) as? PlatformFont,
+                       let trait = (v as? PlatformFont)?.proseTraits,
+                       !trait.isEmpty {
+                        let merged = baseRun.withProseTraits(baseRun.proseTraits.union(trait))
+                        attributed.addAttribute(.font, value: merged, range: safe)
+                    } else {
+                        attributed.addAttribute(.font, value: v, range: safe)
+                    }
+                } else {
+                    attributed.addAttribute(k, value: v, range: safe)
+                }
+            }
+        }
+        return attributed
     }
 
     private func stripBlockquotePrefix(_ line: String, depth: Int) -> String {
