@@ -77,4 +77,19 @@ import SwiftProseSyntax
         #expect(out == "Use `let x = 1` here\n")
     }
 
+    @Test func fencedCodeBlock() throws {
+        let out = try roundTrip("```swift\nlet x = 1\n```\n")
+        #expect(out == "```swift\nlet x = 1\n```\n")
+    }
+
+    @Test func fencedCodeBlockNoLanguage() throws {
+        let out = try roundTrip("```\nlet x = 1\n```\n")
+        #expect(out == "```\nlet x = 1\n```\n")
+    }
+
+    @Test func fencedCodeBlockMultipleLines() throws {
+        let out = try roundTrip("```swift\nlet x = 1\nlet y = 2\n```\n")
+        #expect(out == "```swift\nlet x = 1\nlet y = 2\n```\n")
+    }
+
 }

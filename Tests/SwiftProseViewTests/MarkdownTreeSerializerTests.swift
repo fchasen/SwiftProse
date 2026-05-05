@@ -117,4 +117,74 @@ struct MarkdownTreeSerializerTests {
         let out = try roundTrip("# Hi\n\nworld\n")
         #expect(out == "# Hi\n\nworld\n")
     }
+
+    // MARK: - inline images
+
+    @Test
+    func bareImageRoundTrips() throws {
+        let out = try roundTrip("![alt](https://example.com/x.png)\n")
+        #expect(out == "![alt](https://example.com/x.png)\n")
+    }
+
+    @Test
+    func imageWithTitleRoundTrips() throws {
+        let out = try roundTrip("![alt](https://example.com/x.png \"a title\")\n")
+        #expect(out == "![alt](https://example.com/x.png \"a title\")\n")
+    }
+
+    @Test
+    func imageInsideParagraphRoundTrips() throws {
+        let out = try roundTrip("see ![alt](pic.png) below\n")
+        #expect(out == "see ![alt](pic.png) below\n")
+    }
+
+    @Test
+    func imageInsideListItemRoundTrips() throws {
+        let out = try roundTrip("- look ![alt](pic.png) here\n")
+        #expect(out == "- look ![alt](pic.png) here\n")
+    }
+
+    @Test
+    func emptyAltImageRoundTrips() throws {
+        let out = try roundTrip("![](pic.png)\n")
+        #expect(out == "![](pic.png)\n")
+    }
+
+    // MARK: - nested lists
+
+    @Test
+    func nestedBulletRoundTrips() throws {
+        let out = try roundTrip("- a\n  - b\n  - c\n- d\n")
+        #expect(out == "- a\n  - b\n  - c\n- d\n")
+    }
+
+    @Test
+    func threeLevelBulletRoundTrips() throws {
+        let out = try roundTrip("- a\n  - b\n    - c\n")
+        #expect(out == "- a\n  - b\n    - c\n")
+    }
+
+    @Test
+    func nestedTaskListRoundTrips() throws {
+        let out = try roundTrip("- [ ] a\n  - [x] b\n")
+        #expect(out == "- [ ] a\n  - [x] b\n")
+    }
+
+    @Test
+    func nestedListInsideBlockquoteRoundTrips() throws {
+        let out = try roundTrip("> - a\n>   - b\n")
+        #expect(out == "> - a\n>   - b\n")
+    }
+
+    @Test
+    func mixedOrderedThenBulletPreservesNesting() throws {
+        // 3-space indent (matching ordered marker width) normalizes to the
+        // canonical 2-space indent prosemirror-markdown emits — re-compiling
+        // the serialized form yields the same shape, so the round-trip is
+        // idempotent on the second pass.
+        let out = try roundTrip("1. a\n   - b\n")
+        #expect(try roundTrip(out) == out)
+        #expect(out.contains("1. a"))
+        #expect(out.contains("- b"))
+    }
 }

@@ -37,10 +37,12 @@ public struct MarkdownTreeSerializer {
         var output: String = ""
         var blockquoteDepth: Int = 0
         var listLevel: Int = 0
-        /// Ordered-list "stride" stack: each open ordered_list pushes its
-        /// `start` and the running counter; nested ordered lists keep
-        /// independent counters.
-        var orderedCounters: [Int] = []
+        /// Per-level marker width in characters. Bullet/task = 2 ("- " or
+        /// "- [x] "). Ordered = digits-of-max-marker + 2 for ". " (e.g.
+        /// "1. " = 3, "10. " = 4). Mirrors prosemirror-markdown's
+        /// `wrapBlock` indent calculation so a nested block under a
+        /// list_item lines up with the start of the marker's content.
+        var listMarkerWidths: [Int] = []
         /// Number of block-level emits at the current level — used to
         /// decide whether to insert a blank-line separator before this
         /// block.
@@ -56,6 +58,13 @@ public struct MarkdownTreeSerializer {
             while output.hasSuffix("\n\n") { break }
             if !output.hasSuffix("\n") { output.append("\n") }
             output.append("\n")
+        }
+
+        /// Indent (in spaces) for content sitting at the given list level.
+        /// Sums each outer level's marker width.
+        func listIndentSpaces(through level: Int) -> String {
+            let count = listMarkerWidths.prefix(max(0, level)).reduce(0, +)
+            return String(repeating: " ", count: count)
         }
     }
 
@@ -118,7 +127,7 @@ public struct MarkdownTreeSerializer {
     }
 
     private func listIndent(_ ctx: Context) -> String {
-        String(repeating: "  ", count: max(0, ctx.listLevel))
+        ctx.listIndentSpaces(through: ctx.listLevel)
     }
 
     private func emitParagraph(_ kids: [TreeNode], attrs: [String: ProseAttrValue], ctx: inout Context) {
@@ -163,32 +172,44 @@ public struct MarkdownTreeSerializer {
     private func emitBulletList(_ items: [TreeNode], ctx: inout Context) {
         ctx.emitBlankLineBetweenBlocks()
         ctx.listLevel += 1
+        ctx.listMarkerWidths.append(2)
         let savedBlocks = ctx.blocksAtThisLevel
         ctx.blocksAtThisLevel = 0
         for item in items {
             emitListItemMarker("- ", node: item, ctx: &ctx)
         }
         ctx.listLevel -= 1
+        ctx.listMarkerWidths.removeLast()
         ctx.blocksAtThisLevel = savedBlocks + 1
     }
 
     private func emitOrderedList(start: Int, kids: [TreeNode], ctx: inout Context) {
         ctx.emitBlankLineBetweenBlocks()
         ctx.listLevel += 1
+        // prosemirror-markdown picks the indent off the *widest* marker
+        // any item in this list will get, so all rows line up with the
+        // first marker's content column.
+        let lastIndex = start + max(0, kids.count - 1)
+        let maxDigits = String(lastIndex).count
+        ctx.listMarkerWidths.append(maxDigits + 2) // ". "
         var counter = start
         let savedBlocks = ctx.blocksAtThisLevel
         ctx.blocksAtThisLevel = 0
         for item in kids {
-            emitListItemMarker("\(counter). ", node: item, ctx: &ctx)
+            let raw = "\(counter). "
+            let pad = String(repeating: " ", count: max(0, (maxDigits + 2) - (raw as NSString).length))
+            emitListItemMarker(pad + raw, node: item, ctx: &ctx)
             counter += 1
         }
         ctx.listLevel -= 1
+        ctx.listMarkerWidths.removeLast()
         ctx.blocksAtThisLevel = savedBlocks + 1
     }
 
     private func emitTaskList(_ kids: [TreeNode], ctx: inout Context) {
         ctx.emitBlankLineBetweenBlocks()
         ctx.listLevel += 1
+        ctx.listMarkerWidths.append(2)
         let savedBlocks = ctx.blocksAtThisLevel
         ctx.blocksAtThisLevel = 0
         for item in kids {
@@ -201,6 +222,7 @@ public struct MarkdownTreeSerializer {
             emitListItemMarker("- [\(checked ? "x" : " ")] ", node: item, ctx: &ctx)
         }
         ctx.listLevel -= 1
+        ctx.listMarkerWidths.removeLast()
         ctx.blocksAtThisLevel = savedBlocks + 1
     }
 
@@ -225,10 +247,11 @@ public struct MarkdownTreeSerializer {
     }
 
     private func emitListItemFirstChild(marker: String, child: TreeNode, ctx: inout Context) {
+        let preMarker = ctx.listIndentSpaces(through: ctx.listLevel - 1)
         switch child {
         case .structural(let pn, let kids) where pn.type == "paragraph":
             ctx.output.append(blockLinePrefix(ctx))
-            ctx.output.append(String(repeating: "  ", count: max(0, ctx.listLevel - 1)))
+            ctx.output.append(preMarker)
             ctx.output.append(marker)
             ctx.output.append(renderInline(kids))
             ctx.emitNewline()
@@ -237,7 +260,7 @@ public struct MarkdownTreeSerializer {
             // Marker still leads even when first child isn't a paragraph;
             // emit it on its own line, then recurse.
             ctx.output.append(blockLinePrefix(ctx))
-            ctx.output.append(String(repeating: "  ", count: max(0, ctx.listLevel - 1)))
+            ctx.output.append(preMarker)
             ctx.output.append(marker.trimmingCharacters(in: .whitespaces))
             ctx.emitNewline()
             ctx.blocksAtThisLevel += 1
@@ -403,6 +426,8 @@ public struct MarkdownTreeSerializer {
                 result.append(emitInline(text: text, marks: marks))
             case .leaf(let node) where node.type == "hard_break":
                 result.append("  \n")
+            case .leaf(let node) where node.type == "image":
+                result.append(emitImage(node))
             case .leaf:
                 continue
             case .structural:
@@ -413,6 +438,20 @@ public struct MarkdownTreeSerializer {
             }
         }
         return result
+    }
+
+    private func emitImage(_ node: ProseNode) -> String {
+        let src = node.attrs["src"]?.stringValue ?? ""
+        let alt = node.attrs["alt"]?.stringValue ?? ""
+        let title = node.attrs["title"]?.stringValue
+        let escapedSrc = src
+            .replacingOccurrences(of: "(", with: "\\(")
+            .replacingOccurrences(of: ")", with: "\\)")
+        if let title, !title.isEmpty {
+            let escapedTitle = title.replacingOccurrences(of: "\"", with: "\\\"")
+            return "![\(alt)](\(escapedSrc) \"\(escapedTitle)\")"
+        }
+        return "![\(alt)](\(escapedSrc))"
     }
 
     private func emitInline(text: String, marks: MarkSet) -> String {

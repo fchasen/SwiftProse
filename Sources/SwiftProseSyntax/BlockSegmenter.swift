@@ -39,7 +39,38 @@ public enum BlockSegmenter {
     public static func segment(rootNode: Node, mapping: TreeSitterMapping) -> [BlockSegment] {
         var ctx = Context(mapping: mapping)
         walk(rootNode, ctx: &ctx)
-        return ctx.out
+        return clampOverlaps(ctx.out)
+    }
+
+    /// Tree-sitter-markdown reports a paragraph node range that extends past
+    /// its own line into the next line's `block_continuation` indent. When
+    /// the next sibling is a nested list, `lineExpanded` then pulls the
+    /// paragraph's segment range across the nested-list lines, overlapping
+    /// the nested-item segments. Clamp each segment's upper bound to the
+    /// next segment's start so no two segments overlap.
+    private static func clampOverlaps(_ segments: [BlockSegment]) -> [BlockSegment] {
+        guard segments.count > 1 else { return segments }
+        var out = segments
+        for i in 0..<(out.count - 1) {
+            let next = out[i + 1]
+            let cur = out[i]
+            let curEnd = cur.range.location + cur.range.length
+            if curEnd > next.range.location {
+                let newLength = max(0, next.range.location - cur.range.location)
+                out[i] = BlockSegment(
+                    range: NSRange(location: cur.range.location, length: newLength),
+                    tag: cur.tag,
+                    level: cur.level,
+                    blockquoteDepth: cur.blockquoteDepth,
+                    language: cur.language,
+                    listLevel: cur.listLevel,
+                    orderedIndex: cur.orderedIndex,
+                    isChecked: cur.isChecked,
+                    firstInListItem: cur.firstInListItem
+                )
+            }
+        }
+        return out
     }
 
     private struct Context {

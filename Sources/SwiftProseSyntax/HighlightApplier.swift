@@ -188,9 +188,6 @@ public final class HighlightApplier {
 
     (uri_autolink) @text.uri
 
-    (image
-      (link_destination) @text.uri)
-
     [
       (link_label)
       (link_text)
@@ -209,6 +206,8 @@ public final class HighlightApplier {
         "]"
         "("
         ")"
+        (link_destination)
+        (link_title)
       ] @punctuation.delimiter)
 
     (inline_link

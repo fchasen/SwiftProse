@@ -176,6 +176,9 @@ public struct ProseMirrorCodec {
 
     private func appendTextblock(_ node: PMNode, spec: BlockSpec, into result: NSMutableAttributedString) {
         let line = NSMutableAttributedString()
+        // Image positions inside `line` (local coords) so the post-stamp
+        // pass can replace their proseNodePath with the leaf-extended path.
+        var imagePositions: [(NSRange, [String: ProseAttrValue])] = []
         for child in node.content ?? [] {
             switch child.type {
             case "text":
@@ -193,9 +196,13 @@ public struct ProseMirrorCodec {
                 let alt = child.attrs?["alt"]?.stringValue ?? ""
                 let title = child.attrs?["title"]?.stringValue
                 let attrs = schemaMap.baseAttributes(for: spec, theme: theme)
-                let label = alt.isEmpty ? src : alt
-                let titleSuffix = title.map { " \"\($0)\"" } ?? ""
-                line.append(NSAttributedString(string: "![\(label)](\(src)\(titleSuffix))", attributes: attrs))
+                let placeholder = alt.isEmpty ? "\u{FFFC}" : alt
+                let before = line.length
+                line.append(NSAttributedString(string: placeholder, attributes: attrs))
+                var imgAttrs: [String: ProseAttrValue] = ["src": .string(src)]
+                imgAttrs["alt"] = alt.isEmpty ? .null : .string(alt)
+                imgAttrs["title"] = title.map(ProseAttrValue.string) ?? .null
+                imagePositions.append((NSRange(location: before, length: line.length - before), imgAttrs))
             default:
                 continue
             }
@@ -215,6 +222,18 @@ public struct ProseMirrorCodec {
         let stampedLength = result.length - beforeLength
         if stampedLength > 0 {
             result.setBlockSpec(spec, in: NSRange(location: beforeLength, length: stampedLength))
+            for (localRange, imgAttrs) in imagePositions {
+                let absRange = NSRange(
+                    location: beforeLength + localRange.location,
+                    length: localRange.length
+                )
+                guard absRange.length > 0,
+                      absRange.location + absRange.length <= result.length,
+                      let basePath = result.nodePath(at: absRange.location) else { continue }
+                let imageNode = ProseNode(type: "image", attrs: imgAttrs)
+                let extended = basePath.appending(imageNode)
+                result.setNodePath(extended, in: absRange)
+            }
         }
     }
 
@@ -376,6 +395,20 @@ public struct ProseMirrorCodec {
                 out.append(pm)
             case .leaf(let pn) where pn.type == "hard_break":
                 out.append(PMNode(type: "hard_break"))
+            case .leaf(let pn) where pn.type == "image":
+                var pmAttrs: [String: PMValue] = [:]
+                pmAttrs["src"] = .string(pn.attrs["src"]?.stringValue ?? "")
+                if let alt = pn.attrs["alt"]?.stringValue {
+                    pmAttrs["alt"] = .string(alt)
+                } else {
+                    pmAttrs["alt"] = .null
+                }
+                if let title = pn.attrs["title"]?.stringValue {
+                    pmAttrs["title"] = .string(title)
+                } else {
+                    pmAttrs["title"] = .null
+                }
+                out.append(PMNode(type: "image", attrs: pmAttrs))
             case .leaf, .structural:
                 continue
             }

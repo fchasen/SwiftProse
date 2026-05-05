@@ -207,4 +207,31 @@ import UIKit
         #expect(code?.attrs?["params"]?.stringValue == "swift")
     }
 
+    @Test func encodeImageEmitsAttrsNotLiteralText() throws {
+        let document = try compileTree("![alt text](pic.png \"a title\")\n")
+        let pm = ProseMirrorCodec().encode(document: document)
+        let paragraph = pm.content?.first
+        let image = paragraph?.content?.first
+        #expect(image?.type == "image")
+        #expect(image?.attrs?["src"]?.stringValue == "pic.png")
+        #expect(image?.attrs?["alt"]?.stringValue == "alt text")
+        #expect(image?.attrs?["title"]?.stringValue == "a title")
+    }
+
+    @Test func decodeImageRoundTripsThroughEncode() throws {
+        let json = """
+        {"type":"doc","content":[
+          {"type":"paragraph","content":[
+            {"type":"image","attrs":{"src":"pic.png","alt":"alt","title":null}}
+          ]}
+        ]}
+        """
+        let attributed = try decoded(json)
+        let pm = ProseMirrorCodec().encode(attributed)
+        let image = pm.content?.first?.content?.first
+        #expect(image?.type == "image")
+        #expect(image?.attrs?["src"]?.stringValue == "pic.png")
+        #expect(image?.attrs?["alt"]?.stringValue == "alt")
+    }
+
 }

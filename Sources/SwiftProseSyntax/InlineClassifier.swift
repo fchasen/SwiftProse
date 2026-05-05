@@ -3,7 +3,7 @@ import SwiftTreeSitter
 
 public enum InlineKind: Equatable, Sendable {
     case inlineLink(destination: String, label: String)
-    case image(destination: String, alt: String)
+    case image(destination: String, alt: String, altRange: NSRange, title: String?)
 }
 
 public struct InlineRegion: Equatable, Sendable {
@@ -55,8 +55,41 @@ public enum InlineClassifier {
     private static func imageRegion(of node: Node, mapping: TreeSitterMapping) -> InlineRegion? {
         let range = nsRange(of: node, mapping: mapping)
         let alt = childText(in: node, types: ["image_description"], mapping: mapping) ?? ""
+        let altRange = childRange(in: node, types: ["image_description"], mapping: mapping)
+            ?? NSRange(location: range.location, length: 0)
         let destination = childText(in: node, types: ["link_destination"], mapping: mapping) ?? ""
-        return InlineRegion(range: range, kind: .image(destination: destination, alt: alt))
+        let rawTitle = childText(in: node, types: ["link_title"], mapping: mapping)
+        let title = rawTitle.flatMap(unquoteLinkTitle)
+        return InlineRegion(range: range, kind: .image(
+            destination: destination,
+            alt: alt,
+            altRange: altRange,
+            title: title
+        ))
+    }
+
+    private static func childRange(in node: Node, types: Set<String>, mapping: TreeSitterMapping) -> NSRange? {
+        for i in 0..<node.childCount {
+            guard let child = node.child(at: i), let t = child.nodeType else { continue }
+            if types.contains(t) {
+                let byte = child.byteRange
+                let lo = mapping.utf16Offset(forByte: byte.lowerBound)
+                let hi = mapping.utf16Offset(forByte: byte.upperBound)
+                return NSRange(location: lo, length: hi - lo)
+            }
+        }
+        return nil
+    }
+
+    private static func unquoteLinkTitle(_ raw: String) -> String? {
+        guard raw.count >= 2 else { return raw.isEmpty ? nil : raw }
+        let first = raw.first!
+        let last = raw.last!
+        if (first == "\"" && last == "\"") || (first == "'" && last == "'")
+            || (first == "(" && last == ")") {
+            return String(raw.dropFirst().dropLast())
+        }
+        return raw
     }
 
     private static func nsRange(of node: Node, mapping: TreeSitterMapping) -> NSRange {

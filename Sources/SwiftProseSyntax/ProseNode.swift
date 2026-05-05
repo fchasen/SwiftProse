@@ -215,7 +215,21 @@ public extension NodePath {
             for level in 0...depth {
                 let listNode: ProseNode
                 let itemNode: ProseNode
-                if level < prevLists.count, prevLists[level].kind == kind {
+                let isLeafLevel = (level == depth)
+                // At inner levels (level < depth), an outer list_item from
+                // the predecessor is reused regardless of list kind so that
+                // a nested list of a different kind (e.g. bullet inside
+                // ordered) lives inside the same list_item as its sibling
+                // paragraph. At the leaf level only kind-matching ancestors
+                // are reused — that's how `- a\n- b` shares its list while
+                // `- a\n1. b` doesn't.
+                let canReuse: Bool
+                if level < prevLists.count {
+                    canReuse = isLeafLevel ? (prevLists[level].kind == kind) : true
+                } else {
+                    canReuse = false
+                }
+                if canReuse {
                     listNode = prevLists[level].listNode
                     if level < depth {
                         itemNode = prevLists[level].itemNode

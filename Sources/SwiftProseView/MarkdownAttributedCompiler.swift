@@ -194,6 +194,26 @@ public final class MarkdownAttributedCompiler {
                 stripRanges.append(taskRange)
             }
         }
+        // For each image inside this segment strip every byte that isn't
+        // part of the alt-text range. The bundled highlight queries cover
+        // most of the image's punctuation but not (e.g.) the space between
+        // `link_destination` and `link_title`; explicit strip keeps the
+        // rendered storage to just the alt and lets the leaf stamp later
+        // round-trip the image cleanly.
+        for region in inlineRegions {
+            guard case .image(_, _, let altRange, _) = region.kind,
+                  rangesIntersect(region.range, segRange) else { continue }
+            let imgStart = region.range.location
+            let imgEnd = region.range.location + region.range.length
+            let altStart = altRange.location
+            let altEnd = altRange.location + altRange.length
+            if altStart > imgStart {
+                stripRanges.append(NSRange(location: imgStart, length: altStart - imgStart))
+            }
+            if imgEnd > altEnd {
+                stripRanges.append(NSRange(location: altEnd, length: imgEnd - altEnd))
+            }
+        }
         let strip = unionRanges(stripRanges)
 
         let stripped = stripCharacters(in: segRange, source: nsSource, stripping: strip)
@@ -293,6 +313,7 @@ public final class MarkdownAttributedCompiler {
             }
         }
 
+        var markerLen = 0
         switch segment.tag {
         case .taskListItem:
             let attachment = CheckboxAttachment()
@@ -300,35 +321,128 @@ public final class MarkdownAttributedCompiler {
             var attachmentAttrs = paragraphAttrs
             attachmentAttrs[.attachment] = attachment
             attachmentAttrs[.proseListMarker] = true
-            attributed.insert(
-                NSAttributedString(string: "\u{FFFC} ", attributes: attachmentAttrs),
-                at: 0
-            )
+            let marker = NSAttributedString(string: "\u{FFFC} ", attributes: attachmentAttrs)
+            attributed.insert(marker, at: 0)
+            markerLen = marker.length
         case .unorderedListItem:
             let attachment = BulletGlyphAttachment(level: segment.listLevel, color: theme.foregroundColor)
             var markerAttrs = paragraphAttrs
             markerAttrs[.attachment] = attachment
             markerAttrs[.foregroundColor] = theme.foregroundColor
             markerAttrs[.proseListMarker] = true
-            attributed.insert(
-                NSAttributedString(string: "\u{FFFC} ", attributes: markerAttrs),
-                at: 0
-            )
+            let marker = NSAttributedString(string: "\u{FFFC} ", attributes: markerAttrs)
+            attributed.insert(marker, at: 0)
+            markerLen = marker.length
         case .orderedListItem:
             let style = OrderedMarkerFormatter.style(forLevel: segment.listLevel)
-            let marker = OrderedMarkerFormatter.format(index: segment.orderedIndex ?? 1, style: style)
+            let formatted = OrderedMarkerFormatter.format(index: segment.orderedIndex ?? 1, style: style)
             var markerAttrs = paragraphAttrs
             markerAttrs[.foregroundColor] = theme.markupColor
             markerAttrs[.proseListMarker] = true
-            attributed.insert(
-                NSAttributedString(string: "\(marker) ", attributes: markerAttrs),
-                at: 0
-            )
+            let marker = NSAttributedString(string: "\(formatted) ", attributes: markerAttrs)
+            attributed.insert(marker, at: 0)
+            markerLen = marker.length
         default:
             break
         }
 
+        let blockBaseLength = out.length
         appendStyled(attributed, spec: BlockSpec(blockSegment: segment), into: out)
+        stampImageLeaves(
+            in: out,
+            blockBase: blockBaseLength,
+            markerLen: markerLen,
+            stripped: stripped,
+            inlineRegions: inlineRegions,
+            segRange: segRange
+        )
+    }
+
+    /// For every image region intersecting this segment, replace the
+    /// `proseNodePath` over its alt-text storage range with an extended
+    /// path that appends an `image` leaf carrying the image's
+    /// `src`/`alt`/`title` attrs. The base path is read back from the
+    /// surrounding paragraph so the extended path keeps the paragraph's
+    /// node id — letting the tree builder reattach the leaf to the same
+    /// paragraph as the surrounding text.
+    private func stampImageLeaves(
+        in out: NSMutableAttributedString,
+        blockBase: Int,
+        markerLen: Int,
+        stripped: StripResult,
+        inlineRegions: [InlineRegion],
+        segRange: NSRange
+    ) {
+        // Walk image regions in reverse source order — when an empty-alt
+        // image needs a U+FFFC placeholder inserted, processing later
+        // images first keeps earlier images' projected positions valid.
+        let images = inlineRegions
+            .filter { region in
+                if case .image = region.kind, rangesIntersect(region.range, segRange) {
+                    return true
+                }
+                return false
+            }
+            .sorted { $0.range.location > $1.range.location }
+        for region in images {
+            guard case .image(let dest, let alt, let altRange, let title) = region.kind else { continue }
+            var attrs: [String: ProseAttrValue] = ["src": .string(dest)]
+            attrs["alt"] = alt.isEmpty ? .null : .string(alt)
+            attrs["title"] = title.map(ProseAttrValue.string) ?? .null
+            let imageNode = ProseNode(type: "image", attrs: attrs)
+            if let projected = stripped.project(sourceRange: altRange), projected.length > 0 {
+                let abs = NSRange(
+                    location: blockBase + markerLen + projected.location,
+                    length: projected.length
+                )
+                guard abs.location >= 0,
+                      abs.location + abs.length <= out.length else { continue }
+                guard let basePath = out.nodePath(at: abs.location) else { continue }
+                let extended = basePath.appending(imageNode)
+                out.setNodePath(extended, in: abs)
+            } else {
+                // Empty alt — insert a U+FFFC placeholder so the image leaf
+                // has a single-character anchor on storage, then stamp the
+                // extended path on it.
+                let strippedInsert = firstPreservedStrippedIndex(
+                    afterSourceLocation: region.range.location,
+                    in: stripped
+                )
+                let absLoc = blockBase + markerLen + strippedInsert
+                guard absLoc >= 0, absLoc <= out.length else { continue }
+                let probe = max(0, min(absLoc, out.length - 1))
+                guard out.length > 0,
+                      let basePath = out.nodePath(at: probe) else { continue }
+                let baseAttrs = out.attributes(at: probe, effectiveRange: nil)
+                let extended = basePath.appending(imageNode)
+                let placeholder = NSAttributedString(
+                    string: "\u{FFFC}",
+                    attributes: baseAttrs
+                )
+                out.insert(placeholder, at: absLoc)
+                out.setNodePath(extended, in: NSRange(location: absLoc, length: 1))
+            }
+        }
+    }
+
+    /// Walk the strip projection forward from `sourceLocation` and return
+    /// the first preserved (non-stripped) stripped-content index. When the
+    /// image's source range is entirely stripped, this gives us the offset
+    /// of the next visible character — the right place to insert a U+FFFC
+    /// placeholder.
+    private func firstPreservedStrippedIndex(
+        afterSourceLocation sourceLocation: Int,
+        in stripped: StripResult
+    ) -> Int {
+        let scanStart = max(0, sourceLocation - stripped.sourceStart)
+        guard scanStart < stripped.projection.count else {
+            return (stripped.text as NSString).length
+        }
+        for i in scanStart..<stripped.projection.count {
+            let mapped = stripped.projection[i]
+            if mapped >= 0 { return mapped }
+        }
+        return (stripped.text as NSString).length
     }
 
     private func appendCodeBlock(
@@ -352,7 +466,62 @@ public final class MarkdownAttributedCompiler {
         if !content.hasSuffix("\n") { content.append("\n") }
         let attributed = NSMutableAttributedString(string: content, attributes: paragraphAttrs)
         applyCodeBlockHighlights(to: attributed, segment: segment, source: source, theme: theme)
+        markCodeBlockMarkup(in: attributed, tag: segment.tag)
         appendStyled(attributed, spec: BlockSpec(blockSegment: segment), into: out)
+    }
+
+    /// Mark fence/indent characters with `proseListMarker` so the tree
+    /// projection excludes them from the leaf's inline content.
+    private func markCodeBlockMarkup(
+        in attributed: NSMutableAttributedString,
+        tag: BlockTag
+    ) {
+        let ns = attributed.string as NSString
+        switch tag {
+        case .fencedCode:
+            let firstNL = ns.range(of: "\n")
+            if firstNL.location != NSNotFound {
+                attributed.addAttribute(
+                    .proseListMarker,
+                    value: true,
+                    range: NSRange(location: 0, length: firstNL.location + 1)
+                )
+            }
+            var end = ns.length
+            while end > 0, ns.character(at: end - 1) == 0x0A { end -= 1 }
+            var lineStart = end
+            while lineStart > 0, ns.character(at: lineStart - 1) != 0x0A { lineStart -= 1 }
+            if lineStart < end {
+                let lastLine = ns.substring(with: NSRange(location: lineStart, length: end - lineStart))
+                if isFenceLine(lastLine) {
+                    attributed.addAttribute(
+                        .proseListMarker,
+                        value: true,
+                        range: NSRange(location: lineStart, length: ns.length - lineStart)
+                    )
+                }
+            }
+        case .indentedCode:
+            var i = 0
+            while i < ns.length {
+                var j = i
+                while j < ns.length, j - i < 4, ns.character(at: j) == 0x20 {
+                    j += 1
+                }
+                if j > i {
+                    attributed.addAttribute(
+                        .proseListMarker,
+                        value: true,
+                        range: NSRange(location: i, length: j - i)
+                    )
+                }
+                while j < ns.length, ns.character(at: j) != 0x0A { j += 1 }
+                if j < ns.length { j += 1 }
+                i = j
+            }
+        default:
+            break
+        }
     }
 
     /// Run the registered `CodeBlockHighlighter` over the body lines of this
