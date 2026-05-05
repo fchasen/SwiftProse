@@ -260,6 +260,22 @@ public extension ProseDocument {
                 stack[stack.count - 1].kids.append(.leaf(leaf))
                 return
             }
+            // When the leaf is an `isolating`-flagged structural node
+            // (today: `table`), look for a `ProseSubtreeAttachment` at
+            // the run start and lift its subtree's children into the
+            // tree at this position. Storage stops at the isolating
+            // leaf — the attachment supplies the children.
+            if let leaf = blockPath.leaf,
+               schema.nodeType(leaf.type)?.isolating == true,
+               let attachment = subtreeAttachment(in: storage, at: blockRange.location) {
+                openTo(parent: blockPath.droppingLast(), stack: &stack, openPath: &openPath)
+                if case .structural(_, let kids) = attachment.subtree {
+                    stack[stack.count - 1].kids.append(.structural(leaf, kids))
+                } else {
+                    stack[stack.count - 1].kids.append(.structural(leaf, []))
+                }
+                return
+            }
             // Open the structural ancestors for this block even when it
             // has no inline content (e.g. an empty bullet line — `- \n`
             // — or a heading whose body got deleted). Skip pure-whitespace
@@ -378,6 +394,19 @@ public extension ProseDocument {
             i += 1
         }
         return false
+    }
+
+    private static func subtreeAttachment(
+        in storage: NSAttributedString,
+        at location: Int
+    ) -> ProseSubtreeAttachment? {
+        guard location >= 0, location < storage.length else { return nil }
+        let raw = storage.attribute(
+            NSAttributedString.Key("NSAttachment"),
+            at: location,
+            effectiveRange: nil
+        )
+        return raw as? ProseSubtreeAttachment
     }
 
     private static func isPresentationMarker(

@@ -52,6 +52,11 @@ public final class EditorController {
 
     public let commands: CommandRegistry
     public let inputRules: InputRuleRunner
+    /// Registry of `NodeViewProvider`s keyed by node-type name. Hosts
+    /// register providers at startup to take over the rendering of an
+    /// `isolating`-flagged node type (today: `table`). Empty by default —
+    /// no provider means the legacy flat-storage rendering applies.
+    public let nodeViewRegistry: NodeViewRegistry = NodeViewRegistry()
 
     private(set) var compiler: MarkdownAttributedCompiler
     private(set) var serializer: AttributedMarkdownSerializer
