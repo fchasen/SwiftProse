@@ -707,11 +707,56 @@ public final class MarkdownAttributedCompiler {
         ]
         var content = nsSource.substring(with: segment.range)
         if !content.hasSuffix("\n") { content.append("\n") }
+        let startIdx = out.length
         appendStyled(
             NSAttributedString(string: content, attributes: attrs),
             spec: BlockSpec(blockSegment: segment),
             into: out
         )
+        if segment.tag == .linkReferenceDefinition,
+           let parsed = parseLinkReference(content) {
+            stampLinkReferenceAttrs(
+                in: out,
+                range: NSRange(location: startIdx, length: out.length - startIdx),
+                label: parsed.label,
+                href: parsed.href,
+                title: parsed.title
+            )
+        }
+    }
+
+    private func parseLinkReference(_ source: String) -> (label: String, href: String, title: String?)? {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pattern = #"^\[([^\]]+)\]:\s+(\S+)(?:\s+"([^"]+)")?\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let ns = trimmed as NSString
+        guard let match = regex.firstMatch(in: trimmed, range: NSRange(location: 0, length: ns.length)) else {
+            return nil
+        }
+        let label = ns.substring(with: match.range(at: 1))
+        let href = ns.substring(with: match.range(at: 2))
+        let titleRange = match.range(at: 3)
+        let title: String? = titleRange.location == NSNotFound ? nil : ns.substring(with: titleRange)
+        return (label, href, title)
+    }
+
+    private func stampLinkReferenceAttrs(
+        in out: NSMutableAttributedString,
+        range: NSRange,
+        label: String,
+        href: String,
+        title: String?
+    ) {
+        out.enumerateNodePaths(in: range) { runRange, path in
+            guard let leaf = path.leaf, leaf.type == "link_reference" else { return }
+            var newAttrs = leaf.attrs
+            newAttrs["label"] = .string(label)
+            newAttrs["href"] = .string(href)
+            newAttrs["title"] = title.map(ProseAttrValue.string) ?? .null
+            let newLeaf = ProseNode(id: leaf.id, type: leaf.type, attrs: newAttrs)
+            let newPath = NodePath(path.nodes.dropLast() + [newLeaf])
+            out.setNodePath(newPath, in: runRange)
+        }
     }
 
     /// Emit a pipe-table segment as plain per-line paragraphs. Pipe

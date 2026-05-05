@@ -102,4 +102,14 @@ import SwiftProseSyntax
         #expect(out == "    let x = 1\n    let y = 2\n")
     }
 
+    @Test func linkReferenceDefinition() throws {
+        let out = try roundTrip("[ref]: https://example.com\n")
+        #expect(out == "[ref]: https://example.com\n")
+    }
+
+    @Test func linkReferenceDefinitionWithTitle() throws {
+        let out = try roundTrip("[ref]: https://example.com \"docs\"\n")
+        #expect(out == "[ref]: https://example.com \"docs\"\n")
+    }
+
 }
