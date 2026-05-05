@@ -942,9 +942,38 @@ public final class MarkdownAttributedCompiler {
     private func parsePipeRow(_ line: String) -> [String] {
         var s = line.trimmingCharacters(in: .whitespaces)
         if s.hasPrefix("|") { s.removeFirst() }
-        if s.hasSuffix("|") { s.removeLast() }
-        return s.split(separator: "|", omittingEmptySubsequences: false)
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
+        // GFM: a trailing unescaped `|` is the row terminator. Drop it
+        // unless it's `\|` — that's an escaped pipe at the row's tail.
+        if s.hasSuffix("|"), !s.hasSuffix("\\|") {
+            s.removeLast()
+        }
+        // Split on unescaped `|`. `\|` is the GFM escape for a literal
+        // pipe inside a cell — without this, cells like
+        // `` `"a"` \| `"b"` `` get split into bogus extra columns.
+        var cells: [String] = []
+        var current = ""
+        var i = s.startIndex
+        while i < s.endIndex {
+            let ch = s[i]
+            if ch == "\\" {
+                let next = s.index(after: i)
+                if next < s.endIndex, s[next] == "|" {
+                    current.append("|")
+                    i = s.index(after: next)
+                    continue
+                }
+            }
+            if ch == "|" {
+                cells.append(current.trimmingCharacters(in: .whitespaces))
+                current = ""
+                i = s.index(after: i)
+                continue
+            }
+            current.append(ch)
+            i = s.index(after: i)
+        }
+        cells.append(current.trimmingCharacters(in: .whitespaces))
+        return cells
     }
 
     private func parsePipeAlignmentRow(_ line: String) -> [PipeTableAlignment]? {

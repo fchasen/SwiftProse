@@ -47,4 +47,49 @@ public final class ProseNodeAttachment: NSTextAttachment, ProseSubtreeAttachment
     public func update(subtree: TreeNode) {
         self.subtree = subtree
     }
+
+    /// Legacy `NSTextAttachment` bounds path — used when the host falls
+    /// back to TextKit 1 line-fragment layout for an attachment (e.g.
+    /// during a paste preview, or while the view-provider's frame is
+    /// being computed). Stays in sync with the view provider's
+    /// computation.
+    public override func attachmentBounds(
+        for textContainer: NSTextContainer?,
+        proposedLineFragment lineFrag: CGRect,
+        glyphPosition position: CGPoint,
+        characterIndex charIndex: Int
+    ) -> CGRect {
+        let width = ProseNodeAttachment.preferredWidth(
+            proposedLineFragment: lineFrag,
+            textContainer: textContainer
+        )
+        let height = ProseNodeAttachment.preferredHeight(
+            for: subtree,
+            width: width
+        )
+        return CGRect(origin: .zero, size: CGSize(width: width, height: height))
+    }
+
+    public static func preferredWidth(
+        proposedLineFragment lineFrag: CGRect,
+        textContainer: NSTextContainer?
+    ) -> CGFloat {
+        if lineFrag.width > 0 { return lineFrag.width }
+        if let cw = textContainer?.size.width,
+           cw > 0,
+           cw < CGFloat.greatestFiniteMagnitude {
+            return cw
+        }
+        return 320
+    }
+
+    public static func preferredHeight(
+        for subtree: TreeNode,
+        width: CGFloat
+    ) -> CGFloat {
+        guard case .structural(_, let rows) = subtree else { return 30 }
+        let rowCount = max(1, rows.count)
+        // Conservative default: 30pt per row + 2pt borders.
+        return CGFloat(rowCount) * 30 + 2
+    }
 }

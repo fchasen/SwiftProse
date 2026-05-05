@@ -24,14 +24,29 @@ public final class TableBlockView: PlatformView {
         didSet { updateCellEditable() }
     }
 
+    /// `(row, column)` of the cell whose text view is currently first
+    /// responder. `nil` when focus is outside the table. Updated by
+    /// `CellView` on focus events; consumed by `TableCommands` to target
+    /// the user's current cell.
+    public internal(set) var activeCell: (row: Int, column: Int)?
+
     private(set) var cellViews: [[CellView]] = []
 
     /// Minimum cell height. Cell typography sets a higher one if needed.
-    static let minRowHeight: CGFloat = 30
+    static let minRowHeight: CGFloat = 36
     static let minTableWidth: CGFloat = 280
     static let cellHorizontalPadding: CGFloat = 8
-    static let cellVerticalPadding: CGFloat = 4
+    static let cellVerticalPadding: CGFloat = 6
     static let borderWidth: CGFloat = 1
+    /// Extra buffer added per row when measuring intrinsic height —
+    /// `NSAttributedString.boundingRect` returns the tight glyph
+    /// bounding box, but `NSTextView` lays out lines with leading and
+    /// padding that takes more vertical space. Without the buffer the
+    /// reported height is too short and TextKit clips the bottom rows.
+    static let rowMeasurementSlack: CGFloat = 4
+    /// Extra buffer added to the table's overall height for the same
+    /// reason — covers any sub-pixel rounding accumulated across rows.
+    static let tableMeasurementSlack: CGFloat = 6
 
     public init(subtree: TreeNode, theme: ProseTheme) {
         self.subtree = subtree
@@ -39,8 +54,19 @@ public final class TableBlockView: PlatformView {
         super.init(frame: .zero)
         #if canImport(AppKit) && os(macOS)
         wantsLayer = true
+        layer?.backgroundColor = TableBlockView.backgroundColor.cgColor
+        #else
+        backgroundColor = TableBlockView.backgroundColor
         #endif
         rebuild()
+    }
+
+    static var backgroundColor: PlatformColor {
+        #if canImport(AppKit) && os(macOS)
+        return NSColor.textBackgroundColor
+        #else
+        return UIColor.systemBackground
+        #endif
     }
 
     public required init?(coder: NSCoder) { fatalError("not supported") }
@@ -100,9 +126,12 @@ public final class TableBlockView: PlatformView {
                 )
                 rowHeight = max(rowHeight, h)
             }
-            totalHeight += rowHeight
+            totalHeight += rowHeight + rowMeasurementSlack
         }
-        return CGSize(width: width, height: totalHeight + 2 * borderWidth)
+        return CGSize(
+            width: width,
+            height: totalHeight + 2 * borderWidth + tableMeasurementSlack
+        )
     }
 
     public static func dimensions(of subtree: TreeNode) -> (rows: Int, cols: Int) {
@@ -169,13 +198,13 @@ public final class TableBlockView: PlatformView {
         guard case .structural(_, let rows) = subtree else { return [] }
         let widths = columnWidths()
         return rows.map { row in
-            guard case .structural(_, let cells) = row else { return Self.minRowHeight }
+            guard case .structural(_, let cells) = row else { return Self.minRowHeight + Self.rowMeasurementSlack }
             var h = Self.minRowHeight
             for (idx, cell) in cells.enumerated() {
                 let w = idx < widths.count ? widths[idx] : 0
                 h = max(h, CellView.measureHeight(cell: cell, width: w, theme: theme))
             }
-            return h
+            return h + Self.rowMeasurementSlack
         }
     }
 
@@ -202,6 +231,12 @@ public final class TableBlockView: PlatformView {
         needsDisplay = true
     }
 
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        layoutCells()
+        needsDisplay = true
+    }
+
     public override var isFlipped: Bool { true }
 
     public override func draw(_ dirtyRect: NSRect) {
@@ -213,6 +248,10 @@ public final class TableBlockView: PlatformView {
         super.layoutSubviews()
         layoutCells()
         setNeedsDisplay()
+    }
+
+    public override var frame: CGRect {
+        didSet { layoutCells(); setNeedsDisplay() }
     }
 
     public override func draw(_ rect: CGRect) {
@@ -415,16 +454,16 @@ public final class CellView: PlatformView {
 
     /// Used by `TableBlockView.intrinsicSize` to size rows before any
     /// view is realized. Walks the cell's inline runs, builds the same
-    /// attributed string the view would render, measures wrapping height
-    /// at `width`, and adds the cell's vertical padding.
+    /// attributed string the view would render, measures wrapping
+    /// height at `width` via `NSLayoutManager` (which mirrors
+    /// `NSTextView`'s layout exactly), and adds the cell's vertical
+    /// padding.
     public static func measureHeight(
         cell: TreeNode,
         width: CGFloat,
         theme: ProseTheme
     ) -> CGFloat {
-        guard width > TableBlockView.cellHorizontalPadding * 2 else {
-            return TableBlockView.minRowHeight
-        }
+        let textWidth = max(1, width - 2 * TableBlockView.cellHorizontalPadding)
         let isHeader = cellIsHeader(cell)
         let alignment = parseAlignment(cell)
         let attributed = buildAttributedString(
@@ -433,13 +472,34 @@ public final class CellView: PlatformView {
             alignment: alignment,
             theme: theme
         )
-        let textWidth = max(0, width - 2 * TableBlockView.cellHorizontalPadding)
-        let bounds = attributed.boundingRect(
-            with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            context: nil
+        if attributed.length == 0 {
+            // Empty cell — measure a single space so we still reserve a
+            // full line of typography and aren't height 0.
+            let placeholder = NSAttributedString(
+                string: " ",
+                attributes: [.font: isHeader
+                    ? theme.bodyFont.withProseTraits(.bold)
+                    : theme.bodyFont]
+            )
+            let bounds = placeholder.boundingRect(
+                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
+            return ceil(bounds.height) + 2 * TableBlockView.cellVerticalPadding
+        }
+        let storage = NSTextStorage(attributedString: attributed)
+        let layoutManager = NSLayoutManager()
+        let container = NSTextContainer(
+            size: CGSize(width: textWidth, height: .greatestFiniteMagnitude)
         )
-        return ceil(bounds.height) + 2 * TableBlockView.cellVerticalPadding
+        container.lineFragmentPadding = 0
+        container.widthTracksTextView = false
+        storage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(container)
+        layoutManager.ensureLayout(for: container)
+        let used = layoutManager.usedRect(for: container)
+        return ceil(used.height) + 2 * TableBlockView.cellVerticalPadding
     }
 
     private static func cellIsHeader(_ cell: TreeNode) -> Bool {
@@ -559,25 +619,69 @@ public final class CellView: PlatformView {
         textView.frame = bounds
     }
 
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        textView.frame = bounds
+    }
+
     public override var isFlipped: Bool { true }
     #else
     public override func layoutSubviews() {
         super.layoutSubviews()
         textView.frame = bounds
     }
+
+    public override var frame: CGRect {
+        didSet { textView.frame = bounds }
+    }
     #endif
 
     private func wireDelegate() {
-        let proxy = CellEditDelegate { [weak self] in
-            guard let self, !self.suppressOnEdit else { return }
-            self.onEdit?(self.currentInlineRuns())
-        }
+        let proxy = CellEditDelegate(
+            onChange: { [weak self] in
+                guard let self, !self.suppressOnEdit else { return }
+                self.onEdit?(self.currentInlineRuns())
+            },
+            onFocus: { [weak self] in
+                self?.markActive()
+            }
+        )
         self.delegateProxy = proxy
         #if canImport(AppKit) && os(macOS)
         textView.delegate = proxy
         #else
         textView.delegate = proxy
         #endif
+        #if canImport(AppKit) && os(macOS)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFocusChange(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil
+        )
+        #endif
+    }
+
+    private func markActive() {
+        // Walk up to the parent TableBlockView and record this cell as
+        // active. Toolbar / command targeting reads it.
+        if let table = self.tableParent() {
+            table.activeCell = (row, column)
+        }
+    }
+
+    private func tableParent() -> TableBlockView? {
+        var v: PlatformView? = self.superview
+        while let cur = v {
+            if let t = cur as? TableBlockView { return t }
+            v = cur.superview
+        }
+        return nil
+    }
+
+    @objc private func handleFocusChange(_ note: Notification) {
+        // No-op stub for macOS responder change wiring; the delegate's
+        // textViewDidBeginEditing path triggers `markActive` directly.
     }
 
     private var delegateProxy: CellEditDelegate?
@@ -588,13 +692,18 @@ public final class CellView: PlatformView {
 /// dangle.
 private final class CellEditDelegate: NSObject {
     private let onChange: () -> Void
-    init(onChange: @escaping () -> Void) {
+    private let onFocus: () -> Void
+    init(onChange: @escaping () -> Void, onFocus: @escaping () -> Void) {
         self.onChange = onChange
+        self.onFocus = onFocus
     }
 
     #if canImport(AppKit) && os(macOS)
     @objc fileprivate func textDidChange(_ notification: Notification) {
         onChange()
+    }
+    @objc fileprivate func textDidBeginEditing(_ notification: Notification) {
+        onFocus()
     }
     #endif
 }
@@ -605,6 +714,9 @@ extension CellEditDelegate: NSTextViewDelegate {}
 extension CellEditDelegate: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         onChange()
+    }
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        onFocus()
     }
 }
 #endif

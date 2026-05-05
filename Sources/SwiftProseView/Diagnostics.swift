@@ -61,14 +61,32 @@ public enum SpecValidator {
     /// Restore invariants by enforcing the most common BlockSpec across
     /// each paragraph (or `paragraph` if none is present), and stripping
     /// marker flags off chars whose paragraph isn't a list item.
+    /// Lines whose path leaf is an isolating node (today: a `table`
+    /// attachment) are skipped — their path doesn't fit the flat
+    /// `BlockSpec` shape, and rewriting it would destroy the attachment's
+    /// structural ancestor chain.
     public static func repair(
         in storage: NSTextStorage,
         range: NSRange
     ) {
         forEachLine(in: storage, range: range) { lineRange in
+            if lineHasIsolatingLeaf(in: storage, lineRange: lineRange) { return }
             let canonical = canonicalSpec(in: storage, lineRange: lineRange) ?? .paragraph
             applyCanonical(canonical, to: storage, lineRange: lineRange)
         }
+    }
+
+    private static func lineHasIsolatingLeaf(
+        in storage: NSAttributedString,
+        lineRange: NSRange
+    ) -> Bool {
+        guard lineRange.length > 0,
+              lineRange.location + lineRange.length <= storage.length else { return false }
+        var found = false
+        storage.enumerateNodePaths(in: lineRange) { _, path in
+            if path.leaf?.type == "table" { found = true }
+        }
+        return found
     }
 
     /// Pick the spec value the largest portion of the line agrees on.

@@ -310,8 +310,10 @@ public struct InsertTableCommand: Command {
     }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
         var lines: [String] = []
-        let header = "|" + Array(repeating: "   |", count: columns).joined()
-        lines.append(header)
+        // Tree-sitter-markdown requires non-empty header cells; use
+        // placeholder labels rather than blanks so the table parses.
+        let headerCells = (1...columns).map { " Column \($0) " }
+        lines.append("|" + headerCells.joined(separator: "|") + "|")
         let alignment = "|" + Array(repeating: " --- |", count: columns).joined()
         lines.append(alignment)
         for _ in 0..<rows {
@@ -319,14 +321,20 @@ public struct InsertTableCommand: Command {
             lines.append(body)
         }
         var markdown = lines.joined(separator: "\n") + "\n"
-        // Pipe-table block grammar requires a leading blank line when
-        // the table follows a paragraph. Be conservative: always prefix
-        // a newline if the cursor isn't at the very start.
-        if selection.location > 0 {
-            let prevChar = (storage.string as NSString).character(at: selection.location - 1)
-            if prevChar != UnicodeScalar("\n").value {
-                markdown = "\n" + markdown
-            }
+        // Pipe-table block grammar requires the table to sit at column
+        // 0 of a fresh paragraph. Ensure two newlines (i.e. a blank
+        // line) precede the table source — needed when the cursor is
+        // mid-paragraph or right after one.
+        let ns = storage.string as NSString
+        let last: unichar = selection.location > 0 ? ns.character(at: selection.location - 1) : 0
+        let secondLast: unichar = selection.location > 1 ? ns.character(at: selection.location - 2) : 0
+        let nl = unichar(("\n" as Character).asciiValue ?? 10)
+        if selection.location == 0 {
+            // start of document — no prefix needed
+        } else if last != nl {
+            markdown = "\n\n" + markdown
+        } else if secondLast != nl {
+            markdown = "\n" + markdown
         }
         let compiled = env.compiler.compile(markdown, theme: env.theme)
         return Transaction(steps: [.replaceText(range: selection, with: compiled)])

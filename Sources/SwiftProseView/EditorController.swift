@@ -1300,10 +1300,27 @@ public final class EditorController {
         return compiler.compile(markdown, theme: theme)
     }
 
-    /// No-op kept for ABI stability. Pipe-table row-height stamping was
-    /// retired alongside the rendered table chrome; tables now render as
-    /// plain monospace paragraphs.
-    public func scheduleTableHeightStamp(containerWidth: CGFloat) {}
+    /// Invalidate layout for every range that hosts a table attachment
+    /// so TextKit 2 re-queries `attachmentBounds` against the new
+    /// container width. Called from the host text view's
+    /// `sizeThatFits` whenever the container width changes — without
+    /// this, an already-laid-out attachment keeps its previous size and
+    /// the cell grid stops reflowing on editor resize.
+    public func scheduleTableHeightStamp(containerWidth: CGFloat) {
+        guard textStorage.length > 0 else { return }
+        var ranges: [NSTextRange] = []
+        textStorage.enumerateNodePaths { runRange, path in
+            guard path.leaf?.type == "table" else { return }
+            let docStart = contentStorage.documentRange.location
+            guard let start = contentStorage.location(docStart, offsetBy: runRange.location),
+                  let end = contentStorage.location(docStart, offsetBy: runRange.location + runRange.length),
+                  let textRange = NSTextRange(location: start, end: end) else { return }
+            ranges.append(textRange)
+        }
+        for range in ranges {
+            layoutManager.invalidateLayout(for: range)
+        }
+    }
 
     private func replaceStorage(with attributed: NSAttributedString) {
         // Storage mutations and the host text view both require main-thread

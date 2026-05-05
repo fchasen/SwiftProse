@@ -45,7 +45,24 @@ public final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
         } else {
             subtree = .structural(ProseNode(type: "table"), [])
         }
+        // Use the live container width when available so the initial
+        // frame matches what `attachmentBounds` will report; otherwise
+        // fall back to a reasonable default so cell layout produces a
+        // non-zero grid even before `setFrameSize` fires.
+        let initialWidth: CGFloat = {
+            if let cw = textLayoutManager?.textContainer?.size.width,
+               cw > 0, cw < CGFloat.greatestFiniteMagnitude {
+                return cw
+            }
+            return 600
+        }()
+        let initialSize = TableBlockView.intrinsicSize(
+            for: subtree,
+            theme: theme,
+            proposedWidth: initialWidth
+        )
         let blockView = TableBlockView(subtree: subtree, theme: theme)
+        blockView.frame = CGRect(origin: .zero, size: initialSize)
         blockView.dispatch = TableAttachmentViewProvider.sharedDispatch
         if let attachment = textAttachment as? ProseNodeAttachment {
             attachment.viewProvider = self
@@ -72,14 +89,27 @@ public final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
         } else {
             subtree = .structural(ProseNode(type: "table"), [])
         }
-        let proposedWidth = proposedLineFragment.width > 0
-            ? proposedLineFragment.width
-            : (textContainer?.size.width ?? TableBlockView.minTableWidth)
+        let proposedWidth = ProseNodeAttachment.preferredWidth(
+            proposedLineFragment: proposedLineFragment,
+            textContainer: textContainer
+        )
         let size = TableBlockView.intrinsicSize(
             for: subtree,
             theme: theme,
             proposedWidth: proposedWidth
         )
+        // Resize the realized view in lock-step so the on-screen frame
+        // matches the size we just reported to the layout manager.
+        if let blockView = view as? TableBlockView {
+            blockView.frame = CGRect(origin: .zero, size: size)
+            #if canImport(AppKit) && os(macOS)
+            blockView.needsLayout = true
+            blockView.needsDisplay = true
+            #else
+            blockView.setNeedsLayout()
+            blockView.setNeedsDisplay()
+            #endif
+        }
         return CGRect(origin: .zero, size: size)
     }
 }

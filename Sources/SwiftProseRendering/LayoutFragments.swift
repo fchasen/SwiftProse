@@ -188,7 +188,13 @@ public enum InlineCodePainter {
         guard let cs = fragment.textLayoutManager?.textContentManager as? NSTextContentStorage,
               let storage = cs.textStorage else { return }
         let elementStart = cs.offset(from: cs.documentRange.location, to: fragment.rangeInElement.location)
-        guard elementStart >= 0 else { return }
+        guard elementStart >= 0, elementStart < storage.length else { return }
+        // Headings already use a heading-sized monospace font for code spans;
+        // a backdrop pill makes them look noisy, so skip pill paint there.
+        if let path = storage.nodePath(at: elementStart),
+           path.nodes.contains(where: { $0.type == "heading" }) {
+            return
+        }
         let lineFragments = fragment.textLineFragments
         guard !lineFragments.isEmpty else { return }
         context.saveGState()

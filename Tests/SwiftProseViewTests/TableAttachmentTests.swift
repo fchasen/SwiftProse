@@ -98,6 +98,59 @@ import UIKit
         #expect(registered == TableAttachmentViewProvider.self)
     }
 
+    @Test func tableBlockViewBuildsCellSubviewsForRunsAndColumns() throws {
+        let cellA = TreeNode.structural(
+            ProseNode(type: "table_header", attrs: ["align": .null]),
+            [.structural(ProseNode(type: "paragraph"), [.inline(text: "Header A", marks: MarkSet())])]
+        )
+        let cellB = TreeNode.structural(
+            ProseNode(type: "table_header", attrs: ["align": .null]),
+            [.structural(ProseNode(type: "paragraph"), [.inline(text: "Header B", marks: MarkSet())])]
+        )
+        let header = TreeNode.structural(
+            ProseNode(type: "table_row", attrs: ["header": .bool(true)]),
+            [cellA, cellB]
+        )
+        let bodyA = TreeNode.structural(
+            ProseNode(type: "table_cell", attrs: ["align": .null]),
+            [.structural(ProseNode(type: "paragraph"), [.inline(text: "a", marks: MarkSet())])]
+        )
+        let bodyB = TreeNode.structural(
+            ProseNode(type: "table_cell", attrs: ["align": .null]),
+            [.structural(ProseNode(type: "paragraph"), [.inline(text: "b", marks: MarkSet())])]
+        )
+        let body = TreeNode.structural(
+            ProseNode(type: "table_row", attrs: ["header": .bool(false)]),
+            [bodyA, bodyB]
+        )
+        let subtree = TreeNode.structural(ProseNode(type: "table"), [header, body])
+        let view = TableBlockView(subtree: subtree, theme: .default)
+        view.frame = CGRect(x: 0, y: 0, width: 600, height: 200)
+
+        // Two rows × two columns of cell subviews.
+        #expect(view.subviews.count == 4)
+        let cellViews = view.subviews.compactMap { $0 as? CellView }
+        #expect(cellViews.count == 4)
+        // Header cells display "Header A"/"Header B".
+        let headerTexts = cellViews
+            .filter { $0.row == 0 }
+            .sorted { $0.column < $1.column }
+            .map(cellTextOf)
+        #expect(headerTexts == ["Header A", "Header B"])
+    }
+
+    private func cellTextOf(_ cell: CellView) -> String {
+        #if canImport(AppKit) && os(macOS)
+        return cell.subviews
+            .compactMap { ($0 as? NSTextView)?.string }
+            .first ?? ""
+        #else
+        return cell.subviews
+            .compactMap { ($0 as? UITextView)?.text }
+            .first ?? ""
+        #endif
+    }
+
     /// Force TextKit 2 to lay out a paragraph containing the table
     /// attachment and verify it asks the view provider for a view.
     /// Catches "view providers never fire" regressions.
