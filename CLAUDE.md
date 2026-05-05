@@ -102,7 +102,11 @@ These are nested, not parallel — pick the highest layer that gets the job done
 
 ### ProseMirror codec
 
-`ProseMirrorCodec` (`SwiftProseView/ProseMirrorCodec.swift`) round-trips `NSAttributedString` ↔ ProseMirror-style JSON. The encode path walks the `ProseDocument` tree directly. Pipe tables encode as a structural `table → table_row → (table_cell | table_header)` subtree with per-cell `align` attrs (matching `prosemirror-tables`).
+`ProseMirrorCodec` (`SwiftProseView/ProseMirrorCodec.swift`) round-trips `NSAttributedString` ↔ ProseMirror-style JSON. The encode path walks the `ProseDocument` tree directly. Pipe tables encode and decode as a structural `table → table_row → (table_cell | table_header)` subtree with per-cell `align` attrs (matching `prosemirror-tables`); the compiler stamps the same structural `proseNodePath` on storage so `MarkdownTreeSerializer.emitTable` round-trips header/body/alignment/inline-marks.
+
+### Isolating nodes (node views)
+
+`NodeType.isolating` (today: `table`) marks a self-managed subtree that can be hoisted into a single `NSTextAttachment` so a `NodeViewProvider` renders the editing surface (cell grid, embedded editor, image gallery). Infrastructure in place: `ProseNodeAttachment` (Rendering) carries the structural subtree, `ProseSubtreeAttachment` (Syntax) is the layer-clean probe protocol used by `ProseDocument.from(storage:)` to lift the attachment's subtree, and `EditorController.nodeViewRegistry` is empty by default. Per-cell paragraphs in storage are still the live emit; the attachment-driven view is not yet wired.
 
 ### Code-block syntax highlighting
 
