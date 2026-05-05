@@ -177,4 +177,37 @@ import UIKit
         controller.testSelection = NSRange(location: 0, length: 0)
         #expect(controller.exitCodeBlock() == false)
     }
+
+    @Test func loadingCodeBlockEnsuresTrailingParagraph() throws {
+        let controller = try EditorController(initialMarkdown: "```\nlet x = 1\n```\n")
+        let total = controller.textStorage.length
+        // Storage should hold the body plus one trailing paragraph anchor.
+        let lastSpec = controller.textStorage.blockSpec(at: total - 1)
+        #expect(lastSpec?.kind == .paragraph,
+                "expected trailing paragraph, got \(String(describing: lastSpec?.kind))")
+        // The trailing paragraph is invisible to markdown serialization.
+        #expect(controller.markdown() == "```\nlet x = 1\n```\n")
+    }
+
+    @Test func tappingPastCodeBlockLandsInTrailingParagraph() throws {
+        let controller = try EditorController(initialMarkdown: "```\nlet x = 1\n```\n")
+        let total = controller.textStorage.length
+        controller.testSelection = NSRange(location: total, length: 0)
+        controller.insert(text: "after")
+        #expect(controller.markdown() == "```\nlet x = 1\n```\n\nafter\n")
+    }
+
+    @Test func loadingPlainParagraphDocDoesNotAddTrailing() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        // Plain prose ending — no extra paragraph needed; storage is just
+        // "hello\n" (length 6).
+        #expect(controller.textStorage.length == 6)
+    }
+
+    @Test func loadingHorizontalRuleEnsuresTrailingParagraph() throws {
+        let controller = try EditorController(initialMarkdown: "---\n")
+        let total = controller.textStorage.length
+        let lastSpec = controller.textStorage.blockSpec(at: total - 1)
+        #expect(lastSpec?.kind == .paragraph)
+    }
 }

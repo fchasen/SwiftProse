@@ -133,6 +133,7 @@ public final class EditorController {
         let initial = compileFor(initialMarkdown)
         textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: initial)
         applyingMarkdown = false
+        ensureTrailingParagraph()
         resegment()
 
         storageObserver = NotificationCenter.default.addObserver(
@@ -1236,7 +1237,34 @@ public final class EditorController {
         textStorage.replaceCharacters(in: total, with: attributed)
         textStorage.endEditing()
         applyingMarkdown = false
+        ensureTrailingParagraph()
         resegment()
+    }
+
+    /// Append an empty paragraph after the last block when that block is
+    /// atomic (code, hr, table, html, link reference), giving tap/click and
+    /// keyboard navigation a paragraph to land in. Empty paragraphs don't
+    /// materialize in markdown serialization, so the invariant has no
+    /// round-trip cost.
+    private func ensureTrailingParagraph() {
+        let total = textStorage.length
+        guard total > 0 else { return }
+        guard let path = textStorage.nodePath(at: total - 1) else { return }
+        let isAtomic: Bool
+        if let leaf = path.leaf,
+           ["code_block", "horizontal_rule", "html_block", "link_reference"].contains(leaf.type) {
+            isAtomic = true
+        } else {
+            isAtomic = path.nodes.contains { $0.type == "table" }
+        }
+        guard isAtomic else { return }
+        let plainAttrs = theme.plainParagraphAttributes()
+        let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
+        applyingMarkdown = true
+        textStorage.beginEditing()
+        textStorage.replaceCharacters(in: NSRange(location: total, length: 0), with: blank)
+        textStorage.endEditing()
+        applyingMarkdown = false
     }
 
     /// Test-only invocation counter; bumped at the start of every
