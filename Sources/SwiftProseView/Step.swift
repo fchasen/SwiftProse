@@ -56,6 +56,21 @@ public enum Step {
     /// Walks the storage's `proseNodePath` runs, finds the run whose path
     /// matches by NodeID, and rewrites the leaf with merged attributes.
     case setNodeAttrs(path: NodePath, attrs: [String: ProseAttrValue])
+    /// Replace one cell's inline runs inside an isolating-table
+    /// attachment. Storage character range stays the same; only
+    /// `attachment.subtree` mutates and the view re-renders the cell.
+    /// Inverse restores the prior runs.
+    case replaceCellInline(
+        tableID: NodeID,
+        row: Int,
+        column: Int,
+        runs: [TreeNode]
+    )
+    /// Replace the entire structural subtree inside an isolating-table
+    /// attachment. Used by structural commands (insert/delete row/column,
+    /// alignment changes). Storage character range stays the same;
+    /// inverse restores the prior subtree.
+    case setTableSubtree(tableID: NodeID, subtree: TreeNode)
 
     public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedStep {
         switch self {
@@ -76,7 +91,108 @@ public enum Step {
             return applyRemoveMark(in: storage, range: range, markType: markType, env: env)
         case .setNodeAttrs(let path, let attrs):
             return applySetNodeAttrs(in: storage, path: path, attrs: attrs)
+        case .replaceCellInline(let tableID, let row, let column, let runs):
+            return applyReplaceCellInline(
+                in: storage, tableID: tableID, row: row, column: column, runs: runs
+            )
+        case .setTableSubtree(let tableID, let subtree):
+            return applySetTableSubtree(in: storage, tableID: tableID, subtree: subtree)
         }
+    }
+
+    private func applyReplaceCellInline(
+        in storage: NSTextStorage,
+        tableID: NodeID,
+        row rowIdx: Int,
+        column colIdx: Int,
+        runs: [TreeNode]
+    ) -> AppliedStep {
+        guard let (range, attachment) = locateTableAttachment(in: storage, id: tableID),
+              case .structural(let table, var rows) = attachment.subtree,
+              rowIdx < rows.count,
+              case .structural(let rowNode, var cells) = rows[rowIdx],
+              colIdx < cells.count,
+              case .structural(let cellNode, var cellKids) = cells[colIdx] else {
+            return AppliedStep(
+                inverse: .replaceCellInline(tableID: tableID, row: rowIdx, column: colIdx, runs: runs),
+                mappedRange: NSRange(location: 0, length: 0),
+                affectedLineRange: NSRange(location: 0, length: 0),
+                stepMap: .empty
+            )
+        }
+        let priorRuns: [TreeNode]
+        if let firstChild = cellKids.first, case .structural(_, let inlines) = firstChild {
+            priorRuns = inlines
+        } else {
+            priorRuns = []
+        }
+        if !cellKids.isEmpty,
+           case .structural(let para, _) = cellKids[0] {
+            cellKids[0] = .structural(para, runs)
+        } else {
+            cellKids = [.structural(ProseNode(type: "paragraph"), runs)]
+        }
+        cells[colIdx] = .structural(cellNode, cellKids)
+        rows[rowIdx] = .structural(rowNode, cells)
+        attachment.update(subtree: .structural(table, rows))
+        let inverse = Step.replaceCellInline(
+            tableID: tableID, row: rowIdx, column: colIdx, runs: priorRuns
+        )
+        return AppliedStep(
+            inverse: inverse,
+            mappedRange: range,
+            affectedLineRange: range,
+            stepMap: .empty
+        )
+    }
+
+    private func applySetTableSubtree(
+        in storage: NSTextStorage,
+        tableID: NodeID,
+        subtree: TreeNode
+    ) -> AppliedStep {
+        guard let (range, attachment) = locateTableAttachment(in: storage, id: tableID) else {
+            return AppliedStep(
+                inverse: .setTableSubtree(tableID: tableID, subtree: subtree),
+                mappedRange: NSRange(location: 0, length: 0),
+                affectedLineRange: NSRange(location: 0, length: 0),
+                stepMap: .empty
+            )
+        }
+        let prior = attachment.subtree
+        attachment.update(subtree: subtree)
+        let inverse = Step.setTableSubtree(tableID: tableID, subtree: prior)
+        return AppliedStep(
+            inverse: inverse,
+            mappedRange: range,
+            affectedLineRange: range,
+            stepMap: .empty
+        )
+    }
+
+    /// Locate the storage range and `ProseNodeAttachment` whose `table`
+    /// node matches `id`. Returns nil if no run's path leaf is `table`
+    /// with the given id.
+    private func locateTableAttachment(
+        in storage: NSAttributedString,
+        id: NodeID
+    ) -> (range: NSRange, attachment: ProseNodeAttachment)? {
+        var found: (NSRange, ProseNodeAttachment)? = nil
+        storage.enumerateNodePaths { runRange, path in
+            guard found == nil,
+                  let leaf = path.leaf,
+                  leaf.type == "table",
+                  leaf.id == id else { return }
+            let raw = storage.attribute(
+                NSAttributedString.Key("NSAttachment"),
+                at: runRange.location,
+                effectiveRange: nil
+            )
+            if let att = raw as? ProseNodeAttachment {
+                found = (runRange, att)
+            }
+        }
+        return found
     }
 
     private func applyToggleInlineMark(
@@ -332,6 +448,10 @@ public enum Step {
             // mapping ranges doesn't move the target. The path stays the
             // same; the apply path re-resolves it against current storage.
             return .setNodeAttrs(path: path, attrs: attrs)
+        case .replaceCellInline, .setTableSubtree:
+            // Identity-addressed by `tableID` — character positions don't
+            // factor in. Mapping is a no-op.
+            return self
         }
     }
 

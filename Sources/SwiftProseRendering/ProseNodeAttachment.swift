@@ -16,12 +16,17 @@ import UIKit
 /// can mutate without forcing a storage reflow. The attachment notifies
 /// its `viewProvider` so the realized view can re-render.
 public final class ProseNodeAttachment: NSTextAttachment, ProseSubtreeAttachment {
+    /// File-type identifier used to register a view-provider class for
+    /// every `ProseNodeAttachment` instance via
+    /// `NSTextAttachment.registerViewProviderClass(_:forFileType:)`.
+    public static let attachmentFileType: String = "dev.swiftprose.node-attachment"
+
     public private(set) var subtree: TreeNode
     public weak var viewProvider: NSTextAttachmentViewProvider?
 
     public init(subtree: TreeNode) {
         self.subtree = subtree
-        super.init(data: nil, ofType: nil)
+        super.init(data: nil, ofType: ProseNodeAttachment.attachmentFileType)
     }
 
     public required init?(coder: NSCoder) {

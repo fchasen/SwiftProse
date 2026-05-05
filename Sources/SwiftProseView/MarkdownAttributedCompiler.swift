@@ -293,20 +293,10 @@ public final class MarkdownAttributedCompiler {
             let safe = range.clamped(to: attributed.length)
             guard safe.length > 0 else { continue }
             for (k, v) in attrs {
-                if k == .font {
-                    // Merge bold/italic onto the existing font so a second
-                    // pass (italic on top of bold) doesn't drop the first
-                    // trait. Skip the merge when the styling font carries
-                    // no traits (e.g. monospace for a code span) — there
-                    // we want the styling font wholesale.
-                    if let baseRun = attributed.safeAttribute(.font, at: safe.location) as? PlatformFont,
-                       let trait = (v as? PlatformFont)?.proseTraits,
-                       !trait.isEmpty {
-                        let merged = baseRun.withProseTraits(baseRun.proseTraits.union(trait))
-                        attributed.addAttribute(.font, value: merged, range: safe)
-                    } else {
-                        attributed.addAttribute(.font, value: v, range: safe)
-                    }
+                if k == .font, let stylingFont = v as? PlatformFont {
+                    let baseRun = attributed.safeAttribute(.font, at: safe.location) as? PlatformFont
+                    let merged = mergedStyleFont(stylingFont, base: baseRun)
+                    attributed.addAttribute(.font, value: merged, range: safe)
                 } else {
                     attributed.addAttribute(k, value: v, range: safe)
                 }
@@ -1038,15 +1028,10 @@ public final class MarkdownAttributedCompiler {
             let safe = range.clamped(to: attributed.length)
             guard safe.length > 0 else { continue }
             for (k, v) in runAttrs {
-                if k == .font {
-                    if let baseRun = attributed.safeAttribute(.font, at: safe.location) as? PlatformFont,
-                       let trait = (v as? PlatformFont)?.proseTraits,
-                       !trait.isEmpty {
-                        let merged = baseRun.withProseTraits(baseRun.proseTraits.union(trait))
-                        attributed.addAttribute(.font, value: merged, range: safe)
-                    } else {
-                        attributed.addAttribute(.font, value: v, range: safe)
-                    }
+                if k == .font, let stylingFont = v as? PlatformFont {
+                    let baseRun = attributed.safeAttribute(.font, at: safe.location) as? PlatformFont
+                    let merged = mergedStyleFont(stylingFont, base: baseRun)
+                    attributed.addAttribute(.font, value: merged, range: safe)
                 } else {
                     attributed.addAttribute(k, value: v, range: safe)
                 }
@@ -1232,6 +1217,29 @@ public final class MarkdownAttributedCompiler {
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor
         ]
+    }
+
+    /// Combine an inline-style font (`v` from a `styleRuns` entry) with the
+    /// run's existing base font. Monospace styling resizes to the base's
+    /// pointSize and inherits its bold weight, so a code span inside a
+    /// heading still reads as a heading-sized run. Bold/italic styling
+    /// unions onto the base run's existing traits.
+    private func mergedStyleFont(_ styling: PlatformFont, base: PlatformFont?) -> PlatformFont {
+        guard let base else { return styling }
+        if styling.isMonospace {
+            let isBold = base.proseTraits.contains(.bold)
+            let weight: PlatformFont.Weight = isBold ? .semibold : .regular
+            #if canImport(AppKit) && os(macOS)
+            return NSFont.monospacedSystemFont(ofSize: base.pointSize, weight: weight)
+            #else
+            return UIFont.monospacedSystemFont(ofSize: base.pointSize, weight: weight)
+            #endif
+        }
+        let stylingTraits = styling.proseTraits
+        if !stylingTraits.isEmpty {
+            return base.withProseTraits(base.proseTraits.union(stylingTraits))
+        }
+        return styling
     }
 
     private func rangesIntersect(_ a: NSRange, _ b: NSRange) -> Bool {

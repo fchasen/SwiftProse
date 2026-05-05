@@ -121,6 +121,11 @@ public final class EditorController {
         self.compiler = try MarkdownAttributedCompiler(codeBlockHighlighter: codeBlockHighlighter)
         self.backgroundCompiler = try MarkdownAttributedCompiler(codeBlockHighlighter: codeBlockHighlighter)
         self.serializer = AttributedMarkdownSerializer()
+        // Register the table view provider class once — TextKit 2 looks
+        // up view providers by attachment file type, so the registration
+        // must happen before the first compile produces an attachment.
+        TableAttachmentViewProvider.registerOnce()
+        TableAttachmentViewProvider.sharedTheme = theme
 
         self.textStorage = NSTextStorage()
         self.contentStorage = NSTextContentStorage()
@@ -562,10 +567,10 @@ public final class EditorController {
             case .replaceAround(let outer, _, _, _):
                 lo = min(lo, outer.location)
                 hi = max(hi, outer.location + outer.length)
-            case .setNodeAttrs:
+            case .setNodeAttrs, .replaceCellInline, .setTableSubtree:
                 // Identity-addressed; no positional bounds — leave as the
-                // current accumulator. The apply path resolves the leaf
-                // range from the stored NodePath.
+                // current accumulator. The apply path resolves the
+                // affected range from the stored NodePath / table id.
                 continue
             }
         }
