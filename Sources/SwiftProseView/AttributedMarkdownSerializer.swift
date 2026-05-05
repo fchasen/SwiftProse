@@ -9,12 +9,8 @@ import UIKit
 
 /// Serializes a styled `NSAttributedString` back to markdown by walking
 /// the tree projection (`proseNodePath` + `proseMarks`) and emitting via
-/// `MarkdownTreeSerializer`. With Phase 10 retiring `BlockSpec` storage,
-/// `proseNodePath` is the canonical structural attribute — the compiler
-/// stamps it during emit and writers go through `setBlockSpec` (which now
-/// stamps `NodePath` under the hood). A marks-only refresh keeps the
-/// canonical mark store in sync with rendering attributes for
-/// post-mutation storage that didn't push marks through the Step API.
+/// `MarkdownTreeSerializer`. A marks-only refresh keeps `proseMarks` in
+/// sync with rendering attributes for storage mutated outside the Step API.
 public final class AttributedMarkdownSerializer {
     public let schema: Schema
 

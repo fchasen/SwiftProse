@@ -6,15 +6,9 @@ import AppKit
 import UIKit
 #endif
 
-/// Serializes a `ProseDocument` tree back into markdown source. Phase 3
-/// hands `AttributedMarkdownSerializer` a tree-driven path; the legacy
-/// storage-string emitter falls back when the tree isn't available (no
-/// `proseNodePath` runs on the storage).
-///
-/// Output matches the legacy emit byte-for-byte for the supported block
-/// kinds so existing markdown-round-trip tests don't churn. Differences
-/// that would matter (e.g. mark order ambiguity) are decided by the
-/// schema's `markTypeOrder` so the same tree always emits the same way.
+/// Serializes a `ProseDocument` tree back into markdown source.
+/// Mark-order ambiguity is resolved by the schema's `markTypeOrder` so the
+/// same tree always emits the same bytes.
 public struct MarkdownTreeSerializer {
     public let schema: Schema
 
@@ -320,11 +314,9 @@ public struct MarkdownTreeSerializer {
     }
 
     private func emitTable(_ rows: [TreeNode], ctx: inout Context) {
-        // Phase 3 stop-gap: tree-shaped tables aren't fully wired yet
-        // (Phase 6 reshapes storage). When the tree carries `table_row` →
-        // `table_cell` → `paragraph` children we emit canonical pipe
-        // markdown; otherwise children are inline-rendered as a plain
-        // paragraph block, matching the legacy storage shape.
+        // When the tree carries `table_row` → `table_cell` → `paragraph`
+        // children we emit canonical pipe markdown; otherwise children are
+        // emitted as their literal pipe-source paragraphs.
         ctx.emitBlankLineBetweenBlocks()
         let prefix = blockLinePrefix(ctx)
         var emittedAsTable = false
@@ -372,11 +364,9 @@ public struct MarkdownTreeSerializer {
             ctx.blocksAtThisLevel += 1
             return
         }
-        // Fallback: tree didn't carry row/cell structure (Phase 2 only
-        // wraps consecutive table paragraphs in a `table` envelope without
-        // breaking out cells). Emit each child paragraph's literal inline
-        // text — that's the unprocessed pipe source from the legacy
-        // storage shape, so it round-trips byte-for-byte.
+        // Fallback: tree wraps consecutive table paragraphs in a `table`
+        // envelope without breaking out cells. Emit each child paragraph's
+        // literal inline text so the pipe source round-trips byte-for-byte.
         for child in rows {
             switch child {
             case .structural(_, let kids):

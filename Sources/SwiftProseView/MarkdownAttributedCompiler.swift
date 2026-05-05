@@ -12,9 +12,9 @@ public final class MarkdownAttributedCompiler {
     private let blockParser: MarkdownParser
     private let inlineParser: MarkdownParser
     private let highlighter: HighlightApplier
-    /// ProseMirror-aligned schema used by the Phase-2 stamping pass that
-    /// adds `proseNodePath` and `proseMarks` to compiled storage. Defaults
-    /// to `Schema.defaultMarkdown`; callers wanting a custom schema can
+    /// ProseMirror-aligned schema used by the stamping pass that adds
+    /// `proseNodePath` and `proseMarks` to compiled storage. Defaults to
+    /// `Schema.defaultMarkdown`; callers wanting a custom schema can
     /// supply one at init.
     public let schema: Schema
     public var codeBlockHighlighter: CodeBlockHighlighter?
@@ -50,9 +50,7 @@ public final class MarkdownAttributedCompiler {
     /// Compile a markdown source into a `ProseDocument` tree by going
     /// through the storage pipeline (so the tree shares the same parser,
     /// highlighter, and stamp logic) and reverse-projecting via
-    /// `ProseDocument.from(storage:)`. Phase 4 will add a more direct
-    /// tree-builder path that skips storage as an intermediate; until then
-    /// this round-trips through `NSAttributedString`.
+    /// `ProseDocument.from(storage:)`.
     public func compileToTree(
         _ markdown: String,
         theme: ProseTheme
@@ -667,12 +665,9 @@ public final class MarkdownAttributedCompiler {
         }
     }
 
-    /// Emit a pipe-table segment as plain per-line paragraphs. Pipe
-    /// characters survive as literal text — there's no rendered cell
-    /// chrome and no inline parsing inside cells. Tables become readable
-    /// monospace source lines that round-trip losslessly through the
-    /// markdown serializer; structural editing waits for the tree-native
-    /// rebuild (Phase 6).
+    /// Emit a pipe-table segment as plain per-line monospace paragraphs.
+    /// Pipe characters survive as literal text; there is no rendered cell
+    /// chrome and no inline parsing inside cells.
     private func appendPipeTableAsParagraphs(
         _ segment: BlockSegment,
         source: String,

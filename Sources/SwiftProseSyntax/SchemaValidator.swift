@@ -11,9 +11,7 @@ public enum SchemaDiagnostic: Equatable, Sendable {
 /// Walks a `ProseDocument` and emits diagnostics for schema violations:
 /// unknown node or mark types, content-expression mismatches, marks on
 /// nodes whose type sets `allowsMarks == false` (code blocks, html blocks).
-/// The current implementation reports — repair lives in
-/// `SwiftProseView.SpecValidator` for now and will fold in once Phase 10
-/// retires `BlockSpec`.
+/// Reports only; line-level storage-shape repair is `SpecValidator`.
 public enum SchemaValidator {
 
     public static func validate(_ document: ProseDocument) -> [SchemaDiagnostic] {

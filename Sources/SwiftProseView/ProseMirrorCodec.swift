@@ -91,10 +91,9 @@ public struct ProseMirrorCodec {
     }
 
     /// PM `table` nodes decode to flat paragraphs with literal pipe-table
-    /// source, matching the editor's stripped-down table support. Each row
-    /// becomes a single paragraph line; header / alignment / body all share
-    /// the same plain paragraph spec. Marks within cells are flattened to
-    /// plain text. Tree-native tables (Phase 6 future) would rebuild this.
+    /// source. Each row becomes a single paragraph line; header / alignment /
+    /// body all share the same plain paragraph spec. Marks within cells are
+    /// flattened to plain text.
     private func decodeTableAsPlaintext(
         _ node: PMNode,
         into result: NSMutableAttributedString,
@@ -271,10 +270,9 @@ public struct ProseMirrorCodec {
 
     /// Tree-direct encode: walk a `ProseDocument` and emit a PM tree.
     /// Marks come from inline runs' `MarkSet` directly rather than being
-    /// re-extracted from rendering attributes, which keeps mark fidelity
-    /// in nested contexts (table cells will benefit once Phase 6 reshapes
-    /// table storage). Tables today still rely on the flat-block path
-    /// because the storage tree only carries a `table` envelope.
+    /// re-extracted from rendering attributes, preserving mark fidelity
+    /// across nested contexts. Tables encode their literal pipe-source
+    /// paragraphs since the storage tree only carries a `table` envelope.
     public func encode(document: ProseDocument) -> PMNode {
         guard case .structural(_, let kids) = document.root else {
             return PMNode(type: "doc", content: nil)
@@ -311,7 +309,7 @@ public struct ProseMirrorCodec {
                 var inner = kids.compactMap { encodeBlock($0) }
                 // Task list_items carry `checked` in attrs; PM has no
                 // native task type, so we render bullet items with a
-                // `[x] ` / `[ ] ` text prefix the way the legacy codec did.
+                // `[x] ` / `[ ] ` text prefix.
                 if let checked = pn.attrs["checked"]?.boolValue {
                     let prefix = checked ? "[x] " : "[ ] "
                     let prefixNode = PMNode(type: "text", text: prefix)
@@ -337,9 +335,8 @@ public struct ProseMirrorCodec {
                     content: inner
                 )
             case "table":
-                // Tables retired alongside the rendered chrome — emit as
-                // joined plain paragraph text. Phase 6 (future) would
-                // reinstate tree-native table emit.
+                // Emit as joined plain paragraph text — the storage tree
+                // doesn't carry per-cell structure.
                 let lines = kids.compactMap { kid -> String? in
                     guard case .structural(let pn, let inlineKids) = kid, pn.type == "paragraph" else { return nil }
                     return inlineKids.compactMap {

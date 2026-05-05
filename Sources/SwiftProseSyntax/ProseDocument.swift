@@ -106,10 +106,8 @@ public extension ProseDocument {
     /// emit one paragraph per direct block child (separated by `\n`); leaf
     /// nodes emit a single placeholder character (`\n` for line-shaped
     /// leaves, U+FFFC for object-replacement leaves like images).
-    ///
-    /// Phase 1 deliberately doesn't stamp rendering attributes (font,
-    /// foregroundColor) — those come from the compiler in Phase 2 once it
-    /// emits trees instead of styled storage directly.
+    /// Rendering attributes (font, foregroundColor) are not stamped here —
+    /// the compiler applies them when projecting marks onto runs.
     func project() -> NSAttributedString {
         let result = NSMutableAttributedString()
         guard case .structural(_, let topChildren) = root else { return result }

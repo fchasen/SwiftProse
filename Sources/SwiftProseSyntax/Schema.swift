@@ -2,13 +2,8 @@ import Foundation
 
 /// Schema definition mirroring ProseMirror's. Lists all node types (block
 /// and inline), all mark types, and which node is the document root. Used
-/// for tree validation, structural queries (e.g. "can a paragraph appear
-/// inside a list_item?"), and round-trip with the ProseMirror codec.
-///
-/// Phase-1 scope: declarative storage for type info. Real `ContentExpression`
-/// matching (greedy, with `+`/`*`/`?` quantifiers and choice operators) is
-/// scheduled for Phase 9 — until then `ContentExpression.allowedNodes`
-/// gives a quick child-name filter sufficient for most queries.
+/// for tree validation, structural queries, and round-trip with the
+/// ProseMirror codec.
 public struct Schema: Sendable, Equatable {
     public let nodeTypesByName: [NodeType.Name: NodeType]
     public let markTypesByName: [MarkType.Name: MarkType]

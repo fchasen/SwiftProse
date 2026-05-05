@@ -45,10 +45,9 @@ public enum Step {
         content: NSAttributedString,
         contentSplit: Int
     )
-    /// Add an inline mark to `range`. Stamps both the canonical
-    /// `proseMarks` attribute and the legacy rendering attributes (font
-    /// traits, foreground colors) so the existing layout fragment code
-    /// continues to work during the migration.
+    /// Add an inline mark to `range`. Stamps the canonical `proseMarks`
+    /// attribute and projects it onto rendering attributes (font traits,
+    /// foreground colors) for the layout layer.
     case addMark(range: NSRange, mark: ProseMark)
     /// Remove all marks of `markType` from `range`. Inverse of `addMark`
     /// when the mark wasn't already present.
@@ -336,7 +335,7 @@ public enum Step {
         }
     }
 
-    // MARK: - new step variants (Phase 4)
+    // MARK: - replaceAround / addMark / removeMark / setNodeAttrs
 
     private func applyReplaceAround(
         in storage: NSTextStorage,
@@ -398,8 +397,8 @@ public enum Step {
                 storage.addAttribute(.proseMarks, value: MarkSetBox(updated), range: runRange)
             }
         }
-        // Reflect the mark to legacy rendering attributes so the existing
-        // layout fragment paints correctly until Phase 5/10 retire them.
+        // Project the mark onto rendering attributes (font traits, color)
+        // so the layout layer paints it.
         applyRenderingAttribute(for: mark, in: storage, range: safe, theme: env.theme)
         storage.endEditing()
         let inverse = Step.replaceText(range: safe, with: prior)
