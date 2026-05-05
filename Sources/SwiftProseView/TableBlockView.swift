@@ -482,10 +482,14 @@ public final class CellView: PlatformView {
         tv.isSelectable = true
         tv.drawsBackground = false
         tv.textContainer?.lineFragmentPadding = 0
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.heightTracksTextView = false
         tv.textContainerInset = NSSize(
             width: TableBlockView.cellHorizontalPadding,
             height: TableBlockView.cellVerticalPadding
         )
+        tv.isHorizontallyResizable = false
+        tv.isVerticallyResizable = false
         tv.allowsUndo = false
         self.textView = tv
         #else
