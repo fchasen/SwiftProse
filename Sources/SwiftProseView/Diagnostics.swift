@@ -60,11 +60,9 @@ public enum SpecValidator {
 
     /// Restore invariants by enforcing the most common BlockSpec across
     /// each paragraph (or `paragraph` if none is present), and stripping
-    /// marker flags off chars whose paragraph isn't a list item.
-    /// Lines whose path leaf is an isolating node (today: a `table`
-    /// attachment) are skipped — their path doesn't fit the flat
-    /// `BlockSpec` shape, and rewriting it would destroy the attachment's
-    /// structural ancestor chain.
+    /// marker flags off chars whose paragraph isn't a list item. Lines
+    /// whose leaf is an isolating node are skipped — `BlockSpec` can't
+    /// represent their ancestor chain.
     public static func repair(
         in storage: NSTextStorage,
         range: NSRange

@@ -11,9 +11,6 @@ import UIKit
 /// as a grid of cells. Manual frame layout (no Auto Layout). Equal-width
 /// columns; row height is the tallest cell's intrinsic height with a
 /// minimum.
-///
-/// Stage 5 ships read-only cells; stage 6 enables per-cell editing by
-/// flipping the cell text views' `isEditable` and wiring `dispatch`.
 public final class TableBlockView: PlatformView {
     public private(set) var subtree: TreeNode
     public let theme: ProseTheme
@@ -31,7 +28,7 @@ public final class TableBlockView: PlatformView {
     public internal(set) var activeCell: (row: Int, column: Int)?
 
     /// Move focus to the cell at `(row, column)`. Out-of-range targets
-    /// are clamped — used by Tab/arrow navigation in stage 8.
+    /// are clamped.
     @discardableResult
     public func focusCell(row rowIdx: Int, column colIdx: Int) -> Bool {
         guard rowIdx >= 0, rowIdx < cellViews.count else { return false }
@@ -221,13 +218,7 @@ public final class TableBlockView: PlatformView {
         guard dims.cols > 0, dims.rows > 0 else {
             return CGSize(width: max(proposedWidth, minTableWidth), height: minRowHeight)
         }
-        // Measure at the SAME width TextKit will allocate to the
-        // attachment view — `bounds.width` at layout time. Clamping
-        // here to `minTableWidth` would over-measure cell heights
-        // (less wrapping at the wider hypothetical width) while
-        // `layoutCells` later wraps for real at the narrower bounds,
-        // and the total reported height would be too short — the bug
-        // surfaces as the table being cut off mid-row.
+        // Must match the width `layoutCells` later wraps against.
         let width = max(proposedWidth, 1)
         let colWidth = width / CGFloat(dims.cols)
         var totalHeight: CGFloat = 0
@@ -451,9 +442,9 @@ public final class TableBlockView: PlatformView {
 }
 
 /// One cell in a `TableBlockView`. Wraps a platform text input that
-/// renders the cell's inline-run subtree. Stage 5: read-only. Stage 6:
-/// `setEditable(true)` enables typing; the wrapped text view emits
-/// `Transaction`s via the `onEdit` closure.
+/// renders the cell's inline-run subtree. `setEditable(true)` enables
+/// typing; the wrapped text view emits `Transaction`s via the
+/// `onEdit` closure.
 public final class CellView: PlatformView {
     public let row: Int
     public let column: Int
@@ -735,10 +726,8 @@ public final class CellView: PlatformView {
     }
 
     /// Walk the live text view's storage and re-derive `[TreeNode]` runs
-    /// using the canonical `proseMarks` derivation (font traits etc).
-    /// Used by stage 6 cell editing — when the user types, the text
-    /// view's content has rendering attributes only; we re-derive marks
-    /// before reporting to `onEdit`.
+    /// via `NodePathSynthesizer` so font traits map back to canonical
+    /// `proseMarks` before reporting to `onEdit`.
     fileprivate func currentInlineRuns() -> [TreeNode] {
         let attributed: NSAttributedString
         #if canImport(AppKit) && os(macOS)

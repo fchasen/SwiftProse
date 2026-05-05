@@ -98,12 +98,6 @@ import UIKit
         #expect(registered == TableAttachmentViewProvider.self)
     }
 
-    /// Reported intrinsic height must accommodate every row's wrapped
-    /// content at the SAME width that layout will use. Regression for
-    /// "table cut off mid-row" — `intrinsicSize` was over-measuring at
-    /// `max(proposedWidth, minTableWidth)` while `layoutCells` wrapped
-    /// at the narrower `bounds.width`, producing taller rows than the
-    /// reported total.
     @Test func intrinsicSizeMatchesLaidOutRowSum() throws {
         let longText = "Break caused by `break-before: page`/`column`/`left`/`right`/`recto`/`verso`"
         let cellLong = TreeNode.structural(
@@ -206,9 +200,6 @@ import UIKit
         #endif
     }
 
-    /// Force TextKit 2 to lay out a paragraph containing the table
-    /// attachment and verify it asks the view provider for a view.
-    /// Catches "view providers never fire" regressions.
     @Test func textKit2InstantiatesViewProviderForTable() throws {
         let controller = try EditorController(
             initialMarkdown: "| h |\n| --- |\n| a |\n"

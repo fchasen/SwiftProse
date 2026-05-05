@@ -24,14 +24,12 @@ public final class ProseNodeAttachment: NSTextAttachment, ProseSubtreeAttachment
     public private(set) var subtree: TreeNode
     public weak var viewProvider: NSTextAttachmentViewProvider?
 
-    /// Override the inherited `fileType` so TextKit 2's
-    /// `viewProviderClass(forFileType:)` lookup matches our registration
-    /// regardless of how `NSTextAttachment` chooses to persist (or not)
-    /// the UTI passed to `init(data:ofType:)`. Setter is a no-op — we
-    /// always advertise the same file type.
+    // Always advertise the registered file type so TextKit 2's
+    // `viewProviderClass(forFileType:)` lookup hits our registration —
+    // `init(data:ofType:)` doesn't reliably store the UTI.
     public override var fileType: String? {
         get { ProseNodeAttachment.attachmentFileType }
-        set { /* fixed */ }
+        set {}
     }
 
     public init(subtree: TreeNode) {
@@ -48,11 +46,8 @@ public final class ProseNodeAttachment: NSTextAttachment, ProseSubtreeAttachment
         self.subtree = subtree
     }
 
-    /// Legacy `NSTextAttachment` bounds path — used when the host falls
-    /// back to TextKit 1 line-fragment layout for an attachment (e.g.
-    /// during a paste preview, or while the view-provider's frame is
-    /// being computed). Stays in sync with the view provider's
-    /// computation.
+    /// TextKit 1 fallback path. Mirrors `TableAttachmentViewProvider`'s
+    /// sizing.
     public override func attachmentBounds(
         for textContainer: NSTextContainer?,
         proposedLineFragment lineFrag: CGRect,
@@ -89,7 +84,6 @@ public final class ProseNodeAttachment: NSTextAttachment, ProseSubtreeAttachment
     ) -> CGFloat {
         guard case .structural(_, let rows) = subtree else { return 30 }
         let rowCount = max(1, rows.count)
-        // Conservative default: 30pt per row + 2pt borders.
         return CGFloat(rowCount) * 30 + 2
     }
 }

@@ -245,16 +245,20 @@ public enum InlineCodePainter {
         runInLine: NSRange,
         context: CGContext
     ) {
-        // `runInLine` is layout-fragment-local; the line fragment's character
-        // API expects offsets into its own attributedString (zero at the
-        // line's first char), so subtract the line's start.
-        let localStart = runInLine.location - line.characterRange.location
-        let localEndExclusive = localStart + runInLine.length
-        guard localStart >= 0,
-              localEndExclusive <= line.attributedString.length,
-              localStart < localEndExclusive else { return }
-        let startPoint = line.locationForCharacter(at: localStart)
-        let endPoint = line.locationForCharacter(at: localEndExclusive)
+        // `runInLine` is layout-fragment-local — the same coordinate space
+        // `locationForCharacter` expects (its `attributedString` is the
+        // entire layout fragment's text, not the line's slice). Don't
+        // subtract `line.characterRange.location` here: that worked for
+        // line 0 (where it's zero) but produced (0, baseline) for every
+        // wrapped continuation line, painting 8pt-wide phantom pills at
+        // the line's left edge.
+        let absStart = runInLine.location
+        let absEnd = absStart + runInLine.length
+        guard absStart >= 0,
+              absEnd <= line.attributedString.length,
+              absStart < absEnd else { return }
+        let startPoint = line.locationForCharacter(at: absStart)
+        let endPoint = line.locationForCharacter(at: absEnd)
         let bounds = line.typographicBounds
         // locationForCharacter returns a point on the baseline; use the line
         // fragment's typographicBounds for vertical extent.

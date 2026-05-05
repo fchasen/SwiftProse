@@ -1301,11 +1301,9 @@ public final class EditorController {
     }
 
     /// Invalidate layout for every range that hosts a table attachment
-    /// so TextKit 2 re-queries `attachmentBounds` against the new
-    /// container width. Called from the host text view's
-    /// `sizeThatFits` whenever the container width changes — without
-    /// this, an already-laid-out attachment keeps its previous size and
-    /// the cell grid stops reflowing on editor resize.
+    /// so TextKit 2 re-queries `attachmentBounds` against the current
+    /// container width. The host text view calls this from
+    /// `sizeThatFits` on resize.
     public func scheduleTableHeightStamp(containerWidth: CGFloat) {
         guard textStorage.length > 0 else { return }
         var ranges: [NSTextRange] = []

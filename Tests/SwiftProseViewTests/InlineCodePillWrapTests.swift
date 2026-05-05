@@ -128,6 +128,71 @@ import UIKit
         #expect(containsHeading)
     }
 
+    /// Reproduces the user-reported "tiny pill at x=0 on every wrapped
+    /// line" by running the painter's exact attribute scan over the
+    /// reported paragraph. Each pill drawn must have width ≥ 1pt — the
+    /// 8pt-wide phantom pills the user saw in the screenshot fail this.
+    @Test func wrappedParagraphHasNoPhantomZeroWidthPill() throws {
+        let md = "Pipe tables today are stored as one paragraph per source line. The compiler's `appendPipeTableAsParagraphs` (`Sources/SwiftProseView/MarkdownAttributedCompiler.swift:671`) lays each row out as a monospace paragraph and `wrapInTableAncestor` (line 706) inserts a single shared `table` ProseNode between every row's leaf and its parent — so the storage `proseNodePath` for a cell is doc → … → table → paragraph, with no `table_row` or `table_cell` ancestors.\n"
+        let controller = try EditorController(
+            initialMarkdown: md,
+            containerSize: CGSize(width: 600, height: 1000)
+        )
+        let lm = controller.layoutManager
+        lm.ensureLayout(for: lm.documentRange)
+        let storage = controller.textStorage
+
+        struct Pill {
+            let line: Int
+            let xMin: CGFloat
+            let xMax: CGFloat
+            let runRange: NSRange
+            let lineLength: Int
+        }
+        var pills: [Pill] = []
+
+        lm.enumerateTextLayoutFragments(from: lm.documentRange.location, options: [.ensuresLayout]) { frag in
+            guard let cs = frag.textLayoutManager?.textContentManager as? NSTextContentStorage else { return true }
+            let elementStart = cs.offset(from: cs.documentRange.location, to: frag.rangeInElement.location)
+            for (idx, line) in frag.textLineFragments.enumerated() {
+                let lineLocal = line.characterRange
+                let storageStart = elementStart + lineLocal.location
+                let storageEnd = min(storage.length, storageStart + lineLocal.length)
+                var cursor = storageStart
+                while cursor < storageEnd {
+                    var runRange = NSRange(location: cursor, length: 0)
+                    let value = storage.attribute(
+                        .proseInline,
+                        at: cursor,
+                        longestEffectiveRange: &runRange,
+                        in: NSRange(location: cursor, length: storageEnd - cursor)
+                    )
+                    let runEnd = runRange.location + runRange.length
+                    if let tag = value as? InlineTag, tag == .codeSpan, runRange.length > 0 {
+                        let lineRunStart = max(runRange.location, storageStart) - elementStart
+                        let lineRunEnd = min(runEnd, storageEnd) - elementStart
+                        if lineRunStart >= 0,
+                           lineRunEnd <= line.attributedString.length,
+                           lineRunStart < lineRunEnd {
+                            let p0 = line.locationForCharacter(at: lineRunStart)
+                            let p1 = line.locationForCharacter(at: lineRunEnd)
+                            pills.append(Pill(line: idx, xMin: min(p0.x, p1.x), xMax: max(p0.x, p1.x),
+                                              runRange: runRange, lineLength: line.attributedString.length))
+                        }
+                    }
+                    cursor = max(runEnd, cursor + 1)
+                }
+            }
+            return true
+        }
+
+        for p in pills {
+            let glyphWidth = p.xMax - p.xMin
+            #expect(glyphWidth >= 1.0,
+                    "Phantom pill on line \(p.line): glyph width \(glyphWidth)pt for runRange \(p.runRange) (attrLen \(p.lineLength), xMin=\(p.xMin), xMax=\(p.xMax))")
+        }
+    }
+
     /// Sanity-check the painter math for a wrapped paragraph: each
     /// code-span run on each line should produce a pill rectangle whose y
     /// range matches the line it sits on, and whose x range is positive
@@ -171,14 +236,11 @@ import UIKit
                     if let tag = value as? InlineTag, tag == .codeSpan, runRange.length > 0 {
                         let lineRunStart = max(runRange.location, storageStart) - elementStart
                         let lineRunEnd = min(runEnd, storageEnd) - elementStart
-                        let runInLine = NSRange(location: lineRunStart, length: lineRunEnd - lineRunStart)
-                        let localStart = runInLine.location - line.characterRange.location
-                        let localEnd = localStart + runInLine.length
-                        if localStart >= 0,
-                           localEnd <= line.attributedString.length,
-                           localStart < localEnd {
-                            let p0 = line.locationForCharacter(at: localStart)
-                            let p1 = line.locationForCharacter(at: localEnd)
+                        if lineRunStart >= 0,
+                           lineRunEnd <= line.attributedString.length,
+                           lineRunStart < lineRunEnd {
+                            let p0 = line.locationForCharacter(at: lineRunStart)
+                            let p1 = line.locationForCharacter(at: lineRunEnd)
                             let bounds = line.typographicBounds
                             let xMin = min(p0.x, p1.x) - 4 // horizontal padding
                             let xMax = max(p0.x, p1.x) + 4
