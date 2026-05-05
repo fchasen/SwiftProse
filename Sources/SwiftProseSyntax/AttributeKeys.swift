@@ -6,11 +6,12 @@ public extension NSAttributedString.Key {
     /// Flag (Bool=true) on rendered list-marker characters (`•`, `1.`, etc.)
     /// the compiler injects so they aren't part of the markdown round-trip.
     static let proseListMarker = NSAttributedString.Key("swiftprose.listMarker")
-    /// Hierarchical structural attribute introduced in the Phase-1 pivot to
-    /// a ProseMirror-aligned model. Carries a `NodePathBox` per character
-    /// so the document tree can be reconstructed from attribute runs. Phase
-    /// 2 starts stamping this alongside `proseBlockSpec`; Phase 10 removes
-    /// `proseBlockSpec`.
+    /// Hierarchical structural attribute. Carries a `NodePathBox` per
+    /// character so the document tree can be reconstructed from attribute
+    /// runs. The compiler stamps it during emit; readers like
+    /// `BlockSpecDecorationProvider`, `LayoutManagerDelegate`,
+    /// `ProseDocument.from(storage:)` and `MarkdownTreeSerializer` walk it
+    /// to drive their per-paragraph dispatch.
     static let proseNodePath = NSAttributedString.Key("swiftprose.nodePath")
     /// Canonical inline marks (bold, italic, code, link, strike) per character
     /// as a `MarkSetBox`. Layout layer projects these onto the existing

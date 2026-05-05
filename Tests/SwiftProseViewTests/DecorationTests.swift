@@ -64,7 +64,7 @@ import UIKit
         // Strip the spec from char 0 and confirm the provider still
         // reports a blockquote bar from the surviving spec on later chars.
         let storage = NSTextStorage(attributedString: try compiled("> hello\n"))
-        storage.removeAttribute(.proseBlockSpec, range: NSRange(location: 0, length: 1))
+        storage.removeAttribute(.proseNodePath, range: NSRange(location: 0, length: 1))
         let provider = BlockSpecDecorationProvider()
         let decorations = provider.decorations(in: NSRange(location: 0, length: storage.length), storage: storage)
         let bars = decorations.filter { if case .blockquoteBar = $0.kind { return true } else { return false } }

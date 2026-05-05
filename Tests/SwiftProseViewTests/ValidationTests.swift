@@ -23,7 +23,7 @@ import UIKit
         let env = try env()
         let storage = NSTextStorage(attributedString: env.compiler.compile("hello\n", theme: .default))
         // Manually corrupt: strip the spec from one char.
-        storage.removeAttribute(.proseBlockSpec, range: NSRange(location: 1, length: 1))
+        storage.removeAttribute(.proseNodePath, range: NSRange(location: 1, length: 1))
         let diagnostics = SpecValidator.validate(in: storage, range: NSRange(location: 0, length: storage.length))
         #expect(diagnostics.contains { if case .missingSpec = $0.issue { return true } else { return false } })
     }
@@ -32,9 +32,7 @@ import UIKit
         let env = try env()
         let storage = NSTextStorage(attributedString: env.compiler.compile("hello\n", theme: .default))
         // Set a different spec on one char.
-        storage.addAttribute(.proseBlockSpec,
-                             value: BlockSpecBox(BlockSpec(kind: .heading(level: 1))),
-                             range: NSRange(location: 0, length: 1))
+        storage.setBlockSpec(BlockSpec(kind: .heading(level: 1)), in: NSRange(location: 0, length: 1))
         let diagnostics = SpecValidator.validate(in: storage, range: NSRange(location: 0, length: storage.length))
         #expect(diagnostics.contains { if case .inconsistentSpec = $0.issue { return true } else { return false } })
     }
@@ -49,7 +47,7 @@ import UIKit
     @Test func repairFillsMissingSpecFromLine() throws {
         let env = try env()
         let storage = NSTextStorage(attributedString: env.compiler.compile("hello world\n", theme: .default))
-        storage.removeAttribute(.proseBlockSpec, range: NSRange(location: 0, length: 5))
+        storage.removeAttribute(.proseNodePath, range: NSRange(location: 0, length: 5))
         SpecValidator.repair(in: storage, range: NSRange(location: 0, length: storage.length))
         let diagnostics = SpecValidator.validate(in: storage, range: NSRange(location: 0, length: storage.length))
         #expect(diagnostics.isEmpty, "repair should restore consistency, got \(diagnostics)")
@@ -58,9 +56,7 @@ import UIKit
     @Test func repairResolvesInconsistentSpec() throws {
         let env = try env()
         let storage = NSTextStorage(attributedString: env.compiler.compile("hello world\n", theme: .default))
-        storage.addAttribute(.proseBlockSpec,
-                             value: BlockSpecBox(BlockSpec(kind: .heading(level: 2))),
-                             range: NSRange(location: 0, length: 1))
+        storage.setBlockSpec(BlockSpec(kind: .heading(level: 2)), in: NSRange(location: 0, length: 1))
         SpecValidator.repair(in: storage, range: NSRange(location: 0, length: storage.length))
         let diagnostics = SpecValidator.validate(in: storage, range: NSRange(location: 0, length: storage.length))
         #expect(diagnostics.isEmpty, "repair should resolve inconsistency, got \(diagnostics)")
@@ -70,7 +66,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "hello\n")
         // setSpec re-renders the entire line so any pre-existing corruption
         // in that range is wiped out — the post-state should be valid.
-        controller.textStorage.removeAttribute(.proseBlockSpec, range: NSRange(location: 0, length: 1))
+        controller.textStorage.removeAttribute(.proseNodePath, range: NSRange(location: 0, length: 1))
         let lineRange = NSRange(location: 0, length: controller.textStorage.length)
         controller.apply(Transaction(steps: [
             .setSpec(lineRange: lineRange, BlockSpec(kind: .heading(level: 1)))

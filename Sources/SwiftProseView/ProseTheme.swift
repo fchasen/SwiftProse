@@ -63,7 +63,7 @@ public struct ProseTheme: Equatable {
             .font: bodyFont,
             .foregroundColor: foregroundColor,
             .paragraphStyle: NSParagraphStyle(),
-            .proseBlockSpec: BlockSpecBox(.paragraph)
+            .proseNodePath: NodePathBox(NodePath.fromBlockSpec(.paragraph))
         ]
     }
 

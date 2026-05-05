@@ -124,9 +124,13 @@ public struct ProseMirrorCodec {
         }
         let spec = context.makeBlockSpec(kind: .paragraph)
         for line in lines {
-            var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
-            attrs[.proseBlockSpec] = BlockSpecBox(spec)
+            let attrs = schemaMap.baseAttributes(for: spec, theme: theme)
+            let beforeLength = result.length
             result.append(NSAttributedString(string: line + "\n", attributes: attrs))
+            let stampedLength = result.length - beforeLength
+            if stampedLength > 0 {
+                result.setBlockSpec(spec, in: NSRange(location: beforeLength, length: stampedLength))
+            }
         }
     }
 
@@ -204,8 +208,8 @@ public struct ProseMirrorCodec {
             let nlAttrs = schemaMap.baseAttributes(for: spec, theme: theme)
             line.append(NSAttributedString(string: "\n", attributes: nlAttrs))
         }
-        // Stamp the entire block with one BlockSpecBox so the synthesizer
-        // sees one logical block run (not one per inline child).
+        // Stamp the entire block with one NodePath run so the tree
+        // builder sees one logical block (not one per inline child).
         let beforeLength = result.length
         result.append(line)
         let stampedLength = result.length - beforeLength
@@ -215,9 +219,13 @@ public struct ProseMirrorCodec {
     }
 
     private func appendLeafBlock(spec: BlockSpec, into result: NSMutableAttributedString) {
-        var attrs = schemaMap.baseAttributes(for: spec, theme: theme)
-        attrs[.proseBlockSpec] = BlockSpecBox(spec)
+        let attrs = schemaMap.baseAttributes(for: spec, theme: theme)
+        let beforeLength = result.length
         result.append(NSAttributedString(string: "\n", attributes: attrs))
+        let stampedLength = result.length - beforeLength
+        if stampedLength > 0 {
+            result.setBlockSpec(spec, in: NSRange(location: beforeLength, length: stampedLength))
+        }
     }
 
     // MARK: encode
@@ -226,9 +234,14 @@ public struct ProseMirrorCodec {
         // Project storage to a tree first, then walk the tree directly.
         // The tree path captures marks via `MarkSet` rather than re-deriving
         // from rendering attributes, which keeps mark fidelity in nested
-        // contexts.
+        // contexts. Refresh `proseMarks` from the rendering attributes so
+        // post-mutation storage that didn't update its mark store still
+        // emits correct marks.
         let mutable = NSMutableAttributedString(attributedString: storage)
-        NodePathSynthesizer(schema: .defaultMarkdown).stamp(into: mutable)
+        NodePathSynthesizer(schema: .defaultMarkdown).stampMarks(
+            in: mutable,
+            range: NSRange(location: 0, length: mutable.length)
+        )
         let document = ProseDocument.from(storage: mutable, schema: .defaultMarkdown)
         return encode(document: document)
     }

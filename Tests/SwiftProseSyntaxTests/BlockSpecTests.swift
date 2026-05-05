@@ -53,8 +53,8 @@ import Foundation
 
     @Test func sameBoxFusesRuns() {
         let target = NSMutableAttributedString(string: "ab")
-        let box = BlockSpecBox(BlockSpec(kind: .heading(level: 2)))
-        target.addAttribute(.proseBlockSpec, value: box, range: NSRange(location: 0, length: 2))
+        let path = NodePath.fromBlockSpec(BlockSpec(kind: .heading(level: 2)))
+        target.addAttribute(.proseNodePath, value: NodePathBox(path), range: NSRange(location: 0, length: 2))
         var ranges = 0
         target.enumerateBlockSpecs { _, _ in ranges += 1 }
         #expect(ranges == 1, "a single box applied uniformly produces one run")

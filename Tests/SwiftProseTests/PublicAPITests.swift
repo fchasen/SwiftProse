@@ -38,7 +38,7 @@ import UIKit
         var captured: [SpecDiagnostic] = []
         controller.onDiagnostic = { captured.append($0) }
         // Corrupt then fire a transaction so validation runs.
-        controller.textStorage.removeAttribute(.proseBlockSpec, range: NSRange(location: 0, length: 1))
+        controller.textStorage.removeAttribute(.proseNodePath, range: NSRange(location: 0, length: 1))
         let lineRange = NSRange(location: 0, length: controller.textStorage.length)
         controller.apply(Transaction(steps: [
             .setSpec(lineRange: lineRange, .paragraph)

@@ -43,6 +43,7 @@ public enum InsertNewline {
             let replacement = NSAttributedString(string: "\n", attributes: plainAttrs)
             storage.beginEditing()
             storage.replaceCharacters(in: lineRange, with: replacement)
+            Step.restampPredecessorContext(in: storage, range: lineRange)
             storage.endEditing()
             return NSRange(location: lineRange.location, length: 0)
         }
@@ -58,6 +59,10 @@ public enum InsertNewline {
         let insertLocation = lineRange.location + lineRange.length
         storage.beginEditing()
         storage.replaceCharacters(in: NSRange(location: insertLocation, length: 0), with: nextItem)
+        Step.restampPredecessorContext(
+            in: storage,
+            range: NSRange(location: insertLocation, length: nextItem.length)
+        )
         storage.endEditing()
         let cursorAt = insertLocation + nextItem.length - 1
         return NSRange(location: max(insertLocation, cursorAt), length: 0)

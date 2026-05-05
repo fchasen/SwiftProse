@@ -35,12 +35,15 @@ public final class MarkdownAttributedCompiler {
         theme: ProseTheme
     ) -> NSAttributedString {
         let rich = compileRich(markdown, theme: theme)
-        // Phase 2: stamp `proseNodePath` + `proseMarks` alongside the
-        // existing `proseBlockSpec` and rendering attributes so downstream
-        // consumers can either dispatch on the legacy spec (current) or
-        // walk the structural tree (Phase 4+).
+        // The emit loop has already stamped `proseNodePath` per segment via
+        // `setBlockSpec` (which derives a path from each spec, sharing list
+        // ancestors with the predecessor line). One more pass derives
+        // `proseMarks` from the rendering attributes per block.
         let mutable = NSMutableAttributedString(attributedString: rich)
-        NodePathSynthesizer(schema: schema).stamp(into: mutable)
+        NodePathSynthesizer(schema: schema).stampMarks(
+            in: mutable,
+            range: NSRange(location: 0, length: mutable.length)
+        )
         return mutable
     }
 

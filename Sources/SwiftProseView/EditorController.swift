@@ -57,7 +57,7 @@ public final class EditorController {
     private(set) var serializer: AttributedMarkdownSerializer
 
     private static let carryForwardAttributeKeys: [NSAttributedString.Key] = [
-        .font, .foregroundColor, .paragraphStyle, .proseBlockSpec,
+        .font, .foregroundColor, .paragraphStyle,
         .proseNodePath, .proseMarks
     ]
     private let layoutDelegate: LayoutManagerDelegate
@@ -899,13 +899,12 @@ public final class EditorController {
             blockquoteDepth: spec.blockquoteDepth,
             listLevel: spec.listLevel
         )
-        let newSpecBox = BlockSpecBox(newSpec)
         let ns = textStorage.string as NSString
         let lineRange = ns.paragraphRange(for: NSRange(location: location, length: 0))
         withAttributeMutation(range: lineRange) {
             textStorage.beginEditing()
             textStorage.addAttribute(.attachment, value: newAttachment, range: NSRange(location: location, length: 1))
-            textStorage.addAttribute(.proseBlockSpec, value: newSpecBox, range: lineRange)
+            textStorage.setBlockSpec(newSpec, in: lineRange)
             textStorage.endEditing()
         }
         return true
@@ -1287,7 +1286,7 @@ public final class EditorController {
     /// Walk `blocks` for fenced/indented code runs overlapping `range` and
     /// ask the compiler to re-stamp syntax-highlight colors on their
     /// bodies. Adjacent same-tag segments are merged into one logical block
-    /// — `BlockSpecBox` uses reference equality so each compiler-emitted
+    /// — `NodePathBox` uses reference equality so each compiler-emitted
     /// line is its own attribute run, and the highlighter needs the full
     /// fence-body-fence span to peel the fences from the body. Recompile-
     /// free path — the parser doesn't run, so the spec attribution is

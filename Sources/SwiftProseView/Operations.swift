@@ -326,7 +326,6 @@ public enum Operations {
         case .ordered: newSpec = BlockSpec(kind: .orderedListItem(index: orderedIndex ?? 1), listLevel: newLevel)
         case .task: newSpec = BlockSpec(kind: .taskListItem(checked: isChecked ?? false), listLevel: newLevel)
         }
-        let newSpecBox = BlockSpecBox(newSpec)
 
         var markerRange = NSRange(location: lineRange.location, length: 0)
         if (storage.safeAttribute(.proseListMarker, at: lineRange.location) as? Bool) == true {
@@ -337,8 +336,7 @@ public enum Operations {
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor,
             .paragraphStyle: newParagraphStyle,
-            .proseListMarker: true,
-            .proseBlockSpec: newSpecBox
+            .proseListMarker: true
         ]
         let markerString: String
         switch kind {
@@ -361,7 +359,7 @@ public enum Operations {
         let lengthDelta = newMarker.length - markerRange.length
         let updatedLineRange = NSRange(location: lineRange.location, length: lineRange.length + lengthDelta)
         storage.addAttribute(.paragraphStyle, value: newParagraphStyle, range: updatedLineRange)
-        storage.addAttribute(.proseBlockSpec, value: newSpecBox, range: updatedLineRange)
+        storage.setBlockSpec(newSpec, in: updatedLineRange)
         storage.endEditing()
 
         let cursor = max(updatedLineRange.location, updatedLineRange.location + updatedLineRange.length - 1)
@@ -623,7 +621,7 @@ public enum Operations {
             NSAttributedString.Key.font,
             .foregroundColor,
             .paragraphStyle,
-            .proseBlockSpec
+            .proseNodePath
         ] {
             if let v = raw[key] { carry[key] = v }
         }

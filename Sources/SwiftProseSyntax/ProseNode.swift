@@ -133,9 +133,9 @@ public struct NodePath: Sendable, Equatable, Hashable {
 }
 
 /// Reference-typed wrapper for storing `NodePath` in `NSAttributedString`.
-/// Mirrors `BlockSpecBox`'s contract: NSObject reference equality keeps
-/// adjacent attribute runs distinct even when the underlying values are
-/// equal, which is what `enumerateAttribute` consumers rely on.
+/// NSObject reference equality keeps adjacent attribute runs distinct
+/// even when the underlying values are equal, which is what
+/// `enumerateAttribute` consumers rely on.
 public final class NodePathBox: NSObject, @unchecked Sendable {
     public let path: NodePath
 
@@ -175,5 +175,241 @@ public extension NSMutableAttributedString {
               range.location >= 0,
               range.location + range.length <= length else { return }
         addAttribute(.proseNodePath, value: NodePathBox(path), range: range)
+    }
+}
+
+// MARK: - BlockSpec → NodePath construction
+
+public extension NodePath {
+    /// Build a single-line `NodePath` from a `BlockSpec`. When a
+    /// `predecessor` path is supplied, list and blockquote ancestors at
+    /// matching depths/kinds are reused so consecutive list items at the
+    /// same level share their wrapping `bullet_list` / `ordered_list` /
+    /// `task_list` node — preserving tree grouping for the markdown and
+    /// ProseMirror round-trips.
+    ///
+    /// The leaf node and the deepest list-item are always minted fresh:
+    /// each block line is its own paragraph/heading/etc., and each
+    /// list-item line is its own item even when its parent list is shared.
+    static func fromBlockSpec(
+        _ spec: BlockSpec,
+        predecessor: NodePath? = nil,
+        schema: Schema = .defaultMarkdown
+    ) -> NodePath {
+        let docNode = predecessor?.root ?? ProseNode(
+            type: schema.topNodeName,
+            attrs: schema.topNode.defaultAttrs()
+        )
+        var nodes: [ProseNode] = [docNode]
+        let prevBlockquotes = predecessor.map(blockquoteAncestors) ?? []
+        for i in 0..<spec.blockquoteDepth {
+            if i < prevBlockquotes.count {
+                nodes.append(prevBlockquotes[i])
+            } else {
+                nodes.append(ProseNode(type: "blockquote"))
+            }
+        }
+        if spec.isListItem, let kind = listKind(for: spec.kind) {
+            let depth = spec.listLevel
+            let prevLists = predecessor.map(listAncestors) ?? []
+            for level in 0...depth {
+                let listNode: ProseNode
+                let itemNode: ProseNode
+                if level < prevLists.count, prevLists[level].kind == kind {
+                    listNode = prevLists[level].listNode
+                    if level < depth {
+                        itemNode = prevLists[level].itemNode
+                    } else {
+                        itemNode = ProseNode(
+                            type: "list_item",
+                            attrs: itemAttrs(for: spec.kind)
+                        )
+                    }
+                } else {
+                    listNode = ProseNode(type: listNodeName(for: kind))
+                    if level < depth {
+                        itemNode = ProseNode(type: "list_item")
+                    } else {
+                        itemNode = ProseNode(
+                            type: "list_item",
+                            attrs: itemAttrs(for: spec.kind)
+                        )
+                    }
+                }
+                nodes.append(listNode)
+                nodes.append(itemNode)
+            }
+        }
+        nodes.append(leafNode(for: spec.kind))
+        return NodePath(nodes)
+    }
+}
+
+private enum ListAncestorKind: Equatable {
+    case bullet
+    case ordered
+    case task
+}
+
+private struct ListAncestor {
+    let kind: ListAncestorKind
+    let listNode: ProseNode
+    let itemNode: ProseNode
+}
+
+private func blockquoteAncestors(_ path: NodePath) -> [ProseNode] {
+    path.nodes.filter { $0.type == "blockquote" }
+}
+
+private func listAncestors(_ path: NodePath) -> [ListAncestor] {
+    var out: [ListAncestor] = []
+    var i = 0
+    while i + 1 < path.nodes.count {
+        let listLike = path.nodes[i]
+        guard let kind = ancestorKind(forListNodeName: listLike.type) else {
+            i += 1
+            continue
+        }
+        let item = path.nodes[i + 1]
+        guard item.type == "list_item" else { i += 1; continue }
+        out.append(ListAncestor(kind: kind, listNode: listLike, itemNode: item))
+        i += 2
+    }
+    return out
+}
+
+private func ancestorKind(forListNodeName name: String) -> ListAncestorKind? {
+    switch name {
+    case "bullet_list": return .bullet
+    case "ordered_list": return .ordered
+    case "task_list": return .task
+    default: return nil
+    }
+}
+
+private func listKind(for kind: BlockSpec.Kind) -> ListAncestorKind? {
+    switch kind {
+    case .unorderedListItem: return .bullet
+    case .orderedListItem: return .ordered
+    case .taskListItem: return .task
+    default: return nil
+    }
+}
+
+private func listNodeName(for kind: ListAncestorKind) -> String {
+    switch kind {
+    case .bullet: return "bullet_list"
+    case .ordered: return "ordered_list"
+    case .task: return "task_list"
+    }
+}
+
+private func itemAttrs(for kind: BlockSpec.Kind) -> [String: ProseAttrValue] {
+    switch kind {
+    case .taskListItem(let checked): return ["checked": .bool(checked)]
+    case .orderedListItem(let index): return ["order": .int(index)]
+    default: return [:]
+    }
+}
+
+private func leafNode(for kind: BlockSpec.Kind) -> ProseNode {
+    switch kind {
+    case .paragraph:
+        return ProseNode(type: "paragraph")
+    case .heading(let level):
+        return ProseNode(type: "heading", attrs: ["level": .int(level)])
+    case .unorderedListItem:
+        return ProseNode(type: "paragraph")
+    case .orderedListItem(let index):
+        return ProseNode(type: "paragraph", attrs: ["__listOrder": .int(index)])
+    case .taskListItem(let checked):
+        return ProseNode(type: "paragraph", attrs: ["__listChecked": .bool(checked)])
+    case .fencedCode(let language):
+        return ProseNode(
+            type: "code_block",
+            attrs: [
+                "language": language.map(ProseAttrValue.string) ?? .null,
+                "fenced": .bool(true)
+            ]
+        )
+    case .indentedCode:
+        return ProseNode(
+            type: "code_block",
+            attrs: [
+                "language": .null,
+                "fenced": .bool(false)
+            ]
+        )
+    case .horizontalRule:
+        return ProseNode(type: "horizontal_rule")
+    case .htmlBlock:
+        return ProseNode(type: "html_block")
+    case .linkReferenceDefinition:
+        return ProseNode(type: "link_reference")
+    }
+}
+
+// MARK: - NodePath → BlockSpec derivation
+
+public extension BlockSpec {
+    /// Derive a `BlockSpec` view from a `NodePath`. The leaf node type
+    /// determines `kind` (and any leaf attrs map back to the spec's
+    /// per-kind associated values); blockquote ancestors count toward
+    /// `blockquoteDepth`; list/list_item pair count toward `listLevel`.
+    /// Returns `nil` for paths whose leaf isn't a known block type.
+    static func fromNodePath(_ path: NodePath) -> BlockSpec? {
+        guard let leaf = path.leaf else { return nil }
+        let depth = path.nodes.reduce(0) { $0 + ($1.type == "blockquote" ? 1 : 0) }
+        let listPairs = path.nodes.reduce(0) { acc, node in
+            switch node.type {
+            case "bullet_list", "ordered_list", "task_list": return acc + 1
+            default: return acc
+            }
+        }
+        let level = max(0, listPairs - 1)
+        switch leaf.type {
+        case "paragraph":
+            // Paragraph leaves under a list_item carry __listOrder /
+            // __listChecked attrs that distinguish list-item kinds.
+            if let parent = path.nodes.dropLast().last, parent.type == "list_item" {
+                if let listType = path.nodes.dropLast(2).last?.type {
+                    switch listType {
+                    case "bullet_list":
+                        return BlockSpec(kind: .unorderedListItem, blockquoteDepth: depth, listLevel: level)
+                    case "ordered_list":
+                        let index = leaf.attrs["__listOrder"]?.intValue
+                            ?? parent.attrs["order"]?.intValue
+                            ?? 1
+                        return BlockSpec(kind: .orderedListItem(index: index), blockquoteDepth: depth, listLevel: level)
+                    case "task_list":
+                        let checked = leaf.attrs["__listChecked"]?.boolValue
+                            ?? parent.attrs["checked"]?.boolValue
+                            ?? false
+                        return BlockSpec(kind: .taskListItem(checked: checked), blockquoteDepth: depth, listLevel: level)
+                    default: break
+                    }
+                }
+            }
+            return BlockSpec(kind: .paragraph, blockquoteDepth: depth)
+        case "heading":
+            let level = leaf.attrs["level"]?.intValue ?? 1
+            return BlockSpec(kind: .heading(level: level), blockquoteDepth: depth)
+        case "code_block":
+            let isFenced = leaf.attrs["fenced"]?.boolValue ?? true
+            let language = leaf.attrs["language"]?.stringValue
+            if isFenced {
+                return BlockSpec(kind: .fencedCode(language: language), blockquoteDepth: depth)
+            } else {
+                return BlockSpec(kind: .indentedCode, blockquoteDepth: depth)
+            }
+        case "horizontal_rule":
+            return BlockSpec(kind: .horizontalRule)
+        case "html_block":
+            return BlockSpec(kind: .htmlBlock, blockquoteDepth: depth)
+        case "link_reference":
+            return BlockSpec(kind: .linkReferenceDefinition, blockquoteDepth: depth)
+        default:
+            return nil
+        }
     }
 }

@@ -9,10 +9,12 @@ import UIKit
 
 /// Serializes a styled `NSAttributedString` back to markdown by walking
 /// the tree projection (`proseNodePath` + `proseMarks`) and emitting via
-/// `MarkdownTreeSerializer`. The legacy `proseBlockSpec`-walking emit
-/// path was retired in Phase 10 cleanup; storage that lacks tree
-/// attributes goes through `NodePathSynthesizer.stamp` first to derive
-/// them from `proseBlockSpec` (or sensible defaults).
+/// `MarkdownTreeSerializer`. With Phase 10 retiring `BlockSpec` storage,
+/// `proseNodePath` is the canonical structural attribute — the compiler
+/// stamps it during emit and writers go through `setBlockSpec` (which now
+/// stamps `NodePath` under the hood). A marks-only refresh keeps the
+/// canonical mark store in sync with rendering attributes for
+/// post-mutation storage that didn't push marks through the Step API.
 public final class AttributedMarkdownSerializer {
     public let schema: Schema
 
@@ -24,14 +26,13 @@ public final class AttributedMarkdownSerializer {
         serializeFromTree(attributed)
     }
 
-    /// Tree-driven emit path. Re-derives `proseNodePath` from
-    /// `proseBlockSpec` if missing so post-mutation storage that only
-    /// carries the legacy attribute (e.g. `setAttributes(plainAttrs, …)`
-    /// paths in EditorController) still serializes correctly.
     public func serializeFromTree(_ attributed: NSAttributedString) -> String {
         guard attributed.length > 0 else { return "" }
         let mutable = NSMutableAttributedString(attributedString: attributed)
-        NodePathSynthesizer(schema: schema).stamp(into: mutable)
+        NodePathSynthesizer(schema: schema).stampMarks(
+            in: mutable,
+            range: NSRange(location: 0, length: mutable.length)
+        )
         let tree = ProseDocument.from(storage: mutable, schema: schema)
         return MarkdownTreeSerializer(schema: schema).serialize(tree)
     }

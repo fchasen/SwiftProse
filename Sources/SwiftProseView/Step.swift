@@ -114,11 +114,33 @@ public enum Step {
         let prior = storage.attributedSubstring(from: safe)
         storage.beginEditing()
         storage.replaceCharacters(in: safe, with: attributed)
-        storage.endEditing()
         let mappedRange = NSRange(location: safe.location, length: attributed.length)
+        Step.restampPredecessorContext(in: storage, range: mappedRange)
+        storage.endEditing()
         let inverse = Step.replaceText(range: mappedRange, with: prior)
         let stepMap = StepMap(oldRange: safe, newLength: attributed.length)
         return AppliedStep(inverse: inverse, mappedRange: mappedRange, affectedLineRange: mappedRange, stepMap: stepMap)
+    }
+
+    /// Re-stamp `proseNodePath` runs in `range` so list and blockquote
+    /// ancestors share IDs with the immediately-preceding character in
+    /// storage. Called after replace operations whose content was
+    /// produced by an isolated compile (e.g. `Step.setSpec` rendering one
+    /// line, or `InsertNewline` building a fresh list item) so the new
+    /// content's structural ancestors correctly stitch into the
+    /// surrounding storage's open-list context.
+    static func restampPredecessorContext(in storage: NSTextStorage, range: NSRange) {
+        let safe = range.clamped(to: storage.length)
+        guard safe.length > 0 else { return }
+        var pairs: [(NSRange, BlockSpec)] = []
+        storage.enumerateNodePaths(in: safe) { runRange, path in
+            if let spec = BlockSpec.fromNodePath(path) {
+                pairs.append((runRange, spec))
+            }
+        }
+        for (runRange, spec) in pairs {
+            storage.setBlockSpec(spec, in: runRange)
+        }
     }
 
     private func applySetSpec(
@@ -133,9 +155,10 @@ public enum Step {
         let newAttr = render(spec: spec, replacing: prior, env: env)
         storage.beginEditing()
         storage.replaceCharacters(in: safe, with: newAttr)
+        let mappedRange = NSRange(location: safe.location, length: newAttr.length)
+        Step.restampPredecessorContext(in: storage, range: mappedRange)
         storage.endEditing()
 
-        let mappedRange = NSRange(location: safe.location, length: newAttr.length)
         let inverse = Step.replaceText(range: mappedRange, with: prior)
         let stepMap = StepMap(oldRange: safe, newLength: newAttr.length)
         return AppliedStep(inverse: inverse, mappedRange: mappedRange, affectedLineRange: mappedRange, stepMap: stepMap)
@@ -343,9 +366,10 @@ public enum Step {
             in: NSRange(location: outerSafe.location, length: innerStart - outerSafe.location),
             with: leading
         )
-        storage.endEditing()
         let newLength = leading.length + (innerEnd - innerStart) + trailing.length
         let mappedRange = NSRange(location: outerSafe.location, length: newLength)
+        Step.restampPredecessorContext(in: storage, range: mappedRange)
+        storage.endEditing()
         let inverse = Step.replaceText(range: mappedRange, with: prior)
         let stepMap = StepMap(oldRange: outerSafe, newLength: newLength)
         return AppliedStep(

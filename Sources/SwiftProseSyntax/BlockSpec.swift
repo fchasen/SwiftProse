@@ -1,9 +1,11 @@
 import Foundation
 
-public extension NSAttributedString.Key {
-    static let proseBlockSpec = NSAttributedString.Key("swiftprose.blockSpec")
-}
-
+/// A flat, value-typed view over a single block line's structural
+/// classification. `BlockSpec` no longer has its own attribute key on the
+/// storage — it's derived from `proseNodePath` at read time and converted
+/// to a `NodePath` at write time. The struct survives as a convenient
+/// switch-case shape used by commands, input rules, and the compiler;
+/// callers that need the full hierarchy work with `NodePath` directly.
 public struct BlockSpec: Equatable, Hashable, Sendable {
     public let kind: Kind
     public let blockquoteDepth: Int
@@ -86,62 +88,44 @@ public extension BlockSpec {
     }
 }
 
-/// Reference-typed wrapper for storing `BlockSpec` in `NSAttributedString`.
-///
-/// Why: `enumerateAttribute(.proseBlockSpec, in:)` walks runs by
-/// `isEqual:`. We deliberately keep NSObject's default reference equality
-/// here so each compiler emit produces a distinct run — two consecutive
-/// list items with value-equal specs stay separate and the serializer can
-/// emit a marker for each. Use `BlockSpec` value equality for diagnostics
-/// and tests; never compare boxes directly.
-public final class BlockSpecBox: NSObject, @unchecked Sendable {
-    public let spec: BlockSpec
-
-    public init(_ spec: BlockSpec) {
-        self.spec = spec
-        super.init()
-    }
-}
-
 public extension NSAttributedString {
+    /// Derive a `BlockSpec` view from the `proseNodePath` attribute at the
+    /// given index. Returns nil when the location lacks a node path or when
+    /// the leaf type isn't a known block kind.
     func blockSpec(at index: Int) -> BlockSpec? {
-        guard index >= 0, index < length else { return nil }
-        let raw = attribute(.proseBlockSpec, at: index, effectiveRange: nil)
-        return (raw as? BlockSpecBox)?.spec
+        guard let path = nodePath(at: index) else { return nil }
+        return BlockSpec.fromNodePath(path)
     }
 
+    /// Walk every `proseNodePath` run, deriving a `BlockSpec` per run and
+    /// invoking `body`. Runs whose path can't be mapped to a known block
+    /// kind are skipped silently.
     func enumerateBlockSpecs(
         in range: NSRange? = nil,
         _ body: (NSRange, BlockSpec) -> Void
     ) {
-        let scan = range ?? NSRange(location: 0, length: length)
-        guard scan.length > 0 else { return }
-        enumerateAttribute(.proseBlockSpec, in: scan) { value, subRange, _ in
-            if let box = value as? BlockSpecBox {
-                body(subRange, box.spec)
-            }
+        enumerateNodePaths(in: range) { runRange, path in
+            guard let spec = BlockSpec.fromNodePath(path) else { return }
+            body(runRange, spec)
         }
     }
 }
 
 public extension NSMutableAttributedString {
+    /// Stamp the `proseNodePath` attribute over `range` with a freshly-
+    /// derived path for `spec`. When the immediately-preceding character
+    /// already carries a node path, list and blockquote ancestors at
+    /// matching depths/kinds are reused so consecutive list-item lines
+    /// share the same wrapping list node — preserving tree grouping for
+    /// markdown / ProseMirror round-trips.
     func setBlockSpec(_ spec: BlockSpec, in range: NSRange) {
         guard range.length > 0,
               range.location >= 0,
               range.location + range.length <= length else { return }
-        addAttribute(.proseBlockSpec, value: BlockSpecBox(spec), range: range)
-    }
-}
-
-public extension Dictionary where Key == NSAttributedString.Key, Value == Any {
-    var proseBlockSpec: BlockSpec? {
-        get { (self[.proseBlockSpec] as? BlockSpecBox)?.spec }
-        set {
-            if let v = newValue {
-                self[.proseBlockSpec] = BlockSpecBox(v)
-            } else {
-                self[.proseBlockSpec] = nil
-            }
-        }
+        let predecessor: NodePath? = range.location > 0
+            ? nodePath(at: range.location - 1)
+            : nil
+        let path = NodePath.fromBlockSpec(spec, predecessor: predecessor)
+        setNodePath(path, in: range)
     }
 }

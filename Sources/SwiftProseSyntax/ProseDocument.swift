@@ -231,9 +231,7 @@ public extension ProseDocument {
     /// Reconstruct a `ProseDocument` from an `NSAttributedString` by walking
     /// `proseNodePath` runs. Each run's path identifies the chain of
     /// structural ancestors; consecutive runs sharing a prefix collapse
-    /// into shared ancestors. Runs without `proseNodePath` are skipped
-    /// (they predate Phase 1 stamping; callers should treat them as legacy
-    /// content and use `proseBlockSpec` for now).
+    /// into shared ancestors. Runs without `proseNodePath` are skipped.
     static func from(
         storage: NSAttributedString,
         schema: Schema = .defaultMarkdown

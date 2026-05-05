@@ -78,8 +78,7 @@ public enum SpecValidator {
         lineRange: NSRange
     ) -> BlockSpec? {
         var counts: [BlockSpec: Int] = [:]
-        storage.enumerateAttribute(.proseBlockSpec, in: lineRange) { value, subRange, _ in
-            guard let spec = (value as? BlockSpecBox)?.spec else { return }
+        storage.enumerateBlockSpecs(in: lineRange) { subRange, spec in
             counts[spec, default: 0] += subRange.length
         }
         return counts.max(by: { $0.value < $1.value })?.key
@@ -93,7 +92,7 @@ public enum SpecValidator {
         guard lineRange.length > 0,
               lineRange.location + lineRange.length <= storage.length else { return }
         storage.beginEditing()
-        storage.addAttribute(.proseBlockSpec, value: BlockSpecBox(spec), range: lineRange)
+        storage.setBlockSpec(spec, in: lineRange)
         if !spec.isListItem {
             storage.removeAttribute(.proseListMarker, range: lineRange)
         }

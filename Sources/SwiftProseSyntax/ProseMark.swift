@@ -81,9 +81,9 @@ public struct MarkSet: Sendable, Equatable, Hashable {
 }
 
 /// Reference-typed wrapper for `NSAttributedString` storage. Same rationale
-/// as `NodePathBox` / `BlockSpecBox` — reference identity keeps adjacent
-/// attribute runs separable even when their value-equal mark sets would
-/// otherwise collapse into one run.
+/// as `NodePathBox` — reference identity keeps adjacent attribute runs
+/// separable even when their value-equal mark sets would otherwise
+/// collapse into one run.
 public final class MarkSetBox: NSObject, @unchecked Sendable {
     public let marks: MarkSet
 

@@ -287,9 +287,7 @@ import UIKit
     @Test func fencedCodeRuleBailsWhenLineAlreadyFenced() throws {
         let storage = NSTextStorage(string: "```")
         let spec = BlockSpec(kind: .fencedCode(language: "swift"))
-        storage.addAttribute(.proseBlockSpec,
-                             value: BlockSpecBox(spec),
-                             range: NSRange(location: 0, length: storage.length))
+        storage.setBlockSpec(spec, in: NSRange(location: 0, length: storage.length))
         let runner = InputRuleRunner(rules: [InputRule.fencedCodeBlock])
         let env = StepEnvironment(
             compiler: try MarkdownAttributedCompiler(),
@@ -309,9 +307,7 @@ import UIKit
     @Test func fencedCodeRuleFiresOnPlainParagraphLine() throws {
         let storage = NSTextStorage(string: "```")
         let spec = BlockSpec(kind: .paragraph)
-        storage.addAttribute(.proseBlockSpec,
-                             value: BlockSpecBox(spec),
-                             range: NSRange(location: 0, length: storage.length))
+        storage.setBlockSpec(spec, in: NSRange(location: 0, length: storage.length))
         let runner = InputRuleRunner(rules: [InputRule.fencedCodeBlock])
         let env = StepEnvironment(
             compiler: try MarkdownAttributedCompiler(),

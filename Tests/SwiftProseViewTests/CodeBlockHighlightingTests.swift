@@ -89,7 +89,7 @@ private final class StubHighlighter: CodeBlockHighlighter {
     }
 
     /// The block spec round-trip is preserved — adding highlights doesn't
-    /// disturb the `proseBlockSpec` attribute that the editor relies on for
+    /// disturb the `proseNodePath` attribute that the editor relies on for
     /// per-line decoration and serialization.
     @Test func highlightingPreservesBlockSpec() throws {
         let span = HighlightSpan(range: NSRange(location: 0, length: 3), tag: .keyword)
