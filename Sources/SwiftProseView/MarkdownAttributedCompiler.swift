@@ -152,7 +152,7 @@ public final class MarkdownAttributedCompiler {
         case .horizontalRule:
             appendHorizontalRule(segment, source: source, theme: theme, into: out)
         case .pipeTable:
-            appendPipeTableAsParagraphs(segment, source: source, theme: theme, into: out)
+            appendPipeTable(segment, source: source, theme: theme, into: out)
         case .htmlBlock, .linkReferenceDefinition:
             // Emit verbatim with block tag so the serializer can round-trip.
             appendOpaqueBlock(segment, source: source, theme: theme, into: out)
@@ -701,10 +701,101 @@ public final class MarkdownAttributedCompiler {
         }
     }
 
-    /// Emit a pipe-table segment as plain per-line monospace paragraphs.
-    /// Pipe characters survive as literal text; there is no rendered cell
-    /// chrome and no inline parsing inside cells.
-    private func appendPipeTableAsParagraphs(
+    /// Emit a pipe-table segment as a structural cell grid. Each cell
+    /// becomes its own newline-terminated paragraph in storage, stamped
+    /// with the full `[doc, blockquote*, table, table_row, table_cell|table_header, paragraph]`
+    /// `proseNodePath`. Cells in the same row share their `table_row`
+    /// `NodeID`; rows under the same table share its `table` `NodeID` —
+    /// the structural-grouping the tree builder relies on.
+    ///
+    /// Falls back to plaintext-paragraph emit when the segment isn't a
+    /// well-formed pipe table (no alignment row).
+    private func appendPipeTable(
+        _ segment: BlockSegment,
+        source: String,
+        theme: ProseTheme,
+        into out: NSMutableAttributedString
+    ) {
+        let nsSource = source as NSString
+        let raw = nsSource.substring(with: segment.range)
+        let depth = segment.blockquoteDepth
+
+        let lines = raw
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0) }
+            .filter { !$0.isEmpty }
+            .map { stripBlockquotePrefix($0, depth: depth) }
+
+        guard lines.count >= 2,
+              let alignments = parsePipeAlignmentRow(lines[1]) else {
+            appendPipeTableAsPlainParagraphs(segment, source: source, theme: theme, into: out)
+            return
+        }
+
+        let headerCells = parsePipeRow(lines[0])
+        let bodyRows = lines.dropFirst(2).map { parsePipeRow($0) }
+        let cols = max(headerCells.count, alignments.count, bodyRows.map(\.count).max() ?? 0)
+        guard cols > 0 else {
+            appendPipeTableAsPlainParagraphs(segment, source: source, theme: theme, into: out)
+            return
+        }
+
+        let tableNode = ProseNode(type: "table")
+        var rows: [(node: ProseNode, cells: [String], header: Bool)] = []
+        rows.append((
+            ProseNode(type: "table_row", attrs: ["header": .bool(true)]),
+            headerCells,
+            true
+        ))
+        for body in bodyRows {
+            rows.append((
+                ProseNode(type: "table_row", attrs: ["header": .bool(false)]),
+                body,
+                false
+            ))
+        }
+
+        let baseAttrs: [NSAttributedString.Key: Any] = [
+            .font: theme.bodyFont,
+            .foregroundColor: theme.foregroundColor
+        ]
+
+        for row in rows {
+            for col in 0..<cols {
+                let cellText = col < row.cells.count ? row.cells[col] : ""
+                let alignment = col < alignments.count ? alignments[col] : .none
+                let cellNode = makeTableCellNode(
+                    isHeader: row.header,
+                    alignment: alignment
+                )
+                let cellBody = NSMutableAttributedString(
+                    string: cellText,
+                    attributes: baseAttrs
+                )
+                cellBody.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+
+                let cellStart = out.length
+                appendStyled(
+                    cellBody,
+                    spec: BlockSpec(kind: .paragraph, blockquoteDepth: depth),
+                    into: out
+                )
+                wrapInTableAncestors(
+                    in: out,
+                    range: NSRange(location: cellStart, length: out.length - cellStart),
+                    table: tableNode,
+                    row: row.node,
+                    cell: cellNode
+                )
+            }
+        }
+    }
+
+    /// Plaintext fallback — used when the segment doesn't parse as a
+    /// well-formed pipe table. Emits each source line as a literal
+    /// paragraph and groups them under a shared `table` ancestor so the
+    /// serializer's `emitTable` fallback round-trips the source bytes.
+    private func appendPipeTableAsPlainParagraphs(
         _ segment: BlockSegment,
         source: String,
         theme: ProseTheme,
@@ -728,22 +819,8 @@ public final class MarkdownAttributedCompiler {
                 into: out
             )
         }
-        wrapInTableAncestor(
-            in: out,
-            range: NSRange(location: startIdx, length: out.length - startIdx)
-        )
-    }
-
-    /// Insert a shared `table` node into every `proseNodePath` run in
-    /// `range`, between the leaf paragraph and its parent. The tree
-    /// builder groups runs sharing an ancestor by NodeID, so all rows
-    /// land under one `table` node — letting the serializer's table
-    /// emit walk them as a single block.
-    private func wrapInTableAncestor(
-        in out: NSMutableAttributedString,
-        range: NSRange
-    ) {
         let tableNode = ProseNode(type: "table")
+        let range = NSRange(location: startIdx, length: out.length - startIdx)
         out.enumerateNodePaths(in: range) { runRange, path in
             guard !path.nodes.isEmpty else { return }
             var nodes = path.nodes
@@ -752,6 +829,87 @@ public final class MarkdownAttributedCompiler {
             nodes.append(leaf)
             out.setNodePath(NodePath(nodes), in: runRange)
         }
+    }
+
+    /// Insert the `table → table_row → table_cell|table_header` ancestor
+    /// chain into every `proseNodePath` run in `range`, between the
+    /// leaf paragraph and its existing parent (doc / blockquote chain).
+    /// Pre-built `ProseNode` instances are passed in so all cells in a
+    /// row share their `table_row` `NodeID`, and all rows share their
+    /// `table` `NodeID` — the grouping the tree builder relies on.
+    private func wrapInTableAncestors(
+        in out: NSMutableAttributedString,
+        range: NSRange,
+        table: ProseNode,
+        row: ProseNode,
+        cell: ProseNode
+    ) {
+        out.enumerateNodePaths(in: range) { runRange, path in
+            guard !path.nodes.isEmpty else { return }
+            var nodes = path.nodes
+            let leaf = nodes.removeLast()
+            nodes.append(table)
+            nodes.append(row)
+            nodes.append(cell)
+            nodes.append(leaf)
+            out.setNodePath(NodePath(nodes), in: runRange)
+        }
+    }
+
+    private func makeTableCellNode(
+        isHeader: Bool,
+        alignment: PipeTableAlignment
+    ) -> ProseNode {
+        let alignAttr: ProseAttrValue
+        switch alignment {
+        case .none: alignAttr = .null
+        case .left: alignAttr = .string("left")
+        case .right: alignAttr = .string("right")
+        case .center: alignAttr = .string("center")
+        }
+        return ProseNode(
+            type: isHeader ? "table_header" : "table_cell",
+            attrs: [
+                "align": alignAttr,
+                "colspan": .int(1),
+                "rowspan": .int(1),
+                "colwidth": .null
+            ]
+        )
+    }
+
+    private func parsePipeRow(_ line: String) -> [String] {
+        var s = line.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("|") { s.removeFirst() }
+        if s.hasSuffix("|") { s.removeLast() }
+        return s.split(separator: "|", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+    }
+
+    private func parsePipeAlignmentRow(_ line: String) -> [PipeTableAlignment]? {
+        let cells = parsePipeRow(line)
+        guard !cells.isEmpty else { return nil }
+        var aligns: [PipeTableAlignment] = []
+        for cell in cells {
+            guard let a = PipeTableAlignment(alignmentRowCell: cell) else { return nil }
+            aligns.append(a)
+        }
+        return aligns
+    }
+
+    private func stripBlockquotePrefix(_ line: String, depth: Int) -> String {
+        guard depth > 0 else { return line }
+        var s = line
+        for _ in 0..<depth {
+            if s.hasPrefix("> ") {
+                s.removeFirst(2)
+            } else if s.hasPrefix(">") {
+                s.removeFirst(1)
+            } else {
+                break
+            }
+        }
+        return s
     }
 
     private func appendVerbatim(

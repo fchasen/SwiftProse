@@ -266,8 +266,16 @@ public extension ProseDocument {
             // top-level paragraphs so blank-line gaps between blocks don't
             // surface as empty paragraph nodes that round-trip back as
             // extra newlines.
+            //
+            // Paragraphs whose path crosses an `isolating`-flagged ancestor
+            // (today: `table` cells) always open their ancestors — empty
+            // cells would otherwise be lost on the round-trip.
             let leafType = blockPath.leaf?.type ?? ""
+            let hasIsolatingAncestor = blockPath.nodes.dropLast().contains { node in
+                schema.nodeType(node.type)?.isolating == true
+            }
             let openEvenWhenEmpty = leafType != "paragraph"
+                || hasIsolatingAncestor
                 || rangeHasPresentationMarker(in: storage, range: blockRange)
             if openEvenWhenEmpty {
                 openTo(parent: blockPath, stack: &stack, openPath: &openPath)
