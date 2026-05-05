@@ -1,17 +1,10 @@
 # SwiftProse
 
-A SwiftUI live Markdown editor backed by TextKit 2 and tree-sitter. Bold becomes bold while you type, code spans get a monospace font, headings size up, links collapse to their display text, fenced code blocks render with a tinted background and per-language tree-sitter syntax highlighting, and GFM pipe tables paint as a structured grid — all rendered in the same `NSTextView` / `UITextView` the user is typing into.
+A SwiftUI text editor for macOS and iOS, built on TextKit 2, tree-sitter and a ProseMirror-aligned document tree (schema, nodes, marks, steps), so transactions are typed and undoable and the editor round-trips with ProseMirror JSON.
 
-## Modules
+## Markdown support
 
-| Library | What it provides |
-|---------|------------------|
-| `SwiftProseSyntax` | Pure Swift, no UI. Tree-sitter `MarkdownParser` (CommonMark) with incremental edit replay, `BlockSegmenter` / `BlockClassifier`, the `BlockSpec` model + `proseBlockSpec` storage attribute, `HighlightApplier` (markdown highlight queries), `CodeBlockHighlighter` (pluggable per-language tree-sitter syntax highlighting), `PipeTableModel` (GFM pipe-table parser + mutation helpers), `ProseMirrorJSON` codec types, and `TreeSitterMapping` (UTF-16 ↔ tree-sitter byte coordinates). |
-| `SwiftProseRendering` | `NSTextAttachment` subclasses (bullets, checkboxes, chips), inline content types, custom `NSTextLayoutFragment` implementations (blockquote bar, code-block background with full-container fill, fenced-code language tag, indented code, horizontal rule, pipe-table cells/borders), platform aliases. |
-| `SwiftProseView` | `EditorController` (TextKit-2 stack + parser + highlighter + commands), `MarkdownAttributedCompiler` / `AttributedMarkdownSerializer`, `ProseMirrorCodec` (structural decode/encode for paragraphs, headings, lists, blockquotes, code blocks, tables), `Step` / `Transaction` / `Command` editing primitives, the table-edit and code-block commands, `ProseTheme` with `CodePalette` + `TablePalette`, and the macOS / iOS `NSTextView` / `UITextView` representable wrappers. |
-| `SwiftProse` | The single `SwiftProseEditor` SwiftUI view plus toolbar, status bar, configuration, environment-driven modifiers (`.theme`, `.configuration`, `.inlineContentProvider`, `.codeBlockHighlighter`, `.onProseControllerReady`), the per-cell table edit sheet, and a `ProsePlayground` preview. |
-
-`SwiftProse` re-exports the other three modules — `import SwiftProse` is enough.
+Markup renders as you type — `**bold**` becomes bold, headings size up, code spans switch to monospace, fenced code gets a tinted background and per-language tree-sitter highlighting, links collapse to their display text.  
 
 ## Requirements
 
@@ -25,7 +18,7 @@ import SwiftProse
 import SwiftUI
 
 struct DescriptionEditor: View {
-    @State var text = ""
+    @State var text = "# Hello\n\nType into me.\n"
 
     var body: some View {
         SwiftProseEditor(text: $text)
@@ -34,127 +27,165 @@ struct DescriptionEditor: View {
 }
 ```
 
-### Toolbar, status bar
+`import SwiftProse` re-exports the three internal modules. The view is bound to a `String`; the editor parses, renders, and serializes the markdown for you on every change.
+
+## Modules
+
+| Library | Contents |
+|---------|----------|
+| `SwiftProseSyntax` | Pure Swift, no UI. Tree-sitter `MarkdownParser` (CommonMark + inline injection) with incremental edit replay; `BlockSegmenter`, `BlockClassifier`, `InlineClassifier`; `BlockSpec`; `Schema` / `NodeType` / `MarkType` / `ProseNode` / `ProseDocument`; `HighlightApplier` and the pluggable `CodeBlockHighlighter` (with `TreeSitterCodeBlockHighlighter`); `PipeTableModel`; `TreeSitterMapping` (UTF-16 ↔ byte). |
+| `SwiftProseRendering` | `NSTextAttachment` subclasses (bullet glyphs, checkboxes, chips); custom `NSTextLayoutFragment`s for blockquote bars, fenced + indented code backgrounds, language tags, horizontal rules; platform aliases (`PlatformFont`, `PlatformColor`). |
+| `SwiftProseView` | `EditorController` (TextKit-2 stack + parser + commands + undo); `MarkdownAttributedCompiler` and the tree-driven `MarkdownTreeSerializer`; `Step` / `Transaction` / `Command` / `InputRule` editing primitives; `ProseMirrorCodec`; `ProseTheme` with `CodePalette`; the macOS / iOS text-view representable wrappers. |
+| `SwiftProse` | `SwiftProseEditor` SwiftUI view, toolbar, status bar, configuration, environment-driven modifiers, and a `ProsePlayground` debug surface. |
+
+## Configuration
 
 ```swift
 SwiftProseEditor(text: $text)
     .configuration(.init(
         toolbar: SwiftProseEditor.Configuration.defaultToolbar,
-        statusItems: [.words, .characters, .cursor]
+        statusItems: [.words, .characters, .cursor],
+        sizing: .fillContainer,
+        minHeight: 320
     ))
-    .frame(minHeight: 320)
 ```
 
-### Inline content (chips, mentions, file links)
+- **Toolbar** — pass `.action(...)`, `.divider`, `.spacer`, or `.custom(...)` items. The default toolbar covers bold / italic / strikethrough, H1-H3, lists, blockquote, code span / block, link, and horizontal rule.
+- **Status bar** — `.words`, `.characters`, `.cursor` (line:column).
+- **Sizing** — `.fitsContent` (height tracks content, starting from `minHeight`) or `.fillContainer` (fixed-height, scrolls internally).
+- **Context menu** — append `ContextMenuItem`s to the platform's right-click / edit menu.
+
+## Theming
 
 ```swift
+let theme = ProseTheme.default(fontScale: 1.1)
 SwiftProseEditor(text: $text)
-    .inlineContentProvider { content in
-        ProseChip.attachment(for: content)
-    }
+    .theme(theme)
 ```
 
-### Code-block syntax highlighting
+`ProseTheme` exposes body / monospace fonts, foreground / markup / link colors, blockquote bar, heading scale, and per-tag `CodePalette` colors for syntax-highlighted code blocks.
 
-Fenced code blocks render with a rounded tinted background by default. To color the body via tree-sitter, register grammars on a `TreeSitterCodeBlockHighlighter` and pass it via `.codeBlockHighlighter(_:)`. The grammar packages aren't bundled with `SwiftProse` itself — register them in your app:
+## Code-block syntax highlighting
+
+Fenced code blocks render with a tinted background by default. To color the body via tree-sitter, register grammars on a `TreeSitterCodeBlockHighlighter` and pass it via `.codeBlockHighlighter(_:)`. Grammar packages aren't bundled with `SwiftProse` itself.
 
 ```swift
 import SwiftProse
 import SwiftTreeSitter
-import TreeSitterSwift // SwiftPM dep on alex-pinkus/tree-sitter-swift
+import TreeSitterSwift
 
 let highlighter = TreeSitterCodeBlockHighlighter()
-let swiftQuery = try! Data(contentsOf: Bundle.main.url(
+let queryData = try Data(contentsOf: Bundle.main.url(
     forResource: "swift", withExtension: "scm", subdirectory: "queries")!)
 try highlighter.register(
     language: "swift",
     language: Language(language: tree_sitter_swift()),
-    queryData: swiftQuery
+    queryData: queryData
 )
 
 SwiftProseEditor(text: $text)
     .codeBlockHighlighter(highlighter)
 ```
 
-When a fenced block has no info string (` ``` ` instead of ` ```swift`), the highlighter's `detectLanguage(for:)` parses the body with each registered grammar and picks the one with the cleanest coverage (≥ 30% of source chars and ≥ 1.5× over the runner-up); ambiguous bodies stay uncolored. See `Examples/SwiftProseDemo/SwiftProseDemo/CodeHighlighters.swift` for a working four-language registration (swift / js / css / html).
+Bare fences (` ``` ` with no info string) trigger language detection: the body is parsed against each registered grammar and the one with the cleanest coverage (≥ 30% of source chars and ≥ 1.5× over the runner-up) wins. Ambiguous bodies stay uncolored. See `Examples/SwiftProseDemo/SwiftProseDemo/CodeHighlighters.swift` for a four-language registration (swift / js / css / html).
 
-### Tables
+## Inline content (chips, mentions)
 
-GFM pipe tables render as a structured cell grid (alignment row hidden, header row tinted + bold, per-column alignment honored, stitched borders, full container width). The markdown source remains canonical — chrome paints on top.
-
-| Action | What it does |
-|--------|-------------|
-| `.insertTable(rows:columns:)` | Insert a stub table at the cursor. |
-| `.insertTableRowAbove` / `.insertTableRowBelow` | Add a body row relative to the cursor's row. |
-| `.insertTableColumnBefore` / `.insertTableColumnAfter` | Add a column. |
-| `.deleteTableRow` / `.deleteTableColumn` | Drop the cursor's row / column. |
-| `.setTableColumnAlignment(_:)` | Set the column's alignment row token (`:---`, `---:`, `:---:`, `---`). |
-
-A click on any rendered cell pops a SwiftUI sheet bound to that cell's text — saving dispatches a single-cell rewrite as one undoable `Step`. A toggle in the table's top-right corner flips the table to raw monospace source for hand-editing escape sequences or unusual structure the structural commands don't cover; flipping back re-parses with `PipeTableModel`. The ProseMirror codec encodes adjacent `.pipeTable` paragraphs into a structural `table → table_row → (table_cell | table_header)` PM tree (matching `prosemirror-tables`' shape, with per-cell `align` attrs) and decodes the inverse.
-
-## Public API surface
-
-### `SwiftProseEditor`
+Map host-level rich content (`URL`, bug ID, user mention, etc.) to a `ProseInlineContent` and the editor draws it as a SwiftUI-styled chip. Useful for embedding non-markdown references inline without baking the host's domain types into the package.
 
 ```swift
-public struct SwiftProseEditor: View {
-    public init(text: Binding<String>)
-}
+SwiftProseEditor(text: $text)
+    .inlineContentProvider { content in
+        ChipAttachment.make(for: content)
+    }
 ```
 
-| Modifier | Purpose |
-|----------|---------|
-| `.theme(_:)` | A `ProseTheme` (body / mono fonts, foreground / markup / link colors, blockquote bar, `CodePalette` per-tag code colors, `TablePalette` for header tint / borders / toggle). |
-| `.configuration(_:)` | Toolbar items, status items, sizing (`.fitsContent` / `.fillContainer`), `minHeight`, context-menu items. |
-| `.inlineContentProvider(_:)` | Map a `ProseInlineContent` to an `NSTextAttachment`. |
-| `.codeBlockHighlighter(_:)` | Inject a `CodeBlockHighlighter` (typically `TreeSitterCodeBlockHighlighter` with per-language registrations) so fenced code-block bodies syntax-highlight. |
-| `.onProseControllerReady(_:)` | Receive the live `EditorController` for cursor-aware insertions and direct command dispatch. |
+## ProseMirror-aligned document model
 
-### Toolbar actions (`SwiftProseEditor.Action`)
+Behind the rendered storage is a typed tree mirroring ProseMirror's data model:
 
-`bold`, `italic`, `strikethrough`, `heading(level:)`, `unorderedList`, `orderedList`, `taskList`, `blockquote`, `codeSpan`, `codeBlock`, `link`, `horizontalRule`, `indent`, `outdent`, `insertTable(rows:columns:)`, `insertTableRowAbove`, `insertTableRowBelow`, `insertTableColumnBefore`, `insertTableColumnAfter`, `deleteTableRow`, `deleteTableColumn`, `setTableColumnAlignment(_:)`.
+- **`Schema`** — the set of `NodeType`s and `MarkType`s, plus the top node. The default `Schema.defaultMarkdown` covers paragraph, heading, blockquote, lists (bullet / ordered / task), code blocks, horizontal rule, html block, link reference, table, and the marks `strong` / `em` / `code` / `link` / `strike`.
+- **`ProseNode`** — an instance of a `NodeType` with attrs and a stable `NodeID`.
+- **`ProseDocument`** — a tree whose nodes carry text and `MarkSet`s on inline runs.
+- **`MarkSet`** — ordered, deduplicated marks with stable schema-ranked sorting.
 
-### Status items (`SwiftProseEditor.StatusItem`)
+The compiler stamps the canonical `proseNodePath` and `proseMarks` attributes onto storage as it emits, and `ProseDocument.from(storage:schema:)` reverse-projects the tree on demand. `controller.document` returns the cached tree, invalidated by every storage edit.
 
-`words`, `characters`, `cursor`.
-
-### Editing primitives
+## Editing primitives
 
 The editor is built on three layered primitives in `SwiftProseView`:
 
-- **`Operations`** — low-level mutators on `NSTextStorage` (wrap, toggle bold/italic/strike/code, paragraph-range helpers).
-- **`Step` / `Transaction`** — typed, undoable edits. Each `Step.apply` returns its inverse so undo/redo round-trips for free. New mutating behavior should compose `Step`s rather than mutate storage directly.
-- **`Command`** — registered in `CommandRegistry`, resolved per `EditorAction`. Commands compose `Step`s into a `Transaction`. See `Sources/SwiftProseView/Commands/` for the built-in set.
+- **`Operations`** — low-level `NSTextStorage` mutators (toggle bold / italic / strike / code, paragraph helpers, link insertion).
+- **`Step`** — typed, undoable edits: `replaceText`, `setSpec`, `toggleInlineMark`, `replaceAround`, `addMark`, `removeMark`, `setNodeAttrs`. Each step's `apply` returns its inverse so undo / redo round-trips for free.
+- **`Command`** — a registry-resolved unit that composes steps into a `Transaction` for an `EditorAction`. The default registry (`CommandRegistry.makeDefault()`) covers every action listed below.
 
-Block-level helpers are exposed on `EditorController` (`canPerform(_:)`, `perform(_:)`, `applyTableCellEdit(...)`, `toggleTableExpansion(...)`).
-
-### ProseMirror codec (`ProseMirrorCodec`)
-
-Round-trips between the editor's `NSAttributedString` storage and a ProseMirror-style document tree. Encodes paragraphs, headings, lists (bullet / ordered / task), blockquotes, fenced and indented code blocks, horizontal rules, and pipe tables (as `table → table_row → table_cell | table_header` with per-cell `align` attrs). Decodes the inverse. `SchemaMap` extends the inline mark surface for custom marks (links, code, custom node types).
-
-### Parser (`SwiftProseSyntax.MarkdownParser`)
+`InputRule` runs the same machinery on typed text, matching against per-line patterns: `# `, `## ` … `###### ` for headings, `> ` for blockquotes, `- ` / `* ` / `+ ` for bullet lists, `1. ` for ordered lists, `- [ ] ` / `- [x] ` for task items, `---` for horizontal rules, ` ``` ` for fenced code blocks, and `**bold**` / `*italic*` / `~~strike~~` / `` `code` `` for inline marks. `InputRuleRunner.makeDefault()` ships the standard set.
 
 ```swift
-public enum Grammar: Sendable { case block, inline }
-public init(grammar: Grammar = .block) throws
-public func parse(_ source: String) -> MutableTree?
-public func applyEdit(replacing nsRange: NSRange, with replacement: String, newSource: String) -> [TSRange]
+let controller = try EditorController(initialMarkdown: "draft\n")
+let lineRange = NSRange(location: 0, length: controller.textStorage.length)
+controller.apply(Transaction(steps: [
+    .setSpec(lineRange: lineRange, BlockSpec(kind: .heading(level: 2)))
+], label: "Promote to heading"))
+// → "## draft\n"
+```
+
+## ProseMirror JSON round-trip
+
+```swift
+try controller.loadProseMirrorJSON(json)
+let exported = try controller.exportProseMirrorJSON()
+```
+
+`ProseMirrorCodec` encodes the editor's tree into a structural ProseMirror document — paragraphs, headings, lists (bullet / ordered / task), blockquotes, fenced and indented code blocks, horizontal rules, and pipe tables (as `table → table_row → (table_cell | table_header)` with per-cell `align` attrs) — and decodes the inverse. `SchemaMap` extends the inline mark surface for custom marks.
+
+## Observing the document
+
+```swift
+SwiftProseEditor(text: $text)
+    .onProseControllerReady { controller in
+        controller.onDocumentChange = { document, step in
+            // Drive collaborative transport, mirror to a tree, etc.
+        }
+        controller.onDiagnostic = { diagnostic in
+            // Spec-invariant violations the auto-repair pass caught.
+        }
+    }
+```
+
+`onProseControllerReady` hands back the live `EditorController` once the editor finishes setup, giving direct access to its commands, transactions, undo manager, and tree. `onDocumentChange` fires after every character edit with the freshly-derived `ProseDocument` plus a `Step.replaceText` describing the storage edit.
+
+## Action set
+
+`SwiftProseEditor.Action` covers the surfaces wired to commands, the toolbar, keyboard shortcuts, and the platform edit / context menus:
+
+`bold`, `italic`, `strikethrough`, `heading(level:)`, `unorderedList`, `orderedList`, `taskList`, `blockquote`, `codeSpan`, `codeBlock`, `link(url:label:)`, `horizontalRule`, `indent`, `outdent`, `insertTable(rows:columns:)`, `insertTableRowAbove`, `insertTableRowBelow`, `insertTableColumnBefore`, `insertTableColumnAfter`, `deleteTableRow`, `deleteTableColumn`, `setTableColumnAlignment(_:)`.
+
+## Examples
+
+`Examples/SwiftProseDemo/` is a multi-platform DocumentGroup app that loads / saves `.md` files, wires up a SwiftUI toolbar, and registers four tree-sitter grammars (swift, javascript, css, html) for code-block highlighting. Open it with:
+
+```sh
+open Examples/SwiftProseDemo/SwiftProseDemo.xcodeproj
 ```
 
 ## Testing
+
+Unit tests cover the parser, segmenter, classifier, schema, document tree, ProseMirror JSON, the controller integration paths, every command and input rule, and undo / redo flows.
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ```
 
-Three test targets: `SwiftProseSyntaxTests`, `SwiftProseViewTests`, `SwiftProseTests`. The CommandLineTools toolchain doesn't ship Swift Testing — point at the Xcode toolchain explicitly via `DEVELOPER_DIR`.
+The CommandLineTools toolchain doesn't ship Swift Testing — point at the Xcode toolchain explicitly via `DEVELOPER_DIR`.
 
-End-to-end UI tests live in `Examples/SwiftProseDemo/`:
+End-to-end UI tests live in `Examples/SwiftProseDemo/SwiftProseDemoUITests`:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
   -project Examples/SwiftProseDemo/SwiftProseDemo.xcodeproj \
-  -scheme SwiftProseDemo -destination 'platform=macOS'
+  -scheme SwiftProseDemo \
+  -destination 'platform=macOS'
 ```
 
 ## License
