@@ -701,12 +701,14 @@ public final class MarkdownAttributedCompiler {
         }
     }
 
-    /// Emit a pipe-table segment as a structural cell grid. Each cell
-    /// becomes its own newline-terminated paragraph in storage, stamped
-    /// with the full `[doc, blockquote*, table, table_row, table_cell|table_header, paragraph]`
-    /// `proseNodePath`. Cells in the same row share their `table_row`
-    /// `NodeID`; rows under the same table share its `table` `NodeID` —
-    /// the structural-grouping the tree builder relies on.
+    /// Emit a pipe-table segment as a single `ProseNodeAttachment` paragraph.
+    /// Storage carries `￼\n` (the attachment's object-replacement char plus
+    /// a paragraph-closing newline), stamped with `proseNodePath` ending at
+    /// the `table` node — `table` is `isolating`, so the reverse-projection
+    /// in `ProseDocument.from(storage:)` lifts `attachment.subtree`'s
+    /// children (the rows) into the document tree at this position. The
+    /// attachment's structural subtree is the canonical cell store; view
+    /// providers render the grid; commands mutate `attachment.subtree`.
     ///
     /// Falls back to plaintext-paragraph emit when the segment isn't a
     /// well-formed pipe table (no alignment row).
@@ -740,53 +742,149 @@ public final class MarkdownAttributedCompiler {
             return
         }
 
-        let tableNode = ProseNode(type: "table")
-        var rows: [(node: ProseNode, cells: [String], header: Bool)] = []
-        rows.append((
-            ProseNode(type: "table_row", attrs: ["header": .bool(true)]),
-            headerCells,
-            true
-        ))
-        for body in bodyRows {
-            rows.append((
-                ProseNode(type: "table_row", attrs: ["header": .bool(false)]),
-                body,
-                false
-            ))
-        }
-
         let baseAttrs: [NSAttributedString.Key: Any] = [
             .font: theme.bodyFont,
             .foregroundColor: theme.foregroundColor
         ]
+        let subtree = buildTableSubtree(
+            headerCells: headerCells,
+            bodyRows: Array(bodyRows),
+            alignments: alignments,
+            cols: cols,
+            theme: theme,
+            baseAttrs: baseAttrs
+        )
 
-        for row in rows {
+        appendTableAttachment(
+            subtree: subtree,
+            blockquoteDepth: depth,
+            theme: theme,
+            into: out
+        )
+    }
+
+    /// Build the structural `TreeNode` representation of a pipe table.
+    /// Each cell paragraph carries inline runs with proper `MarkSet`s
+    /// (derived via `compileCellInline` + `NodePathSynthesizer`) so the
+    /// tree round-trips marks without further work.
+    private func buildTableSubtree(
+        headerCells: [String],
+        bodyRows: [[String]],
+        alignments: [PipeTableAlignment],
+        cols: Int,
+        theme: ProseTheme,
+        baseAttrs: [NSAttributedString.Key: Any]
+    ) -> TreeNode {
+        func cellTree(text: String, isHeader: Bool, col: Int) -> TreeNode {
+            let alignment = col < alignments.count ? alignments[col] : .none
+            let cellNode = makeTableCellNode(isHeader: isHeader, alignment: alignment)
+            let inlineRuns = cellInlineRuns(text, theme: theme, baseAttrs: baseAttrs)
+            let para = TreeNode.structural(ProseNode(type: "paragraph"), inlineRuns)
+            return .structural(cellNode, [para])
+        }
+
+        var rows: [TreeNode] = []
+        let headerRowNode = ProseNode(type: "table_row", attrs: ["header": .bool(true)])
+        var headerKids: [TreeNode] = []
+        for col in 0..<cols {
+            let text = col < headerCells.count ? headerCells[col] : ""
+            headerKids.append(cellTree(text: text, isHeader: true, col: col))
+        }
+        rows.append(.structural(headerRowNode, headerKids))
+
+        for body in bodyRows {
+            let rowNode = ProseNode(type: "table_row", attrs: ["header": .bool(false)])
+            var kids: [TreeNode] = []
             for col in 0..<cols {
-                let cellText = col < row.cells.count ? row.cells[col] : ""
-                let alignment = col < alignments.count ? alignments[col] : .none
-                let cellNode = makeTableCellNode(
-                    isHeader: row.header,
-                    alignment: alignment
-                )
-                let cellInline = compileCellInline(cellText, theme: theme, baseAttrs: baseAttrs)
-                let cellBody = NSMutableAttributedString(attributedString: cellInline)
-                cellBody.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+                let text = col < body.count ? body[col] : ""
+                kids.append(cellTree(text: text, isHeader: false, col: col))
+            }
+            rows.append(.structural(rowNode, kids))
+        }
 
-                let cellStart = out.length
-                appendStyled(
-                    cellBody,
-                    spec: BlockSpec(kind: .paragraph, blockquoteDepth: depth),
-                    into: out
-                )
-                wrapInTableAncestors(
-                    in: out,
-                    range: NSRange(location: cellStart, length: out.length - cellStart),
-                    table: tableNode,
-                    row: row.node,
-                    cell: cellNode
-                )
+        return .structural(ProseNode(type: "table"), rows)
+    }
+
+    /// Convert a cell's source text into a list of `.inline(text, marks)`
+    /// `TreeNode`s by running the inline parser, mapping highlight spans
+    /// to font/proseInline rendering attrs, then synthesizing `MarkSet`s
+    /// via `NodePathSynthesizer`. Empty text → empty list.
+    private func cellInlineRuns(
+        _ text: String,
+        theme: ProseTheme,
+        baseAttrs: [NSAttributedString.Key: Any]
+    ) -> [TreeNode] {
+        guard !text.isEmpty else { return [] }
+        let attributed = compileCellInline(text, theme: theme, baseAttrs: baseAttrs)
+        let mutable = NSMutableAttributedString(attributedString: attributed)
+        guard mutable.length > 0 else { return [] }
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        NodePathSynthesizer(schema: schema).stampMarks(
+            in: mutable,
+            blockRange: fullRange,
+            spec: .paragraph
+        )
+        var runs: [TreeNode] = []
+        let ns = mutable.string as NSString
+        mutable.enumerateAttribute(.proseMarks, in: fullRange) { value, runRange, _ in
+            guard runRange.length > 0 else { return }
+            let marks = (value as? MarkSetBox)?.marks ?? MarkSet()
+            let runText = ns.substring(with: runRange)
+            if !runText.isEmpty {
+                runs.append(.inline(text: runText, marks: marks))
             }
         }
+        return runs
+    }
+
+    /// Emit the actual attachment paragraph for a structural table
+    /// subtree. Storage layout: one `\u{FFFC}` carrying the attachment +
+    /// one `\n`, both stamped with `proseNodePath = [doc, blockquote*, table]`.
+    private func appendTableAttachment(
+        subtree: TreeNode,
+        blockquoteDepth depth: Int,
+        theme: ProseTheme,
+        into out: NSMutableAttributedString
+    ) {
+        let baseAttrs: [NSAttributedString.Key: Any] = [
+            .font: theme.bodyFont,
+            .foregroundColor: theme.foregroundColor
+        ]
+        let attachment = ProseNodeAttachment(subtree: subtree)
+        let attachmentRun = NSMutableAttributedString(attachment: attachment)
+        attachmentRun.addAttributes(
+            baseAttrs,
+            range: NSRange(location: 0, length: attachmentRun.length)
+        )
+        attachmentRun.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+
+        let startIdx = out.length
+        out.append(attachmentRun)
+        let range = NSRange(location: startIdx, length: out.length - startIdx)
+
+        let predecessor: NodePath? = startIdx > 0 ? out.nodePath(at: startIdx - 1) : nil
+        let docNode = predecessor?.root ?? ProseNode(
+            type: schema.topNodeName,
+            attrs: schema.topNode.defaultAttrs()
+        )
+        var nodes: [ProseNode] = [docNode]
+        let prevQuotes = predecessor?.nodes.filter { $0.type == "blockquote" } ?? []
+        for i in 0..<depth {
+            if i < prevQuotes.count {
+                nodes.append(prevQuotes[i])
+            } else {
+                nodes.append(ProseNode(type: "blockquote"))
+            }
+        }
+        let tableNode: ProseNode
+        if case .structural(let t, _) = subtree {
+            tableNode = t
+        } else {
+            tableNode = ProseNode(type: "table")
+        }
+        nodes.append(tableNode)
+        out.setNodePath(NodePath(nodes), in: range)
+        out.addAttribute(.proseMarks, value: MarkSetBox(MarkSet()), range: range)
     }
 
     /// Plaintext fallback — used when the segment doesn't parse as a
@@ -824,31 +922,6 @@ public final class MarkdownAttributedCompiler {
             var nodes = path.nodes
             let leaf = nodes.removeLast()
             nodes.append(tableNode)
-            nodes.append(leaf)
-            out.setNodePath(NodePath(nodes), in: runRange)
-        }
-    }
-
-    /// Insert the `table → table_row → table_cell|table_header` ancestor
-    /// chain into every `proseNodePath` run in `range`, between the
-    /// leaf paragraph and its existing parent (doc / blockquote chain).
-    /// Pre-built `ProseNode` instances are passed in so all cells in a
-    /// row share their `table_row` `NodeID`, and all rows share their
-    /// `table` `NodeID` — the grouping the tree builder relies on.
-    private func wrapInTableAncestors(
-        in out: NSMutableAttributedString,
-        range: NSRange,
-        table: ProseNode,
-        row: ProseNode,
-        cell: ProseNode
-    ) {
-        out.enumerateNodePaths(in: range) { runRange, path in
-            guard !path.nodes.isEmpty else { return }
-            var nodes = path.nodes
-            let leaf = nodes.removeLast()
-            nodes.append(table)
-            nodes.append(row)
-            nodes.append(cell)
             nodes.append(leaf)
             out.setNodePath(NodePath(nodes), in: runRange)
         }

@@ -46,18 +46,36 @@ import UIKit
         }
     }
 
-    @Test func cellPathHasFullAncestorChain() throws {
+    @Test func storagePathStopsAtTableLeaf() throws {
         let storage = try compile("| h1 | h2 |\n| --- | --- |\n| a | b |\n")
-        // Find the first run whose path leaf is `paragraph` under a `table`.
+        // Stage 4: storage carries one attachment + newline run with
+        // `proseNodePath` ending at the `table` node (isolating). The
+        // structural cells live inside `attachment.subtree`, not in
+        // storage.
         var foundChain: [String]? = nil
         storage.enumerateNodePaths { _, path in
             let names = path.nodes.map(\.type)
-            if names.contains("table"), names.last == "paragraph", foundChain == nil {
+            if names.last == "table", foundChain == nil {
                 foundChain = names
             }
         }
-        #expect(foundChain == ["doc", "table", "table_row", "table_header", "paragraph"]
-                || foundChain == ["doc", "table", "table_row", "table_cell", "paragraph"])
+        #expect(foundChain == ["doc", "table"])
+    }
+
+    @Test func liftedTreeShapeMatchesSchema() throws {
+        let doc = try tree("| h1 | h2 |\n| --- | --- |\n| a | b |\n")
+        guard let table = findTable(doc),
+              case .structural(_, let rows) = table,
+              let header = rows.first,
+              case .structural(_, let headerCells) = header,
+              let firstHeader = headerCells.first,
+              case .structural(_, let headerKids) = firstHeader,
+              let para = headerKids.first,
+              case .structural(let paraNode, _) = para else {
+            Issue.record("expected table → row → cell → paragraph structure")
+            return
+        }
+        #expect(paraNode.type == "paragraph")
     }
 
     @Test func headerRowHasHeaderTrueAttr() throws {
@@ -138,41 +156,37 @@ import UIKit
         #expect(texts[1][1] == "b")
     }
 
-    @Test func cellsInRowShareRowNodeID() throws {
-        let storage = try compile("| h1 | h2 |\n| --- | --- |\n| a | b |\n")
-        var firstRowID: NodeID? = nil
-        var secondRowID: NodeID? = nil
-        storage.enumerateNodePaths { _, path in
-            guard let row = path.nodes.first(where: { $0.type == "table_row" }),
-                  let cell = path.nodes.first(where: {
-                      $0.type == "table_cell" || $0.type == "table_header"
-                  }) else { return }
-            if cell.type == "table_header" {
-                firstRowID = firstRowID ?? row.id
-                if firstRowID != row.id {
-                    Issue.record("header row IDs differ across cells")
-                }
-            } else {
-                secondRowID = secondRowID ?? row.id
-                if secondRowID != row.id {
-                    Issue.record("body row IDs differ across cells")
-                }
-            }
+    @Test func liftedTreeRowsHaveDistinctIDs() throws {
+        let doc = try tree("| h1 |\n| --- |\n| a |\n| b |\n")
+        guard let table = findTable(doc),
+              case .structural(_, let rows) = table else {
+            Issue.record("expected table")
+            return
         }
-        #expect(firstRowID != nil)
-        #expect(secondRowID != nil)
-        #expect(firstRowID != secondRowID)
+        let ids: [NodeID] = rows.compactMap {
+            if case .structural(let n, _) = $0, n.type == "table_row" { return n.id }
+            return nil
+        }
+        #expect(ids.count == rows.count)
+        #expect(Set(ids).count == ids.count)
     }
 
-    @Test func rowsShareTableNodeID() throws {
-        let storage = try compile("| h1 |\n| --- |\n| a |\n| b |\n")
-        var tableIDs: Set<NodeID> = []
-        storage.enumerateNodePaths { _, path in
-            if let table = path.nodes.first(where: { $0.type == "table" }) {
-                tableIDs.insert(table.id)
+    @Test func liftedTreeCellsInRowShareRow() throws {
+        let doc = try tree("| h1 | h2 |\n| --- | --- |\n| a | b |\n")
+        guard let table = findTable(doc),
+              case .structural(_, let rows) = table else {
+            Issue.record("expected table")
+            return
+        }
+        for row in rows {
+            guard case .structural(let rowNode, let cells) = row else { continue }
+            #expect(rowNode.type == "table_row")
+            #expect(cells.count == 2)
+            for cell in cells {
+                guard case .structural(let n, _) = cell else { continue }
+                #expect(n.type == "table_cell" || n.type == "table_header")
             }
         }
-        #expect(tableIDs.count == 1)
     }
 
     // MARK: - helpers
