@@ -98,6 +98,61 @@ import UIKit
         #expect(registered == TableAttachmentViewProvider.self)
     }
 
+    /// Reported intrinsic height must accommodate every row's wrapped
+    /// content at the SAME width that layout will use. Regression for
+    /// "table cut off mid-row" — `intrinsicSize` was over-measuring at
+    /// `max(proposedWidth, minTableWidth)` while `layoutCells` wrapped
+    /// at the narrower `bounds.width`, producing taller rows than the
+    /// reported total.
+    @Test func intrinsicSizeMatchesLaidOutRowSum() throws {
+        let longText = "Break caused by `break-before: page`/`column`/`left`/`right`/`recto`/`verso`"
+        let cellLong = TreeNode.structural(
+            ProseNode(type: "table_cell", attrs: ["align": .null]),
+            [.structural(ProseNode(type: "paragraph"), [.inline(text: longText, marks: MarkSet())])]
+        )
+        let cellShort = TreeNode.structural(
+            ProseNode(type: "table_cell", attrs: ["align": .null]),
+            [.structural(ProseNode(type: "paragraph"), [.inline(text: "ok", marks: MarkSet())])]
+        )
+        let row = TreeNode.structural(
+            ProseNode(type: "table_row", attrs: ["header": .bool(false)]),
+            [cellShort, cellLong]
+        )
+        let header = TreeNode.structural(
+            ProseNode(type: "table_row", attrs: ["header": .bool(true)]),
+            [
+                .structural(
+                    ProseNode(type: "table_header", attrs: ["align": .null]),
+                    [.structural(ProseNode(type: "paragraph"), [.inline(text: "h1", marks: MarkSet())])]
+                ),
+                .structural(
+                    ProseNode(type: "table_header", attrs: ["align": .null]),
+                    [.structural(ProseNode(type: "paragraph"), [.inline(text: "h2", marks: MarkSet())])]
+                )
+            ]
+        )
+        let subtree = TreeNode.structural(ProseNode(type: "table"), [header, row])
+        let proposedWidth: CGFloat = 240  // narrow to force wrap
+        let size = TableBlockView.intrinsicSize(
+            for: subtree,
+            theme: .default,
+            proposedWidth: proposedWidth
+        )
+        let view = TableBlockView(subtree: subtree, theme: .default)
+        view.frame = CGRect(origin: .zero, size: size)
+        // Force a layout pass.
+        #if canImport(AppKit) && os(macOS)
+        view.layoutSubtreeIfNeeded()
+        #else
+        view.layoutIfNeeded()
+        #endif
+        // Bottom of the last cell view must fit within the table's
+        // reported height (no mid-row cut-off).
+        let cellViews = view.subviews.compactMap { $0 as? CellView }
+        let maxBottom = cellViews.map { $0.frame.maxY }.max() ?? 0
+        #expect(maxBottom <= size.height + 0.5)
+    }
+
     @Test func tableBlockViewBuildsCellSubviewsForRunsAndColumns() throws {
         let cellA = TreeNode.structural(
             ProseNode(type: "table_header", attrs: ["align": .null]),

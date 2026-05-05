@@ -219,9 +219,16 @@ public final class TableBlockView: PlatformView {
     ) -> CGSize {
         let dims = dimensions(of: subtree)
         guard dims.cols > 0, dims.rows > 0 else {
-            return CGSize(width: minTableWidth, height: minRowHeight)
+            return CGSize(width: max(proposedWidth, minTableWidth), height: minRowHeight)
         }
-        let width = max(proposedWidth, minTableWidth)
+        // Measure at the SAME width TextKit will allocate to the
+        // attachment view — `bounds.width` at layout time. Clamping
+        // here to `minTableWidth` would over-measure cell heights
+        // (less wrapping at the wider hypothetical width) while
+        // `layoutCells` later wraps for real at the narrower bounds,
+        // and the total reported height would be too short — the bug
+        // surfaces as the table being cut off mid-row.
+        let width = max(proposedWidth, 1)
         let colWidth = width / CGFloat(dims.cols)
         var totalHeight: CGFloat = 0
         guard case .structural(_, let rows) = subtree else { return .zero }
