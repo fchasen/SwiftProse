@@ -218,6 +218,85 @@ import UIKit
         #expect(image?.attrs?["title"]?.stringValue == "a title")
     }
 
+    // MARK: - tables (structural)
+
+    @Test func encodeTableEmitsStructuralRowsAndCells() throws {
+        let document = try compileTree("| h1 | h2 |\n| --- | --- |\n| a | b |\n")
+        let pm = ProseMirrorCodec().encode(document: document)
+        let table = pm.content?.first
+        #expect(table?.type == "table")
+        #expect(table?.content?.count == 2)
+        let firstRow = table?.content?.first
+        #expect(firstRow?.type == "table_row")
+        let headerCells = firstRow?.content
+        #expect(headerCells?.count == 2)
+        #expect(headerCells?.first?.type == "table_header")
+        let bodyRow = table?.content?[1]
+        #expect(bodyRow?.content?.first?.type == "table_cell")
+    }
+
+    @Test func encodeTableCellAlignmentAttrSurvives() throws {
+        let document = try compileTree("| h |\n| ---: |\n| a |\n")
+        let pm = ProseMirrorCodec().encode(document: document)
+        let cell = pm.content?.first?.content?.first?.content?.first
+        #expect(cell?.attrs?["align"]?.stringValue == "right")
+    }
+
+    @Test func encodeTableCellInlineMarksSurvive() throws {
+        let document = try compileTree("| **bold** |\n| --- |\n| a |\n")
+        let pm = ProseMirrorCodec().encode(document: document)
+        let header = pm.content?.first?.content?.first?.content?.first
+        let para = header?.content?.first
+        let textNode = para?.content?.first(where: { $0.type == "text" })
+        #expect(textNode?.marks?.contains(where: { $0.type == "strong" }) == true)
+    }
+
+    @Test func decodeStructuralTableProducesCellPaths() throws {
+        let json = """
+        {"type":"doc","content":[
+          {"type":"table","content":[
+            {"type":"table_row","content":[
+              {"type":"table_header","attrs":{"align":"left"},"content":[
+                {"type":"paragraph","content":[{"type":"text","text":"H"}]}
+              ]}
+            ]},
+            {"type":"table_row","content":[
+              {"type":"table_cell","attrs":{"align":"left"},"content":[
+                {"type":"paragraph","content":[{"type":"text","text":"a"}]}
+              ]}
+            ]}
+          ]}
+        ]}
+        """
+        let attributed = try decoded(json)
+        var hasTableHeaderCell = false
+        var hasTableBodyCell = false
+        attributed.enumerateNodePaths { _, path in
+            let names = path.nodes.map(\.type)
+            if names.contains("table_header") { hasTableHeaderCell = true }
+            if names.contains("table_cell") { hasTableBodyCell = true }
+        }
+        #expect(hasTableHeaderCell)
+        #expect(hasTableBodyCell)
+    }
+
+    @Test func tableJSONRoundTripIsStructural() throws {
+        let document = try compileTree("| h1 | h2 |\n| :--- | ---: |\n| **a** | b |\n")
+        let codec = ProseMirrorCodec()
+        let pm = codec.encode(document: document)
+        let data = try JSONEncoder().encode(pm)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let attributed = try codec.decode(json)
+        let pm2 = codec.encode(attributed)
+        let table = pm2.content?.first
+        #expect(table?.type == "table")
+        let header = table?.content?.first?.content?.first
+        #expect(header?.type == "table_header")
+        #expect(header?.attrs?["align"]?.stringValue == "left")
+        let body = table?.content?[1].content?.first
+        #expect(body?.type == "table_cell")
+    }
+
     @Test func decodeImageRoundTripsThroughEncode() throws {
         let json = """
         {"type":"doc","content":[
