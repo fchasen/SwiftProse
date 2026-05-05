@@ -81,7 +81,7 @@ public struct ProseMirrorCodec {
         case "horizontal_rule":
             appendLeafBlock(spec: BlockSpec(kind: .horizontalRule), into: result)
         case "table":
-            decodeTableAsPlaintext(node, into: result, context: &context)
+            decodeTableStructural(node, into: result, context: &context)
         default:
             if node.content != nil {
                 let spec = context.makeBlockSpec(kind: .paragraph)
@@ -90,68 +90,114 @@ public struct ProseMirrorCodec {
         }
     }
 
-    /// PM `table` nodes decode to flat paragraphs with literal pipe-table
-    /// source. Each row becomes a single paragraph line; header / alignment /
-    /// body all share the same plain paragraph spec. Marks within cells are
-    /// flattened to plain text.
-    private func decodeTableAsPlaintext(
+    /// Decode a PM `table` JSON subtree to storage cells with structural
+    /// `proseNodePath`. Each cell becomes its own newline-terminated
+    /// paragraph stamped with `[doc, blockquote*, table, table_row,
+    /// table_cell|table_header, paragraph]`; cells in the same row share
+    /// their `table_row` `NodeID`, all rows share the `table` `NodeID`.
+    /// Mirrors the compiler's `appendPipeTable` shape so encode/decode
+    /// round-trip.
+    private func decodeTableStructural(
         _ node: PMNode,
         into result: NSMutableAttributedString,
         context: inout BlockContext
     ) {
         let rows = node.content ?? []
         guard !rows.isEmpty else { return }
-        let headerCells: [String] = (rows.first?.content ?? []).map { plainCellText(in: $0) }
-        let alignmentTokens: [String] = (rows.first?.content ?? []).map { cell in
-            guard let attr = cell.attrs?["align"]?.stringValue else { return "---" }
-            switch attr {
-            case "left": return ":---"
-            case "right": return "---:"
-            case "center": return ":---:"
-            default: return "---"
-            }
-        }
-        let bodyRows: [[String]] = rows.dropFirst().map { row in
-            (row.content ?? []).map { plainCellText(in: $0) }
-        }
-        let columnCount = max(headerCells.count, alignmentTokens.count, bodyRows.map(\.count).max() ?? 0)
-        var lines: [String] = []
-        lines.append(rowLine(headerCells, columnCount: columnCount))
-        lines.append(rowLine(alignmentTokens, columnCount: columnCount))
-        for body in bodyRows {
-            lines.append(rowLine(body, columnCount: columnCount))
-        }
+        let tableNode = ProseNode(type: "table")
         let spec = context.makeBlockSpec(kind: .paragraph)
-        for line in lines {
-            let attrs = schemaMap.baseAttributes(for: spec, theme: theme)
-            let beforeLength = result.length
-            result.append(NSAttributedString(string: line + "\n", attributes: attrs))
-            let stampedLength = result.length - beforeLength
-            if stampedLength > 0 {
-                result.setBlockSpec(spec, in: NSRange(location: beforeLength, length: stampedLength))
+        let baseAttrs = schemaMap.baseAttributes(for: spec, theme: theme)
+
+        for row in rows where row.type == "table_row" {
+            let isHeader = (row.content ?? []).contains {
+                $0.type == "table_header"
+            }
+            let rowNode = ProseNode(
+                type: "table_row",
+                attrs: ["header": .bool(isHeader)]
+            )
+            for cell in row.content ?? [] {
+                guard cell.type == "table_cell" || cell.type == "table_header" else { continue }
+                let cellNode = ProseNode(
+                    type: cell.type,
+                    attrs: tableCellAttrs(from: cell.attrs)
+                )
+                let cellLine = NSMutableAttributedString()
+                for paragraph in cell.content ?? [] {
+                    for inlineNode in paragraph.content ?? [] {
+                        switch inlineNode.type {
+                        case "text":
+                            guard let text = inlineNode.text else { continue }
+                            var attrs = baseAttrs
+                            for mark in inlineNode.marks ?? [] {
+                                schemaMap.applyMark(mark, to: &attrs, theme: theme)
+                            }
+                            cellLine.append(NSAttributedString(string: text, attributes: attrs))
+                        case "hard_break":
+                            cellLine.append(NSAttributedString(string: " ", attributes: baseAttrs))
+                        default:
+                            continue
+                        }
+                    }
+                }
+                cellLine.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+
+                let cellStart = result.length
+                result.append(cellLine)
+                let cellRange = NSRange(location: cellStart, length: result.length - cellStart)
+                if cellRange.length > 0 {
+                    result.setBlockSpec(spec, in: cellRange)
+                    wrapTableCellPath(
+                        in: result,
+                        range: cellRange,
+                        table: tableNode,
+                        row: rowNode,
+                        cell: cellNode
+                    )
+                }
             }
         }
     }
 
-    private func plainCellText(in cell: PMNode) -> String {
-        guard let inner = cell.content else { return "" }
-        var pieces: [String] = []
-        for block in inner {
-            for child in block.content ?? [] {
-                if child.type == "text", let text = child.text { pieces.append(text) }
-                if child.type == "hard_break" { pieces.append(" ") }
-            }
+    private func tableCellAttrs(from attrs: [String: PMValue]?) -> [String: ProseAttrValue] {
+        var out: [String: ProseAttrValue] = [
+            "align": .null,
+            "colspan": .int(1),
+            "rowspan": .int(1),
+            "colwidth": .null
+        ]
+        if let raw = attrs?["align"] {
+            if case .string(let s) = raw { out["align"] = .string(s) }
         }
-        return pieces.joined()
+        if let raw = attrs?["colspan"] {
+            if case .int(let i) = raw { out["colspan"] = .int(i) }
+        }
+        if let raw = attrs?["rowspan"] {
+            if case .int(let i) = raw { out["rowspan"] = .int(i) }
+        }
+        if let raw = attrs?["colwidth"] {
+            if case .int(let i) = raw { out["colwidth"] = .int(i) }
+        }
+        return out
     }
 
-    private func rowLine(_ cells: [String], columnCount: Int) -> String {
-        var parts: [String] = []
-        for i in 0..<columnCount {
-            let cell = i < cells.count ? cells[i] : ""
-            parts.append(" \(cell) ")
+    private func wrapTableCellPath(
+        in result: NSMutableAttributedString,
+        range: NSRange,
+        table: ProseNode,
+        row: ProseNode,
+        cell: ProseNode
+    ) {
+        result.enumerateNodePaths(in: range) { runRange, path in
+            guard !path.nodes.isEmpty else { return }
+            var nodes = path.nodes
+            let leaf = nodes.removeLast()
+            nodes.append(table)
+            nodes.append(row)
+            nodes.append(cell)
+            nodes.append(leaf)
+            result.setNodePath(NodePath(nodes), in: runRange)
         }
-        return "|" + parts.joined(separator: "|") + "|"
     }
 
     private func detectTaskListPrefix(in node: PMNode) -> (checked: Bool, stripped: PMNode)? {
@@ -335,22 +381,7 @@ public struct ProseMirrorCodec {
                     content: inner
                 )
             case "table":
-                // Emit as joined plain paragraph text — the storage tree
-                // doesn't carry per-cell structure.
-                let lines = kids.compactMap { kid -> String? in
-                    guard case .structural(let pn, let inlineKids) = kid, pn.type == "paragraph" else { return nil }
-                    return inlineKids.compactMap {
-                        if case .inline(let text, _) = $0 { return text }
-                        return nil
-                    }.joined()
-                }
-                let textNodes = lines.enumerated().flatMap { idx, text -> [PMNode] in
-                    var out: [PMNode] = []
-                    if idx > 0 { out.append(PMNode(type: "hard_break")) }
-                    if !text.isEmpty { out.append(PMNode(type: "text", text: text)) }
-                    return out
-                }
-                return PMNode(type: "paragraph", content: textNodes.isEmpty ? nil : textNodes)
+                return encodeTable(kids)
             default:
                 return nil
             }
@@ -367,6 +398,58 @@ public struct ProseMirrorCodec {
             // Top-level inline — wrap in a paragraph.
             return PMNode(type: "paragraph", content: encodeInlines([node]).orNilIfEmpty())
         }
+    }
+
+    private func encodeTable(_ rows: [TreeNode]) -> PMNode? {
+        var encodedRows: [PMNode] = []
+        var sawStructuralRow = false
+        for row in rows {
+            guard case .structural(let rowNode, let cells) = row,
+                  rowNode.type == "table_row" else { continue }
+            sawStructuralRow = true
+            var encodedCells: [PMNode] = []
+            for cell in cells {
+                guard case .structural(let cellNode, let cellKids) = cell else { continue }
+                let cellType: String
+                switch cellNode.type {
+                case "table_header": cellType = "table_header"
+                case "table_cell": cellType = "table_cell"
+                default: continue
+                }
+                var attrs: [String: PMValue] = [:]
+                if let align = cellNode.attrs["align"]?.stringValue {
+                    attrs["align"] = .string(align)
+                } else {
+                    attrs["align"] = .null
+                }
+                if let cs = cellNode.attrs["colspan"]?.intValue {
+                    attrs["colspan"] = .int(cs)
+                }
+                if let rs = cellNode.attrs["rowspan"]?.intValue {
+                    attrs["rowspan"] = .int(rs)
+                }
+                if let cw = cellNode.attrs["colwidth"]?.intValue {
+                    attrs["colwidth"] = .int(cw)
+                } else {
+                    attrs["colwidth"] = .null
+                }
+                let inner = cellKids.compactMap { encodeBlock($0) }
+                encodedCells.append(PMNode(
+                    type: cellType,
+                    attrs: attrs.isEmpty ? nil : attrs,
+                    content: inner.isEmpty ? nil : inner
+                ))
+            }
+            encodedRows.append(PMNode(
+                type: "table_row",
+                content: encodedCells.isEmpty ? nil : encodedCells
+            ))
+        }
+        guard sawStructuralRow else { return nil }
+        return PMNode(
+            type: "table",
+            content: encodedRows.isEmpty ? nil : encodedRows
+        )
     }
 
     private func encodeInlines(_ nodes: [TreeNode]) -> [PMNode] {
