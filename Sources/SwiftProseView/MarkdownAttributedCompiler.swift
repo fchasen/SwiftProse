@@ -296,12 +296,14 @@ public final class MarkdownAttributedCompiler {
             guard safe.length > 0 else { continue }
             for (k, v) in attrs {
                 if k == .font {
+                    // Merge bold/italic onto the existing font so a second
+                    // pass (italic on top of bold) doesn't drop the first
+                    // trait. Skip the merge when the styling font carries
+                    // no traits (e.g. monospace for a code span) — there
+                    // we want the styling font wholesale.
                     if let baseRun = attributed.safeAttribute(.font, at: safe.location) as? PlatformFont,
-                       let trait = (v as? PlatformFont)?.proseTraits {
-                        // Combine traits with what the run already carries
-                        // — `withProseTraits` replaces, so a second pass
-                        // (italic on top of bold) would otherwise drop the
-                        // first trait. Union preserves both.
+                       let trait = (v as? PlatformFont)?.proseTraits,
+                       !trait.isEmpty {
                         let merged = baseRun.withProseTraits(baseRun.proseTraits.union(trait))
                         attributed.addAttribute(.font, value: merged, range: safe)
                     } else {
@@ -462,72 +464,44 @@ public final class MarkdownAttributedCompiler {
                                                 listLevel: segment.listLevel,
                                                 theme: theme)
         ]
-        var content = raw
+        var content = extractCodeBlockBody(from: raw, tag: segment.tag)
         if !content.hasSuffix("\n") { content.append("\n") }
         let attributed = NSMutableAttributedString(string: content, attributes: paragraphAttrs)
         applyCodeBlockHighlights(to: attributed, segment: segment, source: source, theme: theme)
-        markCodeBlockMarkup(in: attributed, tag: segment.tag)
         appendStyled(attributed, spec: BlockSpec(blockSegment: segment), into: out)
     }
 
-    /// Mark fence/indent characters with `proseListMarker` so the tree
-    /// projection excludes them from the leaf's inline content.
-    private func markCodeBlockMarkup(
-        in attributed: NSMutableAttributedString,
-        tag: BlockTag
-    ) {
-        let ns = attributed.string as NSString
+    /// Extract the code body from a raw segment, stripping fence delimiters
+    /// (fenced) or the leading 4-space indent (indented). Mirrors the source
+    /// markup the serializer reconstructs from the leaf's `language` /
+    /// `fenced` attrs, so storage holds only the document content.
+    private func extractCodeBlockBody(from raw: String, tag: BlockTag) -> String {
         switch tag {
         case .fencedCode:
-            let firstNL = ns.range(of: "\n")
-            if firstNL.location != NSNotFound {
-                attributed.addAttribute(
-                    .proseListMarker,
-                    value: true,
-                    range: NSRange(location: 0, length: firstNL.location + 1)
-                )
+            let lines = raw.components(separatedBy: "\n")
+            guard lines.count >= 2 else { return "" }
+            var bodyLines = Array(lines.dropFirst())
+            if bodyLines.last == "" { bodyLines.removeLast() }
+            if let last = bodyLines.last, isFenceLine(last) {
+                bodyLines.removeLast()
             }
-            var end = ns.length
-            while end > 0, ns.character(at: end - 1) == 0x0A { end -= 1 }
-            var lineStart = end
-            while lineStart > 0, ns.character(at: lineStart - 1) != 0x0A { lineStart -= 1 }
-            if lineStart < end {
-                let lastLine = ns.substring(with: NSRange(location: lineStart, length: end - lineStart))
-                if isFenceLine(lastLine) {
-                    attributed.addAttribute(
-                        .proseListMarker,
-                        value: true,
-                        range: NSRange(location: lineStart, length: ns.length - lineStart)
-                    )
-                }
-            }
+            return bodyLines.joined(separator: "\n")
         case .indentedCode:
-            var i = 0
-            while i < ns.length {
-                var j = i
-                while j < ns.length, j - i < 4, ns.character(at: j) == 0x20 {
-                    j += 1
+            let lines = raw.components(separatedBy: "\n")
+            let stripped = lines.map { line -> String in
+                var prefix = 0
+                for ch in line {
+                    guard ch == " ", prefix < 4 else { break }
+                    prefix += 1
                 }
-                if j > i {
-                    attributed.addAttribute(
-                        .proseListMarker,
-                        value: true,
-                        range: NSRange(location: i, length: j - i)
-                    )
-                }
-                while j < ns.length, ns.character(at: j) != 0x0A { j += 1 }
-                if j < ns.length { j += 1 }
-                i = j
+                return String(line.dropFirst(prefix))
             }
+            return stripped.joined(separator: "\n")
         default:
-            break
+            return raw
         }
     }
 
-    /// Run the registered `CodeBlockHighlighter` over the body lines of this
-    /// code block (skipping fence + info-string lines for fenced blocks, the
-    /// indent prefix for indented blocks) and color tokens via
-    /// `theme.codeColor(for:)`. Spans landing on fences are dropped.
     private func applyCodeBlockHighlights(
         to attributed: NSMutableAttributedString,
         segment: BlockSegment,
@@ -535,19 +509,21 @@ public final class MarkdownAttributedCompiler {
         theme: ProseTheme
     ) {
         guard let highlighter = codeBlockHighlighter else { return }
-        guard let body = codeBlockBody(segment: segment, source: source) else { return }
+        let body = (attributed.string as NSString).substring(
+            to: max(0, attributed.length - (attributed.string.hasSuffix("\n") ? 1 : 0))
+        )
         let resolved: String?
         if let explicit = segment.language, !explicit.isEmpty {
             resolved = explicit
         } else {
-            resolved = highlighter.detectLanguage(for: body.text)
+            resolved = highlighter.detectLanguage(for: body)
         }
-        let spans = highlighter.highlights(for: body.text, language: resolved)
+        let spans = highlighter.highlights(for: body, language: resolved)
         guard !spans.isEmpty else { return }
         let attributedLength = attributed.length
         for span in spans {
             guard let color = theme.codeColor(for: span.tag) else { continue }
-            let start = body.offsetInSegment + span.range.location
+            let start = span.range.location
             let end = start + span.range.length
             guard start >= 0, end <= attributedLength, start < end else { continue }
             attributed.addAttribute(
@@ -558,40 +534,6 @@ public final class MarkdownAttributedCompiler {
         }
     }
 
-    /// Returns the body text of a code-block segment plus the offset (in
-    /// segment-local coordinates) at which that body starts. The first / last
-    /// lines of a fenced block are the fence delimiters; an indented block is
-    /// all body but each line is prefixed with the indent.
-    private func codeBlockBody(
-        segment: BlockSegment,
-        source: String
-    ) -> (text: String, offsetInSegment: Int)? {
-        let nsSource = source as NSString
-        let raw = nsSource.substring(with: segment.range)
-        switch segment.tag {
-        case .fencedCode:
-            // Drop the first line (opening fence + info string) and the last
-            // line if it's a closing fence. Tree-sitter sometimes emits
-            // unterminated fences (range ends with body); handle both.
-            let lines = raw.components(separatedBy: "\n")
-            guard lines.count >= 2 else { return nil }
-            let firstLineUTF16 = (lines[0] as NSString).length + 1 // +1 for the \n
-            var bodyLines = Array(lines.dropFirst())
-            // Strip trailing empty entry from a trailing \n.
-            if bodyLines.last == "" { bodyLines.removeLast() }
-            // If the last line looks like a closing fence (only ` or ~), drop it.
-            if let last = bodyLines.last, isFenceLine(last) {
-                bodyLines.removeLast()
-            }
-            let body = bodyLines.joined(separator: "\n")
-            return (body, firstLineUTF16)
-        case .indentedCode:
-            return (raw, 0)
-        default:
-            return nil
-        }
-    }
-
     private func isFenceLine(_ line: String) -> Bool {
         let trimmed = line.drop { $0 == " " }
         guard let first = trimmed.first, first == "`" || first == "~" else { return false }
@@ -599,13 +541,9 @@ public final class MarkdownAttributedCompiler {
     }
 
     /// Re-run the registered `CodeBlockHighlighter` over the body of an
-    /// existing code-block run in `storage` and stamp its colors. Used by
-    /// `EditorController` after every typed keystroke that lands inside a
-    /// fenced or indented code block — the original `compile()` pass colored
-    /// the block when it was first laid down (often empty), but typing alone
-    /// never re-runs the highlighter. Without this, freshly-typed code in an
-    /// otherwise-classified block stays uncolored until the next full
-    /// recompile.
+    /// existing code-block run in `storage` and stamp its colors. Storage
+    /// already holds just the body — fences live only in the leaf's attrs
+    /// — so the block range maps to the body 1:1.
     public func rehighlightCodeBlock(
         in storage: NSTextStorage,
         blockRange: NSRange,
@@ -614,29 +552,27 @@ public final class MarkdownAttributedCompiler {
         theme: ProseTheme
     ) {
         guard let highlighter = codeBlockHighlighter else { return }
-        guard let body = codeBlockBody(in: storage, blockRange: blockRange, isFenced: isFenced) else { return }
+        guard blockRange.location >= 0,
+              blockRange.length > 0,
+              blockRange.location + blockRange.length <= storage.length else { return }
+        let raw = (storage.string as NSString).substring(with: blockRange)
+        let body = raw.hasSuffix("\n") ? String(raw.dropLast()) : raw
         let resolved: String?
         if let language, !language.isEmpty {
             resolved = language
         } else {
-            resolved = highlighter.detectLanguage(for: body.text)
+            resolved = highlighter.detectLanguage(for: body)
         }
-        let bodyStart = blockRange.location + body.offsetInBlock
-        let bodyLength = (body.text as NSString).length
-        guard bodyStart >= 0,
-              bodyStart + bodyLength <= storage.length,
-              bodyLength > 0 else { return }
-        let bodyRange = NSRange(location: bodyStart, length: bodyLength)
         storage.beginEditing()
-        // Reset prior colors before re-stamping so deleted/changed tokens
-        // don't leave stale highlight residue.
-        storage.addAttribute(.foregroundColor, value: theme.foregroundColor, range: bodyRange)
-        let spans = highlighter.highlights(for: body.text, language: resolved)
+        storage.addAttribute(.foregroundColor, value: theme.foregroundColor, range: blockRange)
+        let spans = highlighter.highlights(for: body, language: resolved)
         for span in spans {
             guard let color = theme.codeColor(for: span.tag) else { continue }
-            let start = bodyStart + span.range.location
+            let start = blockRange.location + span.range.location
             let end = start + span.range.length
-            guard start >= bodyStart, end <= bodyStart + bodyLength, start < end else { continue }
+            guard start >= blockRange.location,
+                  end <= blockRange.location + blockRange.length,
+                  start < end else { continue }
             storage.addAttribute(
                 .foregroundColor,
                 value: color,
@@ -644,34 +580,6 @@ public final class MarkdownAttributedCompiler {
             )
         }
         storage.endEditing()
-    }
-
-    /// Body extraction parallel to `codeBlockBody(segment:source:)` but
-    /// against an in-flight `NSAttributedString` rather than a parsed source
-    /// string. Same fence-stripping rules so the highlighter sees only code.
-    private func codeBlockBody(
-        in storage: NSAttributedString,
-        blockRange: NSRange,
-        isFenced: Bool
-    ) -> (text: String, offsetInBlock: Int)? {
-        let ns = storage.string as NSString
-        guard blockRange.location >= 0,
-              blockRange.location + blockRange.length <= ns.length,
-              blockRange.length > 0 else { return nil }
-        let raw = ns.substring(with: blockRange)
-        if isFenced {
-            let lines = raw.components(separatedBy: "\n")
-            guard lines.count >= 2 else { return nil }
-            let firstLineUTF16 = (lines[0] as NSString).length + 1
-            var bodyLines = Array(lines.dropFirst())
-            if bodyLines.last == "" { bodyLines.removeLast() }
-            if let last = bodyLines.last, isFenceLine(last) {
-                bodyLines.removeLast()
-            }
-            let body = bodyLines.joined(separator: "\n")
-            return (body, firstLineUTF16)
-        }
-        return (raw, 0)
     }
 
     private func appendHorizontalRule(

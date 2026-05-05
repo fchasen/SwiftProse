@@ -998,15 +998,8 @@ public final class EditorController {
         let language = (lineText as NSString).substring(with: langRange)
 
         let block = compiler.compile("```\(language)\n\n```\n", theme: theme)
-        // Body line begins after "```<language>\n" — three backticks plus
-        // the language UTF-16 length plus one newline.
-        let bodyOffset = 4 + (language as NSString).length
         let transaction = Transaction(steps: [
-            .replaceText(range: lineRange, with: block),
-            .replaceText(
-                range: NSRange(location: lineRange.location + bodyOffset, length: 0),
-                with: NSAttributedString()
-            )
+            .replaceText(range: lineRange, with: block)
         ], label: "Code block")
         _ = apply(transaction)
         return true

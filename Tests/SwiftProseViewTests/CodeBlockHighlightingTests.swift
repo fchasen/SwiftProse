@@ -225,7 +225,7 @@ private final class StubHighlighter: CodeBlockHighlighter {
         // so we can assert the typing-driven call distinctly.
         stub.sourceSeen = nil
         stub.languageSeen = nil
-        controller.testSelection = NSRange(location: 9, length: 0) // "```swift\n" = 9
+        controller.testSelection = NSRange(location: 0, length: 0)
         type("let x = 1", in: controller)
         #expect(stub.languageSeen == "swift")
         #expect(stub.sourceSeen == "let x = 1")
@@ -244,7 +244,7 @@ private final class StubHighlighter: CodeBlockHighlighter {
             theme: theme,
             codeBlockHighlighter: stub
         )
-        controller.testSelection = NSRange(location: 9, length: 0)
+        controller.testSelection = NSRange(location: 0, length: 0)
         type("let x = 1", in: controller)
         let storage = controller.textStorage
         let ns = storage.string as NSString

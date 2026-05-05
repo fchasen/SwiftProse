@@ -265,7 +265,7 @@ import UIKit
 
     /// Typing ` ``` ` on an empty line opens an empty fenced code block.
     /// The line's spec flips from paragraph to `.fencedCode(language: nil)`
-    /// and storage grows to hold the open + close fences.
+    /// and storage holds an empty body — fences live only in the leaf attrs.
     @Test func typingTripleBacktickOpensEmptyFencedBlock() throws {
         let controller = try EditorController(initialMarkdown: "")
         type("```", in: controller)
@@ -275,8 +275,7 @@ import UIKit
             return
         }
         #expect(lang == nil)
-        // Compiled empty block: "```\n\n```\n" — 9 UTF-16 code units.
-        #expect(controller.textStorage.length == 9)
+        #expect(controller.textStorage.length == 1)
     }
 
     /// Bug 3: invoking the fenced-code rule against a line whose spec is

@@ -186,21 +186,9 @@ public extension InputRule {
             return nil
         }
         let env = match.env
-        // Render the empty block once and splice it in. The compiler emits
-        // "```\n\n```\n" so the body line sits at offset 4 from the start
-        // of the inserted content.
         let block = env.compiler.compile("```\n\n```\n", theme: env.theme)
-        let bodyLineOffset = 4
-        let bodyAnchor = NSRange(
-            location: match.lineRange.location + bodyLineOffset,
-            length: 0
-        )
         return Transaction(steps: [
-            .replaceText(range: match.lineRange, with: block),
-            // Empty replace at the body-line anchor so `apply()`'s
-            // last-step-mappedRange cursor heuristic lands the cursor inside
-            // the body instead of at the closing fence.
-            .replaceText(range: bodyAnchor, with: NSAttributedString())
+            .replaceText(range: match.lineRange, with: block)
         ], label: "Code block")
     }
 

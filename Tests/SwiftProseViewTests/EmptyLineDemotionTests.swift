@@ -52,22 +52,20 @@ import UIKit
 
     @Test func fencedCodeBodyLineKeepsSpecWhenEmptied() throws {
         // Open an empty fenced block, type a char, then delete it. Body
-        // line spec must remain `.fencedCode` so the surrounding fence
-        // doesn't fragment into paragraph runs.
+        // line spec must remain `.fencedCode` after the body goes empty
+        // again so the leaf survives.
         let controller = try EditorController(initialMarkdown: "")
         type("```", in: controller)
-        // Cursor is on the body line (offset 4 of "```\n\n```\n").
-        controller.testSelection = NSRange(location: 4, length: 0)
+        controller.testSelection = NSRange(location: 0, length: 0)
         controller.insert(text: "x")
-        // Body now has 'x'. Backspace it.
         let storage = controller.textStorage
         storage.beginEditing()
         storage.replaceCharacters(
-            in: NSRange(location: 4, length: 1),
+            in: NSRange(location: 0, length: 1),
             with: ""
         )
         storage.endEditing()
-        let bodySpec = storage.blockSpec(at: 4)
+        let bodySpec = storage.blockSpec(at: 0)
         if case .fencedCode = bodySpec?.kind {
             // ok
         } else {
