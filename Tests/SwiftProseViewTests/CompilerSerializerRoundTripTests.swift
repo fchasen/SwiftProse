@@ -112,4 +112,9 @@ import SwiftProseSyntax
         #expect(out == "[ref]: https://example.com \"docs\"\n")
     }
 
+    @Test func pipeTable() throws {
+        let out = try roundTrip("| h1 | h2 |\n| --- | --- |\n| a | b |\n")
+        #expect(out == "| h1 | h2 |\n| --- | --- |\n| a | b |\n")
+    }
+
 }

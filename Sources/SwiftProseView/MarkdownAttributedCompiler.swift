@@ -779,6 +779,7 @@ public final class MarkdownAttributedCompiler {
             .foregroundColor: theme.foregroundColor
         ]
         let depth = segment.blockquoteDepth
+        let startIdx = out.length
         for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
             if line.isEmpty { continue }
             let lineText = String(line) + "\n"
@@ -787,6 +788,30 @@ public final class MarkdownAttributedCompiler {
                 spec: BlockSpec(kind: .paragraph, blockquoteDepth: depth),
                 into: out
             )
+        }
+        wrapInTableAncestor(
+            in: out,
+            range: NSRange(location: startIdx, length: out.length - startIdx)
+        )
+    }
+
+    /// Insert a shared `table` node into every `proseNodePath` run in
+    /// `range`, between the leaf paragraph and its parent. The tree
+    /// builder groups runs sharing an ancestor by NodeID, so all rows
+    /// land under one `table` node — letting the serializer's table
+    /// emit walk them as a single block.
+    private func wrapInTableAncestor(
+        in out: NSMutableAttributedString,
+        range: NSRange
+    ) {
+        let tableNode = ProseNode(type: "table")
+        out.enumerateNodePaths(in: range) { runRange, path in
+            guard !path.nodes.isEmpty else { return }
+            var nodes = path.nodes
+            let leaf = nodes.removeLast()
+            nodes.append(tableNode)
+            nodes.append(leaf)
+            out.setNodePath(NodePath(nodes), in: runRange)
         }
     }
 
