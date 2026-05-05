@@ -103,13 +103,41 @@ public struct ToggleCodeBlockCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        transformParagraphs(storage: storage, selection: selection, label: "Code Block") { current in
-            if case .fencedCode = current.kind {
-                return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
+        // When the cursor sits inside an existing code block, toggle the
+        // whole block off in one step — toggling line-by-line would split
+        // the block into fenced halves around the cursor's line.
+        if storage.length > 0 {
+            let probe = max(0, min(selection.location, storage.length - 1))
+            if let spec = storage.blockSpec(at: probe), spec.isCodeBlock {
+                let blockRange = codeBlockRange(in: storage, around: probe)
+                let newSpec = BlockSpec(kind: .paragraph, blockquoteDepth: spec.blockquoteDepth)
+                return Transaction(steps: [.setSpec(lineRange: blockRange, newSpec)], label: "Code Block")
             }
-            return BlockSpec(kind: .fencedCode(language: nil), blockquoteDepth: current.blockquoteDepth)
+        }
+        return transformParagraphs(storage: storage, selection: selection, label: "Code Block") { current in
+            BlockSpec(kind: .fencedCode(language: nil), blockquoteDepth: current.blockquoteDepth)
         }
     }
+}
+
+/// Expand `index` outward to the contiguous run of code-block characters,
+/// snapping to paragraph boundaries on each end so the line range is whole.
+private func codeBlockRange(in storage: NSAttributedString, around index: Int) -> NSRange {
+    var start = index
+    while start > 0, storage.blockSpec(at: start - 1)?.isCodeBlock == true {
+        start -= 1
+    }
+    var end = index
+    while end < storage.length, storage.blockSpec(at: end)?.isCodeBlock == true {
+        end += 1
+    }
+    let ns = storage.string as NSString
+    let head = ns.paragraphRange(for: NSRange(location: start, length: 0))
+    let tailProbe = max(start, end - 1)
+    let tail = ns.paragraphRange(for: NSRange(location: tailProbe, length: 0))
+    let lo = min(start, head.location)
+    let hi = max(end, tail.location + tail.length)
+    return NSRange(location: lo, length: hi - lo)
 }
 
 public struct InsertHorizontalRuleCommand: Command {
