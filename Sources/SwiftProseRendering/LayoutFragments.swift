@@ -145,12 +145,14 @@ public class CodeBlockLayoutFragment: NSTextLayoutFragment {
     }
 
     fileprivate func effectiveWidth(bounds: CGRect) -> CGFloat {
-        // Long unbroken code lines blow out `bounds.width` past the container.
-        // Clamp to `containerWidth` so every line in a fenced block paints the
-        // same backdrop. Fall back to `bounds.width` only when the host hasn't
-        // supplied a container width yet (early layout, headless tests).
-        guard containerWidth > 0 else { return bounds.width }
-        return containerWidth
+        // Read live container width so the fill reflects the editor's
+        // current size — the cached `containerWidth` set at fragment
+        // creation goes stale across resizes.
+        if let live = textLayoutManager?.textContainer?.size.width, live > 0 {
+            return live
+        }
+        if containerWidth > 0 { return containerWidth }
+        return bounds.width
     }
 }
 
