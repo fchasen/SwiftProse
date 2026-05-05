@@ -152,8 +152,11 @@ public class CodeBlockLayoutFragment: NSTextLayoutFragment {
     }
 
     /// Vertical span the BG should cover: the union of the line fragments'
-    /// typographic bounds with `verticalPadding` added on each side. Clamps
-    /// to `bounds` so the BG never escapes the layout fragment frame.
+    /// typographic bounds, padded only on the run's outer edges. Padding
+    /// stays inside the layout fragment frame; the compiler stamps the
+    /// first/last paragraphs of a code block with extra paragraph spacing
+    /// so the frame already has room for both the BG padding and the
+    /// outer margin (the gap between BG and surrounding content).
     fileprivate func contentVerticalExtent(in bounds: CGRect) -> (minY: CGFloat, height: CGFloat) {
         let lines = textLineFragments
         guard !lines.isEmpty else {
@@ -168,8 +171,10 @@ public class CodeBlockLayoutFragment: NSTextLayoutFragment {
             sawAny = true
         }
         guard sawAny else { return (0, bounds.height) }
-        let paddedMinY = max(0, minY - verticalPadding)
-        let paddedMaxY = min(bounds.height, maxY + verticalPadding)
+        let topPad = isFirstLine ? verticalPadding : 0
+        let botPad = isLastLine ? verticalPadding : 0
+        let paddedMinY = max(0, minY - topPad)
+        let paddedMaxY = min(bounds.height, maxY + botPad)
         return (paddedMinY, paddedMaxY - paddedMinY)
     }
 

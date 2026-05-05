@@ -93,146 +93,133 @@ import UIKit
         }
     }
 
-    @Test func toggleCodeBlockOnEmptyParagraphProducesEmptyBody() throws {
+    @Test func toggleCodeBlockOnEmptyDocInsertsEmptyBlock() throws {
         let controller = try EditorController(initialMarkdown: "")
         controller.testSelection = NSRange(location: 0, length: 0)
         _ = controller.perform(.codeBlock)
-        // A freshly-toggled empty code block should hold a single-line empty
-        // body (just "\n"), not two empty lines.
-        #expect(controller.textStorage.length == 1)
         let spec = controller.textStorage.blockSpec(at: 0)
         if case .fencedCode = spec?.kind {
             // ok
         } else {
             Issue.record("expected fenced code spec, got \(String(describing: spec?.kind))")
         }
+        #expect(controller.markdown() == "```\n\n```\n",
+                "expected canonical empty fence, got \(String(reflecting: controller.markdown()))")
     }
 
-    @Test func toggleCodeBlockOnNonEmptyParagraphKeepsContent() throws {
+    /// Cursor on a non-empty paragraph: the existing text stays put and a
+    /// fresh empty code block is inserted after it.
+    @Test func toggleCodeBlockOnNonEmptyParagraphInsertsAfter() throws {
         let controller = try EditorController(initialMarkdown: "hello\n")
         controller.testSelection = NSRange(location: 0, length: 0)
         _ = controller.perform(.codeBlock)
-        // The block's body should be just "hello\n" — the original line —
-        // not "hello\n\n" (extra blank tail).
-        #expect(controller.textStorage.length == 6,
-                "expected single-line body, got length \(controller.textStorage.length): \(String(reflecting: controller.textStorage.string))")
-        #expect(controller.textStorage.string == "hello\n")
-        let spec = controller.textStorage.blockSpec(at: 0)
-        if case .fencedCode = spec?.kind {
-            // ok
-        } else {
-            Issue.record("expected fenced code spec, got \(String(describing: spec?.kind))")
-        }
+        #expect(controller.markdown() == "hello\n\n```\n\n```\n",
+                "got \(String(reflecting: controller.markdown()))")
+        let firstSpec = controller.textStorage.blockSpec(at: 0)
+        #expect(firstSpec?.kind == .paragraph,
+                "first paragraph must stay plain, got \(String(describing: firstSpec?.kind))")
     }
 
-    @Test func toggleCodeBlockSerializesWithoutExtraBlankLine() throws {
-        let controller = try EditorController(initialMarkdown: "hello\n")
-        controller.testSelection = NSRange(location: 0, length: 0)
-        _ = controller.perform(.codeBlock)
-        let md = controller.markdown()
-        #expect(md == "```\nhello\n```\n",
-                "expected canonical fenced output, got \(String(reflecting: md))")
-    }
-
-    @Test func toggleCodeBlockAtCursorEndOfContent() throws {
+    @Test func toggleCodeBlockAtCursorEndOfContentInsertsAfter() throws {
         let controller = try EditorController(initialMarkdown: "hello\n")
         controller.testSelection = NSRange(location: 6, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "```\nhello\n```\n")
+        #expect(controller.markdown() == "hello\n\n```\n\n```\n")
     }
 
     // MARK: - code block: cursor-position consistency
 
-    /// Cursor anywhere inside a single paragraph should produce identical
-    /// markdown — the line is what matters, not the column.
+    /// Cursor anywhere inside a non-empty paragraph: same insert-after
+    /// outcome regardless of column.
     @Test(arguments: [0, 1, 3, 5, 6])
     func toggleCodeBlockIsStableAcrossCursorColumns(cursor: Int) throws {
         let controller = try EditorController(initialMarkdown: "hello\n")
         controller.testSelection = NSRange(location: cursor, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "```\nhello\n```\n",
+        #expect(controller.markdown() == "hello\n\n```\n\n```\n",
                 "cursor=\(cursor) produced \(String(reflecting: controller.markdown()))")
     }
 
-    /// Multi-paragraph document: cursor in the second paragraph should
-    /// fence only that paragraph and leave the others untouched.
-    @Test func toggleCodeBlockOnSecondOfThreeParagraphs() throws {
+    /// Multi-paragraph document: the existing paragraphs stay intact and a
+    /// fresh empty block lands immediately after the cursor's paragraph.
+    @Test func toggleCodeBlockOnSecondOfThreeParagraphsInsertsAfter() throws {
         let controller = try EditorController(initialMarkdown: "first\n\nsecond\n\nthird\n")
-        // "first\n\nsecond" — cursor inside "second"
         controller.testSelection = NSRange(location: 9, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "first\n\n```\nsecond\n```\n\nthird\n",
+        #expect(controller.markdown() == "first\n\nsecond\n\n```\n\n```\n\nthird\n",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
-    /// Cursor in the third paragraph — the one without a trailing newline
-    /// before EOF was a likely off-by-one in `paragraphRanges`.
-    @Test func toggleCodeBlockOnLastParagraphNoTrailingNewline() throws {
+    /// Cursor in a final paragraph without a trailing newline still produces
+    /// canonical block separation in the round-tripped markdown.
+    @Test func toggleCodeBlockOnLastParagraphNoTrailingNewlineInsertsAfter() throws {
         let controller = try EditorController(initialMarkdown: "first\n\nsecond")
-        // cursor inside "second"
         controller.testSelection = NSRange(location: 10, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "first\n\n```\nsecond\n```\n",
+        #expect(controller.markdown() == "first\n\nsecond\n\n```\n\n```\n",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
-    /// Cursor on the line break between two paragraphs — the user's intent
-    /// is on the visible paragraph the cursor *is currently in*. Whether
-    /// that's the line the `\n` terminates or the empty line that follows,
-    /// the behavior must be deterministic.
-    @Test func toggleCodeBlockAtParagraphTerminator() throws {
+    /// Cursor on a paragraph terminator: the cursor's paragraph still gets
+    /// the block inserted right after it, with the prose untouched.
+    @Test func toggleCodeBlockAtParagraphTerminatorInsertsAfter() throws {
         let controller = try EditorController(initialMarkdown: "alpha\n\nbeta\n")
-        // position 5 = the `\n` after "alpha" (still in line 1 per NSString)
         controller.testSelection = NSRange(location: 5, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "```\nalpha\n```\n\nbeta\n",
+        #expect(controller.markdown() == "alpha\n\n```\n\n```\n\nbeta\n",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
-    /// Cursor at the start of paragraph 2 (index 7 in "alpha\n\nbeta\n").
-    @Test func toggleCodeBlockAtStartOfSecondParagraph() throws {
+    /// Cursor at the start of paragraph 2: insert after that paragraph.
+    @Test func toggleCodeBlockAtStartOfSecondParagraphInsertsAfter() throws {
         let controller = try EditorController(initialMarkdown: "alpha\n\nbeta\n")
         controller.testSelection = NSRange(location: 7, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "alpha\n\n```\nbeta\n```\n",
+        #expect(controller.markdown() == "alpha\n\nbeta\n\n```\n\n```\n",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
-    /// Cursor on the empty separator line between two paragraphs. There's no
-    /// "right" answer at this position, but the behavior must be stable —
-    /// pin it so it can't silently regress.
+    /// Cursor on an empty separator line: this line has no text, so the
+    /// "convert" branch fires — the empty line becomes a code block.
     @Test func toggleCodeBlockOnBlankSeparatorLine() throws {
         let controller = try EditorController(initialMarkdown: "alpha\n\nbeta\n")
         // location 6 = the second `\n` (the blank line)
         controller.testSelection = NSRange(location: 6, length: 0)
         _ = controller.perform(.codeBlock)
-        // The blank line itself becomes an empty fenced block sandwiched
-        // between the two paragraphs.
         #expect(controller.markdown() == "alpha\n\n```\n\n```\n\nbeta\n",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
-    /// Selection spanning two consecutive paragraphs should fence both.
+    /// Selection spanning two consecutive paragraphs: existing text isn't
+    /// converted; a fresh empty block lands after the selection's anchor
+    /// paragraph.
     @Test func toggleCodeBlockSelectionAcrossTwoParagraphs() throws {
         let controller = try EditorController(initialMarkdown: "alpha\nbeta\n")
         // select "lpha\nbet" — touches both lines
         controller.testSelection = NSRange(location: 1, length: 8)
         _ = controller.perform(.codeBlock)
         let md = controller.markdown()
-        #expect(md.contains("```\nalpha\n```"),
-                "expected first line fenced, got \(String(reflecting: md))")
-        #expect(md.contains("```\nbeta\n```"),
-                "expected second line fenced, got \(String(reflecting: md))")
+        #expect(md.contains("alpha\n"), "alpha must remain plain, got \(String(reflecting: md))")
+        #expect(md.contains("beta\n"), "beta must remain plain, got \(String(reflecting: md))")
+        #expect(md.contains("```\n\n```"),
+                "expected empty fence inserted, got \(String(reflecting: md))")
+        #expect(!md.contains("```\nalpha"),
+                "alpha must not be wrapped, got \(String(reflecting: md))")
+        #expect(!md.contains("```\nbeta"),
+                "beta must not be wrapped, got \(String(reflecting: md))")
     }
 
-    /// Toggle on a list item: the line should leave the list and become a
-    /// fenced code block whose body is the bullet's body, not "- foo".
+    /// Cursor in a list item: the bullet keeps its body, an empty block is
+    /// inserted after it.
     @Test func toggleCodeBlockOnListItemKeepsItemBody() throws {
         let controller = try EditorController(initialMarkdown: "- foo\n")
         controller.testSelection = NSRange(location: 2, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "```\nfoo\n```\n",
-                "got \(String(reflecting: controller.markdown()))")
+        let md = controller.markdown()
+        #expect(md.hasPrefix("- foo\n"),
+                "list item must remain intact, got \(String(reflecting: md))")
+        #expect(md.contains("```\n\n```"),
+                "expected empty fence inserted, got \(String(reflecting: md))")
     }
 
     /// Toggle off again: the fenced block should become a plain paragraph
@@ -245,11 +232,12 @@ import UIKit
                 "got \(String(reflecting: controller.markdown()))")
     }
 
-    /// Round-trip: toggle on, then off, must restore the original line.
-    @Test func toggleCodeBlockRoundTripRestoresParagraph() throws {
-        let controller = try EditorController(initialMarkdown: "hello world\n")
+    /// Toggle off must clear an existing fence — start from a code-block
+    /// document, position the cursor inside it, and verify the markdown is
+    /// just the body as a paragraph.
+    @Test func toggleCodeBlockOffOnExistingFence() throws {
+        let controller = try EditorController(initialMarkdown: "```\nhello world\n```\n")
         controller.testSelection = NSRange(location: 0, length: 0)
-        _ = controller.perform(.codeBlock)
         _ = controller.perform(.codeBlock)
         #expect(controller.markdown() == "hello world\n",
                 "got \(String(reflecting: controller.markdown()))")
@@ -284,26 +272,25 @@ import UIKit
                 "expected no fences after toggle-off; got \(String(reflecting: md))")
     }
 
-    /// Toggle on a single-line blockquote should produce a fenced block
-    /// not still inside the quote (we don't support quoted-code), and the
-    /// body must not include the leading `> `.
-    @Test func toggleCodeBlockOnBlockquoteStripsQuoteMarker() throws {
+    /// Toggle inside a single-line blockquote: the quote keeps its text,
+    /// and an empty fenced block lands AFTER the quote (not inside it).
+    @Test func toggleCodeBlockOnBlockquoteInsertsAfter() throws {
         let controller = try EditorController(initialMarkdown: "> hello\n")
         controller.testSelection = NSRange(location: 4, length: 0)
         _ = controller.perform(.codeBlock)
         let md = controller.markdown()
+        #expect(md.hasPrefix("> hello\n"),
+                "blockquote must remain intact, got \(String(reflecting: md))")
+        #expect(md.contains("```\n\n```"),
+                "expected empty fence inserted, got \(String(reflecting: md))")
         #expect(!md.contains("> ```"),
-                "fenced block must not be quoted; got \(String(reflecting: md))")
-        #expect(md.contains("```\nhello\n```"),
-                "expected stripped body fenced; got \(String(reflecting: md))")
+                "fence must not be quoted, got \(String(reflecting: md))")
     }
 
-    /// Cursor anywhere inside a multi-paragraph doc must fence the *line
-    /// the cursor is on*, never the wrong line. Drives a wide range of
-    /// cursor positions through the same setup and verifies the right
-    /// paragraph (and only that one) is fenced.
+    /// Cursor anywhere inside a multi-paragraph doc: prose stays untouched,
+    /// the empty block lands after the cursor's paragraph.
     @Test(arguments: [
-        // (cursor, expected fenced paragraph)
+        // (cursor, expected anchor paragraph the block lands after)
         (0, "first"),    // start of first
         (3, "first"),    // middle of first
         (5, "first"),    // end of first (on `\n`)
@@ -318,13 +305,14 @@ import UIKit
         controller.testSelection = NSRange(location: cursor, length: 0)
         _ = controller.perform(.codeBlock)
         let md = controller.markdown()
-        let expectedFence = "```\n\(expected)\n```"
-        #expect(md.contains(expectedFence),
-                "cursor=\(cursor) expected to fence \(expected); got \(String(reflecting: md))")
-        // The other two paragraphs must remain plain text.
-        for other in ["first", "second", "third"] where other != expected {
-            #expect(!md.contains("```\n\(other)\n```"),
-                    "cursor=\(cursor) unexpectedly fenced \(other); got \(String(reflecting: md))")
+        // Existing prose stays as plain paragraphs.
+        for word in ["first", "second", "third"] {
+            #expect(!md.contains("```\n\(word)\n```"),
+                    "cursor=\(cursor) unexpectedly wrapped \(word); got \(String(reflecting: md))")
         }
+        // The empty fence lands immediately after the anchor paragraph.
+        let needle = "\(expected)\n\n```\n\n```\n"
+        #expect(md.contains(needle),
+                "cursor=\(cursor) expected empty fence after \(expected); got \(String(reflecting: md))")
     }
 }

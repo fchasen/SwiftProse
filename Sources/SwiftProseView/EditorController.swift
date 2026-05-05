@@ -170,6 +170,7 @@ public final class EditorController {
                 } else {
                     self.resegment()
                 }
+                self.ensureTrailingParagraph()
                 self.intrinsicSizeInvalidator?()
                 // The typed character already received our storedMarks via
                 // typingAttributes; further typing should inherit naturally
@@ -508,6 +509,7 @@ public final class EditorController {
             )
             validateAndRepair(in: validationRange)
             applyingMarkdown = false
+            ensureTrailingParagraph()
             resegment()
             intrinsicSizeInvalidator?()
         }
@@ -1105,6 +1107,7 @@ public final class EditorController {
         let cursor = selection.location
         let total = textStorage.length
         guard total > 0, cursor > 0, cursor <= total else { return false }
+        if deleteEmptyCodeBlockAtCursor(cursor: cursor) { return true }
         let ns = textStorage.string as NSString
         let lineRange = ns.paragraphRange(for: NSRange(location: max(0, cursor - 1), length: 0))
         guard lineRange.length > 0,
@@ -1142,6 +1145,47 @@ public final class EditorController {
         }
         setHostSelection(NSRange(location: lineRange.location, length: 0))
         applyTypingAttributes(plainAttrs)
+        return true
+    }
+
+    /// Backspace at the start of an empty code block: drop the whole block.
+    /// Mirrors ProseMirror's `selectNodeBackward` for atomic blocks. Returns
+    /// `true` when handled so the host text view skips its default delete.
+    private func deleteEmptyCodeBlockAtCursor(cursor: Int) -> Bool {
+        let total = textStorage.length
+        guard cursor < total,
+              textStorage.blockSpec(at: cursor)?.isCodeBlock == true else {
+            return false
+        }
+        var blockStart = cursor
+        while blockStart > 0,
+              textStorage.blockSpec(at: blockStart - 1)?.isCodeBlock == true {
+            blockStart -= 1
+        }
+        var blockEnd = cursor
+        while blockEnd < total,
+              textStorage.blockSpec(at: blockEnd)?.isCodeBlock == true {
+            blockEnd += 1
+        }
+        guard cursor == blockStart else { return false }
+        let blockRange = NSRange(location: blockStart, length: blockEnd - blockStart)
+        let bodyText = (textStorage.string as NSString).substring(with: blockRange)
+        let isEmpty = bodyText
+            .replacingOccurrences(of: "\n", with: "")
+            .trimmingCharacters(in: .whitespaces)
+            .isEmpty
+        guard isEmpty else { return false }
+        withCharacterMutation(range: blockRange) {
+            applyingMarkdown = true
+            textStorage.beginEditing()
+            textStorage.replaceCharacters(in: blockRange, with: "")
+            textStorage.endEditing()
+            applyingMarkdown = false
+            resegment()
+            intrinsicSizeInvalidator?()
+        }
+        setHostSelection(NSRange(location: blockStart, length: 0))
+        applyTypingAttributes(theme.plainParagraphAttributes())
         return true
     }
 

@@ -453,20 +453,56 @@ public final class MarkdownAttributedCompiler {
     ) {
         let nsSource = source as NSString
         let raw = nsSource.substring(with: segment.range)
+        let baseStyle = paragraphStyleFor(tag: segment.tag,
+                                           level: 0,
+                                           blockquoteDepth: segment.blockquoteDepth,
+                                           listLevel: segment.listLevel,
+                                           theme: theme)
         let paragraphAttrs: [NSAttributedString.Key: Any] = [
             .font: theme.monospaceFont,
             .foregroundColor: theme.foregroundColor,
-            .paragraphStyle: paragraphStyleFor(tag: segment.tag,
-                                                level: 0,
-                                                blockquoteDepth: segment.blockquoteDepth,
-                                                listLevel: segment.listLevel,
-                                                theme: theme)
+            .paragraphStyle: baseStyle
         ]
         var content = extractCodeBlockBody(from: raw, tag: segment.tag)
         if !content.hasSuffix("\n") { content.append("\n") }
         let attributed = NSMutableAttributedString(string: content, attributes: paragraphAttrs)
         applyCodeBlockHighlights(to: attributed, segment: segment, source: source, theme: theme)
+        applyCodeBlockEdgeMargins(to: attributed, baseStyle: baseStyle)
         appendStyled(attributed, spec: BlockSpec(blockSegment: segment), into: out)
+    }
+
+    /// Stamp `paragraphSpacingBefore` on the first paragraph of a code block
+    /// and `paragraphSpacing` on the last so the BG painter has room for an
+    /// outer margin equal to the inner BG padding. Internal lines keep the
+    /// base style so the per-line BG fragments stitch flush.
+    private func applyCodeBlockEdgeMargins(
+        to attributed: NSMutableAttributedString,
+        baseStyle: NSParagraphStyle
+    ) {
+        let total = attributed.length
+        guard total > 0 else { return }
+        // 4pt of BG padding + 4pt of outer margin on each end. Keep in sync
+        // with `CodeBlockLayoutFragment.verticalPadding`.
+        let edgeSpacing: CGFloat = 8
+        let ns = attributed.string as NSString
+        let firstParaRange = ns.paragraphRange(for: NSRange(location: 0, length: 0))
+        let lastProbe = NSRange(location: max(0, total - 1), length: 0)
+        let lastParaRange = ns.paragraphRange(for: lastProbe)
+
+        if firstParaRange == lastParaRange {
+            let style = (baseStyle.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            style.paragraphSpacingBefore = edgeSpacing
+            style.paragraphSpacing = edgeSpacing
+            attributed.addAttribute(.paragraphStyle, value: style.copy(), range: firstParaRange)
+            return
+        }
+        let firstStyle = (baseStyle.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        firstStyle.paragraphSpacingBefore = edgeSpacing
+        attributed.addAttribute(.paragraphStyle, value: firstStyle.copy(), range: firstParaRange)
+
+        let lastStyle = (baseStyle.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        lastStyle.paragraphSpacing = edgeSpacing
+        attributed.addAttribute(.paragraphStyle, value: lastStyle.copy(), range: lastParaRange)
     }
 
     /// Extract the code body from a raw segment, stripping fence delimiters
@@ -861,7 +897,11 @@ public final class MarkdownAttributedCompiler {
         case .fencedCode, .indentedCode:
             style.firstLineHeadIndent = blockquoteIndent + 8
             style.headIndent = blockquoteIndent + 8
-            style.paragraphSpacing = 2
+            // Internal code-block lines stay flush; the compiler stamps the
+            // first and last paragraphs of the block with extra spacing in
+            // `applyCodeBlockEdgeMargins` so the BG painter can carve out a
+            // matching outer margin.
+            style.paragraphSpacing = 0
         default:
             style.firstLineHeadIndent = blockquoteIndent
             style.headIndent = blockquoteIndent

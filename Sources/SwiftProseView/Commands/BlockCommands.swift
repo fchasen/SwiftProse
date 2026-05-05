@@ -114,9 +114,35 @@ public struct ToggleCodeBlockCommand: Command {
                 return Transaction(steps: [.setSpec(lineRange: blockRange, newSpec)], label: "Code Block")
             }
         }
-        return transformParagraphs(storage: storage, selection: selection, label: "Code Block") { current in
-            BlockSpec(kind: .fencedCode(language: nil), blockquoteDepth: current.blockquoteDepth)
+        // Empty document: drop a fresh empty code block at the start.
+        if storage.length == 0 {
+            let block = env.compiler.compile("```\n\n```\n", theme: env.theme)
+            return Transaction(steps: [
+                .replaceText(range: NSRange(location: 0, length: 0), with: block)
+            ], label: "Code Block")
         }
+        let ns = storage.string as NSString
+        let probe = NSRange(location: max(0, min(selection.location, storage.length - 1)), length: 0)
+        let lineRange = ns.paragraphRange(for: probe)
+        let endsWithNewline = lineRange.length > 0 &&
+            ns.character(at: lineRange.location + lineRange.length - 1) == 0x0A
+        let lineContentLength = endsWithNewline ? lineRange.length - 1 : lineRange.length
+        // Empty line under cursor: convert it. With no text to "convert",
+        // the user's intent is unambiguous.
+        if lineContentLength == 0 {
+            return transformParagraphs(storage: storage, selection: selection, label: "Code Block") { current in
+                BlockSpec(kind: .fencedCode(language: nil), blockquoteDepth: current.blockquoteDepth)
+            }
+        }
+        // Non-empty line: insert a fresh empty code block AFTER the line,
+        // separated by a blank line so markdown round-trips cleanly. The
+        // existing prose stays untouched.
+        let prefix = endsWithNewline ? "\n" : "\n\n"
+        let block = env.compiler.compile("\(prefix)```\n\n```\n", theme: env.theme)
+        let insertAt = NSRange(location: lineRange.location + lineRange.length, length: 0)
+        return Transaction(steps: [
+            .replaceText(range: insertAt, with: block)
+        ], label: "Code Block")
     }
 }
 

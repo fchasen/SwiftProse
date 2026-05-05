@@ -274,7 +274,12 @@ import UIKit
             return
         }
         #expect(lang == nil)
-        #expect(controller.textStorage.length == 1)
+        // Storage holds the empty body (`\n`) plus the trailing-paragraph
+        // sentinel that lets the user move past atomic blocks.
+        #expect(controller.textStorage.length == 2)
+        let trailing = controller.textStorage.blockSpec(at: 1)
+        #expect(trailing?.kind == .paragraph,
+                "expected trailing paragraph sentinel, got \(String(describing: trailing?.kind))")
     }
 
     /// Typing ` ```js ` then Enter opens a fenced block with language "js".

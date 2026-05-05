@@ -210,4 +210,26 @@ import UIKit
         let lastSpec = controller.textStorage.blockSpec(at: total - 1)
         #expect(lastSpec?.kind == .paragraph)
     }
+
+    @Test func backspaceAtStartOfEmptyCodeBlockDeletesBlock() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n\n```\n\n```\n")
+        // Cursor at start of the empty code block body. Storage holds the
+        // paragraph, the blank separator, the body `\n`, and the trailing
+        // paragraph; the body sits at length-2.
+        let bodyStart = controller.textStorage.length - 2
+        controller.testSelection = NSRange(location: bodyStart, length: 0)
+        let handled = controller.handleBackspace()
+        #expect(handled == true)
+        // The empty fence is gone; round-tripped markdown drops it.
+        #expect(controller.markdown() == "hello\n")
+    }
+
+    @Test func backspaceInNonEmptyCodeBlockKeepsBlock() throws {
+        let controller = try EditorController(initialMarkdown: "```\nlet x = 1\n```\n")
+        // Cursor at the start of a non-empty code block body — handler must
+        // refuse so the host's default delete kicks in.
+        controller.testSelection = NSRange(location: 0, length: 0)
+        let handled = controller.handleBackspace()
+        #expect(handled == false)
+    }
 }
