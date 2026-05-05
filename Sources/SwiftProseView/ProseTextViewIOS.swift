@@ -194,6 +194,11 @@ final class ProseUITextView: UITextView {
             modifierFlags: .shift,
             action: #selector(handleShiftTab(_:))
         ))
+        commands.append(UIKeyCommand(
+            input: "\r",
+            modifierFlags: .command,
+            action: #selector(handleCommandReturn(_:))
+        ))
         return commands
     }
 
@@ -202,6 +207,10 @@ final class ProseUITextView: UITextView {
         if isCursorInListItem(controller: controller) {
             controller.perform(.outdent)
         }
+    }
+
+    @objc private func handleCommandReturn(_ sender: UIKeyCommand) {
+        proseController?.exitCodeBlock()
     }
 }
 #endif
