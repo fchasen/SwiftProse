@@ -359,80 +359,113 @@ final class ProseNSTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         if fitsContent { invalidateIntrinsicContentSize() }
+        scheduleCodeBlockBgUpdate()
     }
 
-    /// TextKit 2 skips draw on zero-width paragraph fragments (empty lines),
-    /// so per-line BG painters in `CodeBlockLayoutFragment` leave gaps in the
-    /// rendered block. Paint code-block BG bands here in the view's draw
-    /// pass — which runs before the per-fragment text layers composite — so
-    /// the band sits behind glyphs even when AppKit elides individual empty
-    /// fragments.
-    override func draw(_ dirtyRect: NSRect) {
-        if let context = NSGraphicsContext.current?.cgContext {
-            paintCodeBlockBackgroundBands(context: context)
+    override func layout() {
+        super.layout()
+        codeBlockBgLayer.frame = bounds
+        scheduleCodeBlockBgUpdate()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        ensureCodeBlockBgLayer()
+        scheduleCodeBlockBgUpdate()
+    }
+
+    /// Sublayer that paints code-block BG bands behind text. Per-fragment
+    /// drawing under TextKit 2 elides zero-width paragraph fragments (empty
+    /// lines inside a multi-line block), leaving visual gaps; a layer drawn
+    /// independently of the fragment-draw pipeline isn't subject to that
+    /// optimization.
+    private let codeBlockBgLayer: CAShapeLayer = {
+        let l = CAShapeLayer()
+        l.actions = ["path": NSNull(), "frame": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        l.zPosition = -1
+        return l
+    }()
+
+    private var codeBlockBgLayerInstalled = false
+
+    private func ensureCodeBlockBgLayer() {
+        guard !codeBlockBgLayerInstalled else { return }
+        wantsLayer = true
+        if let layer {
+            codeBlockBgLayer.fillColor = PlatformColor.codeBlockDefaultFill.cgColor
+            codeBlockBgLayer.frame = layer.bounds
+            layer.insertSublayer(codeBlockBgLayer, at: 0)
+            codeBlockBgLayerInstalled = true
         }
-        super.draw(dirtyRect)
     }
 
-    private func paintCodeBlockBackgroundBands(context: CGContext) {
+    private var bgUpdateScheduled = false
+
+    private func scheduleCodeBlockBgUpdate() {
+        guard !bgUpdateScheduled else { return }
+        bgUpdateScheduled = true
+        // Defer to the next runloop tick so layout settles after the
+        // current edit before we read fragment frames.
+        DispatchQueue.main.async { [weak self] in
+            self?.bgUpdateScheduled = false
+            self?.updateCodeBlockBgPath()
+        }
+    }
+
+    private func updateCodeBlockBgPath() {
+        ensureCodeBlockBgLayer()
+        guard codeBlockBgLayerInstalled else { return }
         guard let storage = textStorage,
-              let layoutManager = textLayoutManager else { return }
+              let layoutManager = textLayoutManager else {
+            codeBlockBgLayer.path = nil
+            return
+        }
         let inset = textContainerOrigin
         let containerWidth = textContainer?.size.width ?? bounds.width
-        let fillColor = PlatformColor.codeBlockDefaultFill
+        let path = CGMutablePath()
         var runStart: Int?
         var runEnd: Int = 0
         let total = storage.length
         var i = 0
         while i < total {
-            let spec = storage.blockSpec(at: i)
-            let isCode = spec?.isCodeBlock == true
+            let isCode = storage.blockSpec(at: i)?.isCodeBlock == true
             if isCode {
                 if runStart == nil { runStart = i }
                 runEnd = i + 1
             } else if let s = runStart {
-                paintBand(
+                addCodeBlockBand(
+                    to: path,
                     range: NSRange(location: s, length: runEnd - s),
-                    storage: storage,
                     layoutManager: layoutManager,
                     inset: inset,
-                    containerWidth: containerWidth,
-                    fillColor: fillColor,
-                    context: context
+                    containerWidth: containerWidth
                 )
                 runStart = nil
             }
             i += 1
         }
         if let s = runStart {
-            paintBand(
+            addCodeBlockBand(
+                to: path,
                 range: NSRange(location: s, length: runEnd - s),
-                storage: storage,
                 layoutManager: layoutManager,
                 inset: inset,
-                containerWidth: containerWidth,
-                fillColor: fillColor,
-                context: context
+                containerWidth: containerWidth
             )
         }
+        codeBlockBgLayer.path = path.isEmpty ? nil : path
     }
 
-    private func paintBand(
+    private func addCodeBlockBand(
+        to path: CGMutablePath,
         range: NSRange,
-        storage: NSTextStorage,
         layoutManager: NSTextLayoutManager,
         inset: CGPoint,
-        containerWidth: CGFloat,
-        fillColor: PlatformColor,
-        context: CGContext
+        containerWidth: CGFloat
     ) {
         guard let cs = layoutManager.textContentManager as? NSTextContentStorage,
               let docStart = cs.location(cs.documentRange.location, offsetBy: range.location) else { return }
         let docEnd = cs.location(cs.documentRange.location, offsetBy: range.location + range.length)
-        // Walk fragments inside the run and union their first/last line's
-        // typographic bounds — the BG hugs the glyph rows directly so the
-        // padding (`verticalPadding`) sits between glyphs and BG edge while
-        // any paragraph spacing in the frame becomes the outer margin.
         var minTextY: CGFloat = .greatestFiniteMagnitude
         var maxTextY: CGFloat = -.greatestFiniteMagnitude
         layoutManager.enumerateTextLayoutFragments(
@@ -446,10 +479,8 @@ final class ProseNSTextView: NSTextView {
             }
             let frame = fragment.layoutFragmentFrame
             for line in fragment.textLineFragments where line.typographicBounds.height > 0 {
-                let absMinY = frame.minY + line.typographicBounds.minY
-                let absMaxY = frame.minY + line.typographicBounds.maxY
-                minTextY = min(minTextY, absMinY)
-                maxTextY = max(maxTextY, absMaxY)
+                minTextY = min(minTextY, frame.minY + line.typographicBounds.minY)
+                maxTextY = max(maxTextY, frame.minY + line.typographicBounds.maxY)
             }
             return true
         }
@@ -464,12 +495,7 @@ final class ProseNSTextView: NSTextView {
             width: containerWidth,
             height: bandBottom - bandY
         )
-        context.saveGState()
-        context.setFillColor(fillColor.cgColor)
-        let path = CGPath(roundedRect: bandRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
-        context.addPath(path)
-        context.fillPath()
-        context.restoreGState()
+        path.addRoundedRect(in: bandRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
     }
 }
 #endif

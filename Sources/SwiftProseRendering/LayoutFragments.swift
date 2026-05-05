@@ -79,85 +79,24 @@ public final class HorizontalRuleLayoutFragment: NSTextLayoutFragment {
     }
 }
 
-/// Paints a tinted, rounded background behind a single line of a fenced code
-/// block. Each line of the block is its own layout fragment; `isFirstLine` /
-/// `isLastLine` toggle the rounding so consecutive fragments stitch into one
-/// block visually. Empty paragraph fragments inside a block are handled by
-/// the host text view's `paintCodeBlockBackgroundBands` painter — TextKit 2
-/// elides `draw(at:in:)` on zero-width fragments, so per-fragment rendering
-/// alone leaves visual gaps on empty lines.
+/// Marker base class used by the layout manager delegate to flag a line
+/// fragment as belonging to a code block. The host text view paints code
+/// block BGs in one continuous run via a `CAShapeLayer` — going through
+/// per-fragment `draw` skipped empty paragraph fragments under TextKit 2,
+/// leaving visible gaps inside a multi-line block. Subclasses still own
+/// inline chrome painted on top of the band (language tag).
 public class CodeBlockLayoutFragment: NSTextLayoutFragment {
-    public var fillColor: PlatformColor = .codeBlockDefaultFill
-    public var cornerRadius: CGFloat = 6
     public var horizontalInset: CGFloat = 0
     public var horizontalPadding: CGFloat = 8
     /// Width (in container coordinates) the fill should span.
     public var containerWidth: CGFloat = 0
     /// Right-edge breathing room reserved for the scrollbar gutter.
     public var trailingInset: CGFloat = 0
-    /// Symmetric vertical breathing room above and below the line fragments.
+    /// Symmetric vertical breathing room above and below the line fragments,
+    /// applied by the host text view's BG band painter.
     public var verticalPadding: CGFloat = 4
     public var isFirstLine: Bool = false
     public var isLastLine: Bool = false
-
-    public override var renderingSurfaceBounds: CGRect {
-        let bounds = layoutFragmentFrame
-        let width = effectiveWidth(bounds: bounds)
-        let extent = contentVerticalExtent(in: bounds)
-        return CGRect(
-            x: -bounds.origin.x,
-            y: extent.minY,
-            width: width,
-            height: extent.height
-        )
-    }
-
-    public override func draw(at point: CGPoint, in context: CGContext) {
-        let bounds = layoutFragmentFrame
-        let width = effectiveWidth(bounds: bounds)
-        let extent = contentVerticalExtent(in: bounds)
-        let rect = CGRect(
-            x: horizontalInset - bounds.origin.x,
-            y: extent.minY,
-            width: max(0, width - 2 * horizontalInset - trailingInset),
-            height: extent.height
-        )
-        context.saveGState()
-        context.translateBy(x: point.x, y: point.y)
-        context.setFillColor(fillColor.cgColor)
-        let path = roundedPath(
-            rect: rect,
-            topLeft: isFirstLine ? cornerRadius : 0,
-            topRight: isFirstLine ? cornerRadius : 0,
-            bottomLeft: isLastLine ? cornerRadius : 0,
-            bottomRight: isLastLine ? cornerRadius : 0
-        )
-        context.addPath(path)
-        context.fillPath()
-        context.restoreGState()
-        super.draw(at: point, in: context)
-    }
-
-    fileprivate func contentVerticalExtent(in bounds: CGRect) -> (minY: CGFloat, height: CGFloat) {
-        let lines = textLineFragments
-        guard !lines.isEmpty else {
-            return (0, bounds.height)
-        }
-        var minY: CGFloat = .greatestFiniteMagnitude
-        var maxY: CGFloat = -.greatestFiniteMagnitude
-        var sawAny = false
-        for line in lines where line.typographicBounds.height > 0 {
-            minY = min(minY, line.typographicBounds.minY)
-            maxY = max(maxY, line.typographicBounds.maxY)
-            sawAny = true
-        }
-        guard sawAny else { return (0, bounds.height) }
-        let topPad = isFirstLine ? verticalPadding : 0
-        let botPad = isLastLine ? verticalPadding : 0
-        let paddedMinY = max(0, minY - topPad)
-        let paddedMaxY = min(bounds.height, maxY + botPad)
-        return (paddedMinY, paddedMaxY - paddedMinY)
-    }
 
     fileprivate func effectiveWidth(bounds: CGRect) -> CGFloat {
         // Read live container width so the fill reflects the editor's
@@ -183,12 +122,14 @@ public final class FencedCodeBlockLayoutFragment: CodeBlockLayoutFragment {
         guard isFirstLine, let language, !language.isEmpty else { return }
         let bounds = layoutFragmentFrame
         let width = effectiveWidth(bounds: bounds)
-        let extent = contentVerticalExtent(in: bounds)
+        let firstLine = textLineFragments.first?.typographicBounds
+        let lineMinY = firstLine?.minY ?? 0
+        let lineMaxY = firstLine?.maxY ?? bounds.height
         let rect = CGRect(
             x: horizontalInset - bounds.origin.x,
-            y: extent.minY,
+            y: lineMinY,
             width: max(0, width - 2 * horizontalInset - trailingInset),
-            height: extent.height
+            height: lineMaxY - lineMinY
         )
         let attrs: [NSAttributedString.Key: Any] = [
             .font: codeBlockTagFont(),

@@ -108,6 +108,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
 
         public func textViewDidChange(_ textView: UITextView) {
             scheduleTextPush()
+            (textView as? ProseUITextView)?.notifyTextChanged()
         }
 
         public func textViewDidChangeSelection(_ textView: UITextView) {
@@ -187,23 +188,65 @@ final class ProseUITextView: UITextView {
         super.deleteBackward()
     }
 
-    override func draw(_ rect: CGRect) {
-        if let context = UIGraphicsGetCurrentContext() {
-            paintCodeBlockBackgroundBands(context: context)
-        }
-        super.draw(rect)
+    /// Sublayer that paints code-block BG bands behind text. Per-fragment
+    /// drawing under TextKit 2 elides zero-width paragraph fragments (empty
+    /// lines inside a multi-line block), leaving visual gaps; a layer drawn
+    /// independently of the fragment-draw pipeline isn't subject to that
+    /// optimization.
+    private let codeBlockBgLayer: CAShapeLayer = {
+        let l = CAShapeLayer()
+        l.actions = ["path": NSNull(), "frame": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        l.zPosition = -1
+        return l
+    }()
+
+    private var codeBlockBgLayerInstalled = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        ensureCodeBlockBgLayer()
+        scheduleCodeBlockBgUpdate()
     }
 
-    /// TextKit 2 skips draw on zero-width paragraph fragments (empty lines),
-    /// so per-line BG painters in `CodeBlockLayoutFragment` leave gaps. Paint
-    /// code-block BG bands here, where AppKit's per-fragment optimizations
-    /// don't apply.
-    private func paintCodeBlockBackgroundBands(context: CGContext) {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        codeBlockBgLayer.frame = bounds
+        scheduleCodeBlockBgUpdate()
+    }
+
+    func notifyTextChanged() {
+        scheduleCodeBlockBgUpdate()
+    }
+
+    private func ensureCodeBlockBgLayer() {
+        guard !codeBlockBgLayerInstalled else { return }
+        codeBlockBgLayer.fillColor = PlatformColor.codeBlockDefaultFill.cgColor
+        codeBlockBgLayer.frame = layer.bounds
+        layer.insertSublayer(codeBlockBgLayer, at: 0)
+        codeBlockBgLayerInstalled = true
+    }
+
+    private var bgUpdateScheduled = false
+
+    private func scheduleCodeBlockBgUpdate() {
+        guard !bgUpdateScheduled else { return }
+        bgUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.bgUpdateScheduled = false
+            self?.updateCodeBlockBgPath()
+        }
+    }
+
+    private func updateCodeBlockBgPath() {
+        ensureCodeBlockBgLayer()
         guard let storage = textStorage as? NSTextStorage,
-              let layoutManager = textLayoutManager else { return }
+              let layoutManager = textLayoutManager else {
+            codeBlockBgLayer.path = nil
+            return
+        }
         let inset = CGPoint(x: textContainerInset.left, y: textContainerInset.top)
         let containerWidth = textContainer.size.width
-        let fillColor = PlatformColor.codeBlockDefaultFill
+        let path = CGMutablePath()
         var runStart: Int?
         var runEnd: Int = 0
         let total = storage.length
@@ -214,37 +257,35 @@ final class ProseUITextView: UITextView {
                 if runStart == nil { runStart = i }
                 runEnd = i + 1
             } else if let s = runStart {
-                paintBand(
+                addCodeBlockBand(
+                    to: path,
                     range: NSRange(location: s, length: runEnd - s),
                     layoutManager: layoutManager,
                     inset: inset,
-                    containerWidth: containerWidth,
-                    fillColor: fillColor,
-                    context: context
+                    containerWidth: containerWidth
                 )
                 runStart = nil
             }
             i += 1
         }
         if let s = runStart {
-            paintBand(
+            addCodeBlockBand(
+                to: path,
                 range: NSRange(location: s, length: runEnd - s),
                 layoutManager: layoutManager,
                 inset: inset,
-                containerWidth: containerWidth,
-                fillColor: fillColor,
-                context: context
+                containerWidth: containerWidth
             )
         }
+        codeBlockBgLayer.path = path.isEmpty ? nil : path
     }
 
-    private func paintBand(
+    private func addCodeBlockBand(
+        to path: CGMutablePath,
         range: NSRange,
         layoutManager: NSTextLayoutManager,
         inset: CGPoint,
-        containerWidth: CGFloat,
-        fillColor: PlatformColor,
-        context: CGContext
+        containerWidth: CGFloat
     ) {
         guard let cs = layoutManager.textContentManager as? NSTextContentStorage,
               let docStart = cs.location(cs.documentRange.location, offsetBy: range.location) else { return }
@@ -278,12 +319,7 @@ final class ProseUITextView: UITextView {
             width: containerWidth,
             height: bandBottom - bandY
         )
-        context.saveGState()
-        context.setFillColor(fillColor.cgColor)
-        let path = CGPath(roundedRect: bandRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
-        context.addPath(path)
-        context.fillPath()
-        context.restoreGState()
+        path.addRoundedRect(in: bandRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
     }
 
     override var keyCommands: [UIKeyCommand]? {
