@@ -1106,8 +1106,11 @@ public final class EditorController {
         guard selection.length == 0 else { return false }
         let cursor = selection.location
         let total = textStorage.length
-        guard total > 0, cursor > 0, cursor <= total else { return false }
+        guard total > 0, cursor >= 0, cursor <= total else { return false }
         if deleteEmptyCodeBlockAtCursor(cursor: cursor) { return true }
+        // List-item demotion needs the char before the cursor; skip when
+        // the cursor is at the start of the document.
+        guard cursor > 0 else { return false }
         let ns = textStorage.string as NSString
         let lineRange = ns.paragraphRange(for: NSRange(location: max(0, cursor - 1), length: 0))
         guard lineRange.length > 0,

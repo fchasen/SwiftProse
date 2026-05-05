@@ -241,4 +241,33 @@ import UIKit
         #expect(handled == true)
         #expect(controller.markdown() == "hello\n")
     }
+
+    @Test func backspaceAfterToolbarInsertOnEmptyDocument() throws {
+        // Empty doc → toolbar drops empty fence at position 0; cursor lands
+        // at 0 too. Backspace must still recognize the empty block.
+        let controller = try EditorController(initialMarkdown: "")
+        controller.testSelection = NSRange(location: 0, length: 0)
+        let landed = controller.perform(.codeBlock)
+        controller.testSelection = landed
+        let handled = controller.handleBackspace()
+        #expect(handled == true,
+                "expected backspace to drop empty block at doc start, cursor=\(landed) storage=\(String(reflecting: controller.textStorage.string))")
+        #expect(controller.markdown() == "")
+    }
+
+    @Test func backspaceAfterToolbarInsertOnNonEmptyParagraph() throws {
+        // Simulate the toolbar flow: text in storage, click Code Block →
+        // empty block lands after the paragraph, cursor sits in the body.
+        // One backspace should drop the block in one stroke.
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        controller.testSelection = NSRange(location: 0, length: 0)
+        let landed = controller.perform(.codeBlock)
+        // perform returns the post-transaction cursor range — wire that
+        // into testSelection like the host text view would.
+        controller.testSelection = landed
+        let handled = controller.handleBackspace()
+        #expect(handled == true,
+                "expected backspace to drop empty block, cursor=\(landed) storage=\(String(reflecting: controller.textStorage.string))")
+        #expect(controller.markdown() == "hello\n")
+    }
 }

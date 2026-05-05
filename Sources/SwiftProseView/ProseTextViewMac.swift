@@ -363,19 +363,20 @@ final class ProseNSTextView: NSTextView {
 
     /// TextKit 2 skips draw on zero-width paragraph fragments (empty lines),
     /// so per-line BG painters in `CodeBlockLayoutFragment` leave gaps in the
-    /// rendered block. Paint code-block BG bands here in the view's
-    /// background pass, where AppKit's per-fragment optimizations don't
-    /// apply, then let the layout fragments paint their per-line chrome
-    /// (rounded outline, language tag) on top.
-    override func drawBackground(in rect: NSRect) {
-        super.drawBackground(in: rect)
-        paintCodeBlockBackgroundBands()
+    /// rendered block. Paint code-block BG bands here in the view's draw
+    /// pass — which runs before the per-fragment text layers composite — so
+    /// the band sits behind glyphs even when AppKit elides individual empty
+    /// fragments.
+    override func draw(_ dirtyRect: NSRect) {
+        if let context = NSGraphicsContext.current?.cgContext {
+            paintCodeBlockBackgroundBands(context: context)
+        }
+        super.draw(dirtyRect)
     }
 
-    private func paintCodeBlockBackgroundBands() {
+    private func paintCodeBlockBackgroundBands(context: CGContext) {
         guard let storage = textStorage,
-              let layoutManager = textLayoutManager,
-              let context = NSGraphicsContext.current?.cgContext else { return }
+              let layoutManager = textLayoutManager else { return }
         let inset = textContainerOrigin
         let containerWidth = textContainer?.size.width ?? bounds.width
         let fillColor = PlatformColor.codeBlockDefaultFill
