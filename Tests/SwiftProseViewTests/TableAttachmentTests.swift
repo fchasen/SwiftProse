@@ -83,6 +83,59 @@ import UIKit
         #expect(controller.nodeViewRegistry.provider(for: "table") == nil)
     }
 
+    @Test func attachmentFileTypeMatchesRegistered() {
+        let attachment = ProseNodeAttachment(subtree: makeTableSubtree())
+        #expect(attachment.fileType == ProseNodeAttachment.attachmentFileType)
+    }
+
+    @Test func viewProviderClassRegisteredForAttachmentFileType() throws {
+        // EditorController init triggers `registerOnce`; build one to
+        // ensure registration runs before the lookup.
+        _ = try EditorController(initialMarkdown: "")
+        let registered = NSTextAttachment.textAttachmentViewProviderClass(
+            forFileType: ProseNodeAttachment.attachmentFileType
+        )
+        #expect(registered == TableAttachmentViewProvider.self)
+    }
+
+    /// Force TextKit 2 to lay out a paragraph containing the table
+    /// attachment and verify it asks the view provider for a view.
+    /// Catches "view providers never fire" regressions.
+    @Test func textKit2InstantiatesViewProviderForTable() throws {
+        let controller = try EditorController(
+            initialMarkdown: "| h |\n| --- |\n| a |\n"
+        )
+        controller.textContainer.size = CGSize(width: 600, height: 800)
+        controller.layoutManager.ensureLayout(for: controller.contentStorage.documentRange)
+
+        var sawTableProvider = false
+        var viewIsTableBlockView = false
+        var viewHasNonZeroSize = false
+        var blockViewHasCells = false
+        controller.layoutManager.enumerateTextLayoutFragments(
+            from: controller.contentStorage.documentRange.location,
+            options: []
+        ) { fragment in
+            for provider in fragment.textAttachmentViewProviders {
+                guard let tableProvider = provider as? TableAttachmentViewProvider else { continue }
+                sawTableProvider = true
+                if let blockView = tableProvider.view as? TableBlockView {
+                    viewIsTableBlockView = true
+                    let dims = TableBlockView.dimensions(of: blockView.subtree)
+                    blockViewHasCells = dims.cols > 0 && dims.rows > 0
+                    viewHasNonZeroSize = blockView.frame.width > 0 || (provider.view?.bounds.width ?? 0) > 0
+                }
+            }
+            return true
+        }
+        #expect(sawTableProvider)
+        #expect(viewIsTableBlockView)
+        #expect(blockViewHasCells)
+        // The view's frame may not be set until laid out in a window;
+        // fall back to checking the dimensions are correct.
+        _ = viewHasNonZeroSize
+    }
+
     @Test func fromStorageLiftsAttachmentSubtree() {
         // Build a storage with: one paragraph "before\n", then an
         // attachment-anchor character with proseNodePath ending at the

@@ -37,6 +37,7 @@ public final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
     public static var sharedDispatch: ((Transaction) -> Void)? = nil
 
     public override func loadView() {
+        super.loadView()
         let theme = TableAttachmentViewProvider.sharedTheme
         let subtree: TreeNode
         if let attachment = textAttachment as? ProseNodeAttachment {
@@ -50,6 +51,10 @@ public final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
             attachment.viewProvider = self
             attachment.boundView = blockView
         }
+        // Tell TextKit 2 to track the view's bounds so layout updates
+        // when the grid grows after a structural mutation (insert row,
+        // wrap inside taller cell text).
+        tracksTextAttachmentViewBounds = true
         view = blockView
     }
 

@@ -24,6 +24,16 @@ public final class ProseNodeAttachment: NSTextAttachment, ProseSubtreeAttachment
     public private(set) var subtree: TreeNode
     public weak var viewProvider: NSTextAttachmentViewProvider?
 
+    /// Override the inherited `fileType` so TextKit 2's
+    /// `viewProviderClass(forFileType:)` lookup matches our registration
+    /// regardless of how `NSTextAttachment` chooses to persist (or not)
+    /// the UTI passed to `init(data:ofType:)`. Setter is a no-op — we
+    /// always advertise the same file type.
+    public override var fileType: String? {
+        get { ProseNodeAttachment.attachmentFileType }
+        set { /* fixed */ }
+    }
+
     public init(subtree: TreeNode) {
         self.subtree = subtree
         super.init(data: nil, ofType: ProseNodeAttachment.attachmentFileType)
