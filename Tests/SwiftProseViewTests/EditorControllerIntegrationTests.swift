@@ -232,4 +232,13 @@ import UIKit
         let handled = controller.handleBackspace()
         #expect(handled == false)
     }
+
+    @Test func forwardDeleteAtEmptyCodeBlockDeletesBlock() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n\n```\n\n```\n")
+        let bodyStart = controller.textStorage.length - 2
+        controller.testSelection = NSRange(location: bodyStart, length: 0)
+        let handled = controller.handleForwardDelete()
+        #expect(handled == true)
+        #expect(controller.markdown() == "hello\n")
+    }
 }

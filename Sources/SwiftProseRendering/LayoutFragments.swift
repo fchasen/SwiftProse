@@ -79,104 +79,27 @@ public final class HorizontalRuleLayoutFragment: NSTextLayoutFragment {
     }
 }
 
-/// Paints a tinted, rounded background behind a single line of a fenced code
-/// block. Each line of the block is its own layout fragment; `isFirstLine` /
-/// `isLastLine` toggle the rounding so consecutive fragments stitch into one
-/// block visually.
-///
-/// The fill spans the visible text container width — *not* the line's text
-/// width. Long, unbroken code lines push `layoutFragmentFrame` beyond the
-/// container, but we deliberately clamp at `containerWidth` so every line in
-/// a block paints the same backdrop width: the bg is a viewport, not a
-/// per-line halo. The host (`LayoutManagerDelegate`) supplies
-/// `containerWidth`; `trailingInset` carves off a right-edge breathing strip
-/// (scrollbar gutter, default `lineFragmentPadding`) so the fill doesn't
-/// slide under a vertical scrollbar.
+/// Marker base class used by the layout manager delegate to flag a line
+/// fragment as belonging to a code block. The host text view paints code
+/// block BGs in one continuous band per run (see
+/// `paintCodeBlockBackgroundBands` on the platform text view) — going through
+/// per-fragment `draw` skipped empty paragraph fragments under TextKit 2,
+/// which left visible gaps inside a multi-line block. Subclasses still own
+/// inline chrome painted on top of the band (language tag).
 public class CodeBlockLayoutFragment: NSTextLayoutFragment {
-    public var fillColor: PlatformColor = .codeBlockDefaultFill
-    public var cornerRadius: CGFloat = 6
     public var horizontalInset: CGFloat = 0
     public var horizontalPadding: CGFloat = 8
     /// Width (in container coordinates) the fill should span. Pass the text
     /// container's full width here; defaults to 0 which falls back to the
-    /// fragment's own text width (the old behavior).
+    /// fragment's own text width.
     public var containerWidth: CGFloat = 0
-    /// Right-edge breathing room reserved for the scrollbar gutter / overlay
-    /// scroller. Carved off the fill's right edge so the bg doesn't sit under
-    /// the scroller. Defaults to 0; hosts that embed in a scroll view set it
-    /// to the scroller's width.
+    /// Right-edge breathing room reserved for the scrollbar gutter.
     public var trailingInset: CGFloat = 0
-    /// Symmetric vertical breathing room above and below the line fragments.
+    /// Symmetric vertical breathing room above and below the line fragments,
+    /// applied by the host text view's BG band painter.
     public var verticalPadding: CGFloat = 4
     public var isFirstLine: Bool = false
     public var isLastLine: Bool = false
-
-    public override var renderingSurfaceBounds: CGRect {
-        let bounds = layoutFragmentFrame
-        let width = effectiveWidth(bounds: bounds)
-        let extent = contentVerticalExtent(in: bounds)
-        return CGRect(
-            x: -bounds.origin.x,
-            y: extent.minY,
-            width: width,
-            height: extent.height
-        )
-    }
-
-    public override func draw(at point: CGPoint, in context: CGContext) {
-        let bounds = layoutFragmentFrame
-        let width = effectiveWidth(bounds: bounds)
-        let extent = contentVerticalExtent(in: bounds)
-        let rect = CGRect(
-            x: horizontalInset - bounds.origin.x,
-            y: extent.minY,
-            width: max(0, width - 2 * horizontalInset - trailingInset),
-            height: extent.height
-        )
-
-        context.saveGState()
-        context.translateBy(x: point.x, y: point.y)
-        context.setFillColor(fillColor.cgColor)
-        let path = roundedPath(
-            rect: rect,
-            topLeft: isFirstLine ? cornerRadius : 0,
-            topRight: isFirstLine ? cornerRadius : 0,
-            bottomLeft: isLastLine ? cornerRadius : 0,
-            bottomRight: isLastLine ? cornerRadius : 0
-        )
-        context.addPath(path)
-        context.fillPath()
-        context.restoreGState()
-
-        super.draw(at: point, in: context)
-    }
-
-    /// Vertical span the BG should cover: the union of the line fragments'
-    /// typographic bounds, padded only on the run's outer edges. Padding
-    /// stays inside the layout fragment frame; the compiler stamps the
-    /// first/last paragraphs of a code block with extra paragraph spacing
-    /// so the frame already has room for both the BG padding and the
-    /// outer margin (the gap between BG and surrounding content).
-    fileprivate func contentVerticalExtent(in bounds: CGRect) -> (minY: CGFloat, height: CGFloat) {
-        let lines = textLineFragments
-        guard !lines.isEmpty else {
-            return (0, bounds.height)
-        }
-        var minY: CGFloat = .greatestFiniteMagnitude
-        var maxY: CGFloat = -.greatestFiniteMagnitude
-        var sawAny = false
-        for line in lines where line.typographicBounds.height > 0 {
-            minY = min(minY, line.typographicBounds.minY)
-            maxY = max(maxY, line.typographicBounds.maxY)
-            sawAny = true
-        }
-        guard sawAny else { return (0, bounds.height) }
-        let topPad = isFirstLine ? verticalPadding : 0
-        let botPad = isLastLine ? verticalPadding : 0
-        let paddedMinY = max(0, minY - topPad)
-        let paddedMaxY = min(bounds.height, maxY + botPad)
-        return (paddedMinY, paddedMaxY - paddedMinY)
-    }
 
     fileprivate func effectiveWidth(bounds: CGRect) -> CGFloat {
         // Read live container width so the fill reflects the editor's
@@ -202,12 +125,14 @@ public final class FencedCodeBlockLayoutFragment: CodeBlockLayoutFragment {
         guard isFirstLine, let language, !language.isEmpty else { return }
         let bounds = layoutFragmentFrame
         let width = effectiveWidth(bounds: bounds)
-        let extent = contentVerticalExtent(in: bounds)
+        let firstLine = textLineFragments.first?.typographicBounds
+        let lineMinY = firstLine?.minY ?? 0
+        let lineMaxY = firstLine?.maxY ?? bounds.height
         let rect = CGRect(
             x: horizontalInset - bounds.origin.x,
-            y: extent.minY,
+            y: lineMinY,
             width: max(0, width - 2 * horizontalInset - trailingInset),
-            height: extent.height
+            height: lineMaxY - lineMinY
         )
         let attrs: [NSAttributedString.Key: Any] = [
             .font: codeBlockTagFont(),
@@ -758,7 +683,7 @@ extension PlatformColor {
         #endif
     }
 
-    static var codeBlockDefaultFill: PlatformColor {
+    public static var codeBlockDefaultFill: PlatformColor {
         #if canImport(AppKit) && os(macOS)
         return NSColor.tertiaryLabelColor.withAlphaComponent(0.08)
         #else

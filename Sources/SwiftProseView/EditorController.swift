@@ -1148,9 +1148,20 @@ public final class EditorController {
         return true
     }
 
-    /// Backspace at the start of an empty code block: drop the whole block.
-    /// Mirrors ProseMirror's `selectNodeBackward` for atomic blocks. Returns
-    /// `true` when handled so the host text view skips its default delete.
+    /// Forward-delete inside an empty code block: drop the whole block in
+    /// one keystroke instead of leaving a zero-length code-leaf carcass.
+    /// Wired to the host's `deleteForward:` command.
+    @discardableResult
+    public func handleForwardDelete() -> Bool {
+        let selection = currentSelection
+        guard selection.length == 0 else { return false }
+        return deleteEmptyCodeBlockAtCursor(cursor: selection.location)
+    }
+
+    /// Backspace or forward-delete inside an empty code block: drop the
+    /// whole block. Mirrors ProseMirror's `selectNodeBackward` for atomic
+    /// blocks. Returns `true` when handled so the host text view skips its
+    /// default delete.
     private func deleteEmptyCodeBlockAtCursor(cursor: Int) -> Bool {
         let total = textStorage.length
         guard cursor < total,

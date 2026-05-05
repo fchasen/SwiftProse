@@ -187,6 +187,105 @@ final class ProseUITextView: UITextView {
         super.deleteBackward()
     }
 
+    override func draw(_ rect: CGRect) {
+        if let context = UIGraphicsGetCurrentContext() {
+            paintCodeBlockBackgroundBands(context: context)
+        }
+        super.draw(rect)
+    }
+
+    /// TextKit 2 skips draw on zero-width paragraph fragments (empty lines),
+    /// so per-line BG painters in `CodeBlockLayoutFragment` leave gaps. Paint
+    /// code-block BG bands here, where AppKit's per-fragment optimizations
+    /// don't apply.
+    private func paintCodeBlockBackgroundBands(context: CGContext) {
+        guard let storage = textStorage as? NSTextStorage,
+              let layoutManager = textLayoutManager else { return }
+        let inset = CGPoint(x: textContainerInset.left, y: textContainerInset.top)
+        let containerWidth = textContainer.size.width
+        let fillColor = PlatformColor.codeBlockDefaultFill
+        var runStart: Int?
+        var runEnd: Int = 0
+        let total = storage.length
+        var i = 0
+        while i < total {
+            let isCode = storage.blockSpec(at: i)?.isCodeBlock == true
+            if isCode {
+                if runStart == nil { runStart = i }
+                runEnd = i + 1
+            } else if let s = runStart {
+                paintBand(
+                    range: NSRange(location: s, length: runEnd - s),
+                    layoutManager: layoutManager,
+                    inset: inset,
+                    containerWidth: containerWidth,
+                    fillColor: fillColor,
+                    context: context
+                )
+                runStart = nil
+            }
+            i += 1
+        }
+        if let s = runStart {
+            paintBand(
+                range: NSRange(location: s, length: runEnd - s),
+                layoutManager: layoutManager,
+                inset: inset,
+                containerWidth: containerWidth,
+                fillColor: fillColor,
+                context: context
+            )
+        }
+    }
+
+    private func paintBand(
+        range: NSRange,
+        layoutManager: NSTextLayoutManager,
+        inset: CGPoint,
+        containerWidth: CGFloat,
+        fillColor: PlatformColor,
+        context: CGContext
+    ) {
+        guard let cs = layoutManager.textContentManager as? NSTextContentStorage,
+              let docStart = cs.location(cs.documentRange.location, offsetBy: range.location) else { return }
+        let docEnd = cs.location(cs.documentRange.location, offsetBy: range.location + range.length)
+        var minTextY: CGFloat = .greatestFiniteMagnitude
+        var maxTextY: CGFloat = -.greatestFiniteMagnitude
+        layoutManager.enumerateTextLayoutFragments(
+            from: docStart,
+            options: [.ensuresLayout]
+        ) { fragment in
+            if let docEnd,
+               let elementStart = fragment.textElement?.elementRange?.location,
+               cs.offset(from: elementStart, to: docEnd) <= 0 {
+                return false
+            }
+            let frame = fragment.layoutFragmentFrame
+            for line in fragment.textLineFragments where line.typographicBounds.height > 0 {
+                minTextY = min(minTextY, frame.minY + line.typographicBounds.minY)
+                maxTextY = max(maxTextY, frame.minY + line.typographicBounds.maxY)
+            }
+            return true
+        }
+        guard maxTextY > minTextY else { return }
+        let cornerRadius: CGFloat = 6
+        let verticalPadding: CGFloat = 4
+        let bandY = max(0, inset.y + minTextY - verticalPadding)
+        let bandBottom = inset.y + maxTextY + verticalPadding
+        let bandRect = CGRect(
+            x: inset.x,
+            y: bandY,
+            width: containerWidth,
+            height: bandBottom - bandY
+        )
+        context.saveGState()
+        context.setFillColor(fillColor.cgColor)
+        let path = CGPath(roundedRect: bandRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+        context.addPath(path)
+        context.fillPath()
+        context.restoreGState()
+    }
+
     override var keyCommands: [UIKeyCommand]? {
         var commands = super.keyCommands ?? []
         commands.append(UIKeyCommand(
