@@ -150,15 +150,13 @@ public final class TableBlockView: PlatformView {
     static let cellHorizontalPadding: CGFloat = 8
     static let cellVerticalPadding: CGFloat = 6
     static let borderWidth: CGFloat = 1
-    /// Extra buffer added per row when measuring intrinsic height —
-    /// `NSAttributedString.boundingRect` returns the tight glyph
-    /// bounding box, but `NSTextView` lays out lines with leading and
-    /// padding that takes more vertical space. Without the buffer the
-    /// reported height is too short and TextKit clips the bottom rows.
-    static let rowMeasurementSlack: CGFloat = 4
-    /// Extra buffer added to the table's overall height for the same
-    /// reason — covers any sub-pixel rounding accumulated across rows.
-    static let tableMeasurementSlack: CGFloat = 6
+    /// Sub-pixel rounding buffer added per row. Live measurement now
+    /// uses an off-screen `NSTextView` / `UITextView` probe with the
+    /// same configuration as the rendered `CellView`, so the only
+    /// remaining drift is integer rounding on each row's `usedRect`.
+    static let rowMeasurementSlack: CGFloat = 1
+    /// Buffer for sub-pixel rounding accumulated across rows.
+    static let tableMeasurementSlack: CGFloat = 2
 
     public init(subtree: TreeNode, theme: ProseTheme) {
         self.subtree = subtree
@@ -565,53 +563,86 @@ public final class CellView: PlatformView {
     }
 
     /// Used by `TableBlockView.intrinsicSize` to size rows before any
-    /// view is realized. Walks the cell's inline runs, builds the same
-    /// attributed string the view would render, measures wrapping
-    /// height at `width` via `NSLayoutManager` (which mirrors
-    /// `NSTextView`'s layout exactly), and adds the cell's vertical
-    /// padding.
+    /// view is realized. Builds an off-screen `NSTextView` /
+    /// `UITextView` configured identically to the live `CellView`,
+    /// applies the cell's attributed string, and reads the actual laid-
+    /// out content height. This mirrors the live render pixel-for-pixel
+    /// — boundingRect / NSLayoutManager-only measurements were under-
+    /// counting for cells whose lines wrapped.
     public static func measureHeight(
         cell: TreeNode,
         width: CGFloat,
         theme: ProseTheme
     ) -> CGFloat {
-        let textWidth = max(1, width - 2 * TableBlockView.cellHorizontalPadding)
         let isHeader = cellIsHeader(cell)
         let alignment = parseAlignment(cell)
-        let attributed = buildAttributedString(
-            cell: cell,
-            isHeader: isHeader,
-            alignment: alignment,
-            theme: theme
-        )
-        if attributed.length == 0 {
-            // Empty cell — measure a single space so we still reserve a
-            // full line of typography and aren't height 0.
-            let placeholder = NSAttributedString(
+        let attributed: NSAttributedString = {
+            let s = buildAttributedString(
+                cell: cell,
+                isHeader: isHeader,
+                alignment: alignment,
+                theme: theme
+            )
+            if s.length > 0 { return s }
+            return NSAttributedString(
                 string: " ",
                 attributes: [.font: isHeader
                     ? theme.bodyFont.withProseTraits(.bold)
                     : theme.bodyFont]
             )
-            let bounds = placeholder.boundingRect(
-                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                context: nil
-            )
-            return ceil(bounds.height) + 2 * TableBlockView.cellVerticalPadding
-        }
-        let storage = NSTextStorage(attributedString: attributed)
-        let layoutManager = NSLayoutManager()
-        let container = NSTextContainer(
-            size: CGSize(width: textWidth, height: .greatestFiniteMagnitude)
+        }()
+        let usableWidth = max(1, width)
+        return measureViaProbe(attributed: attributed, width: usableWidth)
+    }
+
+    private static func measureViaProbe(
+        attributed: NSAttributedString,
+        width: CGFloat
+    ) -> CGFloat {
+        #if canImport(AppKit) && os(macOS)
+        let probe = NSTextView(frame: CGRect(x: 0, y: 0, width: width, height: 1))
+        probe.isEditable = false
+        probe.isSelectable = false
+        probe.drawsBackground = false
+        probe.textContainer?.lineFragmentPadding = 0
+        probe.textContainer?.widthTracksTextView = true
+        probe.textContainerInset = NSSize(
+            width: TableBlockView.cellHorizontalPadding,
+            height: TableBlockView.cellVerticalPadding
         )
-        container.lineFragmentPadding = 0
-        container.widthTracksTextView = false
-        storage.addLayoutManager(layoutManager)
-        layoutManager.addTextContainer(container)
-        layoutManager.ensureLayout(for: container)
-        let used = layoutManager.usedRect(for: container)
-        return ceil(used.height) + 2 * TableBlockView.cellVerticalPadding
+        probe.frame.size.width = width
+        probe.textContainer?.size = CGSize(
+            width: max(1, width - 2 * TableBlockView.cellHorizontalPadding),
+            height: .greatestFiniteMagnitude
+        )
+        probe.textStorage?.setAttributedString(attributed)
+        if let lm = probe.layoutManager, let tc = probe.textContainer {
+            lm.ensureLayout(for: tc)
+            let used = lm.usedRect(for: tc)
+            return ceil(used.height) + 2 * TableBlockView.cellVerticalPadding
+        }
+        return TableBlockView.minRowHeight
+        #else
+        let probe = UITextView(
+            frame: CGRect(x: 0, y: 0, width: width, height: 1),
+            textContainer: nil
+        )
+        probe.isEditable = false
+        probe.isSelectable = false
+        probe.backgroundColor = .clear
+        probe.textContainer.lineFragmentPadding = 0
+        probe.textContainerInset = UIEdgeInsets(
+            top: TableBlockView.cellVerticalPadding,
+            left: TableBlockView.cellHorizontalPadding,
+            bottom: TableBlockView.cellVerticalPadding,
+            right: TableBlockView.cellHorizontalPadding
+        )
+        probe.attributedText = attributed
+        let fitting = probe.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude)
+        )
+        return ceil(fitting.height)
+        #endif
     }
 
     private static func cellIsHeader(_ cell: TreeNode) -> Bool {
