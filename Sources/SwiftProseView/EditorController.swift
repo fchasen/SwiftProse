@@ -530,36 +530,44 @@ public final class EditorController {
     @discardableResult
     public func apply(_ transaction: Transaction) -> NSRange {
         guard !transaction.steps.isEmpty else { return currentSelection }
+        // meta["addToHistory"] == false skips undo registration.
+        let recordHistory = (transaction.getMeta("addToHistory") as? Bool) != false
         let env = makeStepEnvironment()
         var lastRange = currentSelection
         let preMutationRange = mutationRange(for: transaction)
-        withCharacterMutation(range: preMutationRange) {
-            applyingMarkdown = true
-            let preLength = textStorage.length
-            let applied = transaction.apply(to: textStorage, env: env)
+        let mutate = {
+            self.applyingMarkdown = true
+            let preLength = self.textStorage.length
+            let applied = transaction.apply(to: self.textStorage, env: env)
             lastRange = applied.mappedRange
-            // Validate the union of every range the transaction touched —
-            // not just the last step's range. Approximate the post-mutation
-            // union as `[preMutationRange.location, preMutationRange.location + length + delta]`
-            // which is a superset of every step's mappedRange.
-            let delta = textStorage.length - preLength
+            let delta = self.textStorage.length - preLength
             let unionLength = max(0, preMutationRange.length + max(0, delta))
             let validationRange = NSRange(
-                location: min(preMutationRange.location, max(0, textStorage.length)),
-                length: min(unionLength, textStorage.length - min(preMutationRange.location, max(0, textStorage.length)))
+                location: min(preMutationRange.location, max(0, self.textStorage.length)),
+                length: min(unionLength, self.textStorage.length - min(preMutationRange.location, max(0, self.textStorage.length)))
             )
-            validateAndRepair(in: validationRange)
-            applyingMarkdown = false
-            ensureTrailingParagraph()
-            resegment()
-            intrinsicSizeInvalidator?()
+            self.validateAndRepair(in: validationRange)
+            self.applyingMarkdown = false
+            self.ensureTrailingParagraph()
+            self.resegment()
+            self.intrinsicSizeInvalidator?()
         }
-        // Inline-mark toggles preserve the selection so the user can chain
-        // (e.g. bold then italic). Block-level steps emit content ending in
-        // "\n" — land the cursor just before that newline so further typing
-        // extends the same line instead of starting a new one.
+        if recordHistory {
+            withCharacterMutation(range: preMutationRange, mutate)
+        } else {
+            mutate()
+        }
+        // Apply the transaction's label as the user-facing undo name when
+        // history was recorded.
+        if recordHistory, let label = transaction.label {
+            undoManager.setActionName(label)
+        }
+        // Selection precedence: tr.selection > toggleInlineMark preservation
+        // > collapse-after-block-edit fallback.
         let resultRange: NSRange
-        if case .toggleInlineMark = transaction.steps.last, lastRange.length > 0 {
+        if let sel = transaction.selection {
+            resultRange = sel.selectedRange
+        } else if case .toggleInlineMark = transaction.steps.last, lastRange.length > 0 {
             resultRange = lastRange
         } else {
             let cursor = max(lastRange.location, lastRange.location + lastRange.length - 1)
@@ -567,7 +575,24 @@ public final class EditorController {
         }
         setHostSelection(resultRange)
         refreshTypingAttributes(at: resultRange.location)
+        if transaction.scrollIntoView {
+            scrollSelectionIntoView()
+        }
         return resultRange
+    }
+
+    /// Scroll the host text view so the current selection is visible.
+    /// Called when a transaction sets `scrollIntoView == true`.
+    private func scrollSelectionIntoView() {
+        #if canImport(AppKit) && os(macOS)
+        if let tv = hostTextView as? NSTextView {
+            tv.scrollRangeToVisible(tv.selectedRange())
+        }
+        #elseif canImport(UIKit)
+        if let tv = hostTextView as? UITextView {
+            tv.scrollRangeToVisible(tv.selectedRange)
+        }
+        #endif
     }
 
     /// Validate the spec invariants in `range`, repair drift, and forward

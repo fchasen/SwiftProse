@@ -950,11 +950,33 @@ public struct AppliedStep {
 public struct Transaction {
     public var steps: [Step]
     public var label: String?
+    /// Selection to install after apply (PM's `tr.selection`).
+    public var selection: Selection?
+    /// Whether the host should scroll the cursor into view after apply.
+    public var scrollIntoView: Bool
+    /// PM-style metadata bag (`tr.setMeta` / `tr.getMeta`). Stringly-keyed.
+    /// `meta["addToHistory"] == false` skips undo recording.
+    public var meta: [String: AnyHashable]
 
-    public init(steps: [Step] = [], label: String? = nil) {
+    public init(
+        steps: [Step] = [],
+        label: String? = nil,
+        selection: Selection? = nil,
+        scrollIntoView: Bool = false,
+        meta: [String: AnyHashable] = [:]
+    ) {
         self.steps = steps
         self.label = label
+        self.selection = selection
+        self.scrollIntoView = scrollIntoView
+        self.meta = meta
     }
+
+    public mutating func setMeta(_ key: String, _ value: AnyHashable) {
+        meta[key] = value
+    }
+
+    public func getMeta(_ key: String) -> AnyHashable? { meta[key] }
 
     @discardableResult
     public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedTransaction {
