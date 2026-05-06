@@ -363,7 +363,13 @@ public struct ProseMirrorCodec {
                 return PMNode(type: "bullet_list", content: items.orNilIfEmpty())
             case "ordered_list":
                 let items = kids.compactMap { encodeBlock($0) }
-                let start = pn.attrs["order"]?.intValue ?? 1
+                // Prefer ordered_list.order; fall back to the deepest
+                // first-list_item's order so docs that lost the wrapper
+                // attr (storage→tree projection drops it) still encode.
+                var start = pn.attrs["order"]?.intValue ?? 1
+                if start == 1, let firstOrder = firstListItemOrder(in: kids) {
+                    start = firstOrder
+                }
                 let attrs: [String: PMValue]? = (start != 1) ? ["order": .int(start)] : nil
                 return PMNode(type: "ordered_list", attrs: attrs, content: items.orNilIfEmpty())
             case "list_item":
@@ -462,6 +468,22 @@ public struct ProseMirrorCodec {
             type: "table",
             content: encodedRows.isEmpty ? nil : encodedRows
         )
+    }
+
+    /// Walk `kids` looking for the first descendant list_item carrying
+    /// an `order` attr. Used by ordered_list encode to recover the start
+    /// index when the wrapping list lost it via tree projection.
+    private func firstListItemOrder(in kids: [TreeNode]) -> Int? {
+        for kid in kids {
+            guard case .structural(let node, let inner) = kid else { continue }
+            if node.type == "list_item",
+               let order = node.attrs["order"]?.intValue,
+               order != 1 {
+                return order
+            }
+            if let nested = firstListItemOrder(in: inner) { return nested }
+        }
+        return nil
     }
 
     /// Encode a single mark, omitting attrs whose value matches the schema
@@ -663,6 +685,7 @@ public struct SchemaMap {
                 guard let href = mark.attrs?["href"]?.stringValue else { return }
                 attrs[.link] = href
                 attrs[.proseLink] = href
+                attrs[.proseInline] = InlineTag.link
                 attrs[.foregroundColor] = theme.linkColor
                 attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
             },
