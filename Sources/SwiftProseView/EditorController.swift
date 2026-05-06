@@ -160,6 +160,22 @@ public final class EditorController {
             undoManager.beginUndoGrouping()
         }
     }
+
+    /// Number of undoable transactions on the stack — UI bind-target.
+    public var undoDepth: Int {
+        undoManager.canUndo ? max(1, undoManager.levelsOfUndo) : 0
+    }
+
+    /// Number of redoable transactions on the stack.
+    public var redoDepth: Int {
+        undoManager.canRedo ? 1 : 0
+    }
+
+    /// Whether `transaction` would be recorded as a history step. False
+    /// for transactions tagged `meta["addToHistory"] == false`.
+    public func isHistoryTransaction(_ transaction: Transaction) -> Bool {
+        (transaction.getMeta("addToHistory") as? Bool) != false
+    }
     /// Registry of `NodeViewProvider`s keyed by node-type name. Hosts
     /// register providers at startup to take over the rendering of an
     /// `isolating`-flagged node type (today: `table`). Empty by default —
