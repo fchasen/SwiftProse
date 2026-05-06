@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProseSyntax
 #if canImport(AppKit) && os(macOS)
 import AppKit
 #elseif canImport(UIKit)
@@ -64,5 +65,44 @@ public struct InputRule {
             guard range.location + range.length <= ns.length else { return nil }
             return ns.substring(with: range)
         }
+    }
+}
+
+// MARK: - PM-style helpers
+//
+// Wrap a paragraph (or other block) into a list / blockquote / etc.
+// when its prefix matches a regex. Mirrors prosemirror-inputrules'
+// `wrappingInputRule`. Translates the matched line into a `setSpec` of
+// the supplied target spec.
+public func wrappingInputRule(
+    id: String,
+    pattern: String,
+    options: NSRegularExpression.Options = [],
+    target: @escaping (InputRule.Match) -> BlockSpec
+) -> InputRule {
+    InputRule(id: id, pattern: pattern, options: options) { match in
+        let spec = target(match)
+        return Transaction(
+            steps: [.setSpec(lineRange: match.lineRange, spec)],
+            label: "Wrap \(id)"
+        )
+    }
+}
+
+/// Mirrors `textblockTypeInputRule`. Sets the matched line's block kind
+/// to `kind` (e.g. heading from `^# `).
+public func textblockTypeInputRule(
+    id: String,
+    pattern: String,
+    options: NSRegularExpression.Options = [],
+    kind: BlockSpec.Kind
+) -> InputRule {
+    InputRule(id: id, pattern: pattern, options: options) { match in
+        let current = match.storage.blockSpec(at: match.lineRange.location) ?? .paragraph
+        let spec = BlockSpec(kind: kind, blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
+        return Transaction(
+            steps: [.setSpec(lineRange: match.lineRange, spec)],
+            label: "Set \(id)"
+        )
     }
 }
