@@ -635,14 +635,29 @@ public enum Step {
         }
     }
 
+    /// Whether the step affects document structure (block wrapping,
+    /// node-attr changes, table mutations, replaceAround). Mirrors PM's
+    /// `ReplaceStep.structure` flag — `Step.merge` refuses to coalesce
+    /// structural steps with anything.
+    public var isStructural: Bool {
+        switch self {
+        case .replaceText, .toggleInlineMark, .addMark, .removeMark:
+            return false
+        case .setSpec, .replaceAround, .setNodeAttrs, .replaceCellInline,
+             .setTableSubtree, .addNodeMark, .removeNodeMark, .setDocAttr:
+            return true
+        }
+    }
+
     /// Coalesce two adjacent steps when they describe the same logical
     /// edit — e.g. typing two characters in a row produces two
-    /// `replaceText` inserts that fuse into one. Returns nil when the
-    /// steps don't merge cleanly.
+    /// `replaceText` inserts that fuse into one. Refuses to merge when
+    /// either step is `isStructural`. Returns nil when the steps don't
+    /// merge cleanly.
     public func merge(_ other: Step) -> Step? {
+        guard !isStructural, !other.isStructural else { return nil }
         switch (self, other) {
         case let (.replaceText(r1, a1), .replaceText(r2, a2)):
-            // Pure insert at the tail of the previous insert.
             guard r1.length == 0,
                   r2.length == 0,
                   r2.location == r1.location + a1.length else { return nil }
