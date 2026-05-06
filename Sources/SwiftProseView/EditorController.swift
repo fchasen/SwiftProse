@@ -562,13 +562,11 @@ public final class EditorController {
         if recordHistory, let label = transaction.label {
             undoManager.setActionName(label)
         }
-        // Selection precedence: tr.selection > toggleInlineMark preservation
-        // > collapse-after-block-edit fallback.
+        // tr.selection wins; otherwise collapse to just before the trailing
+        // newline that block-level steps emit.
         let resultRange: NSRange
         if let sel = transaction.selection {
             resultRange = sel.selectedRange
-        } else if case .toggleInlineMark = transaction.steps.last, lastRange.length > 0 {
-            resultRange = lastRange
         } else {
             let cursor = max(lastRange.location, lastRange.location + lastRange.length - 1)
             resultRange = NSRange(location: cursor, length: 0)

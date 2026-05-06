@@ -6,12 +6,22 @@ import AppKit
 import UIKit
 #endif
 
+/// Build a transaction that toggles `mark` and preserves the selection
+/// across the toggle (mark commands are chainable — bold then italic).
+private func toggleMarkTx(_ mark: InlineMark, range: NSRange, label: String) -> Transaction {
+    Transaction(
+        steps: [.toggleInlineMark(range: range, mark)],
+        label: label,
+        selection: range.length > 0 ? .textRange(range) : nil
+    )
+}
+
 public struct ToggleBoldCommand: Command {
     public let id = "bold"
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        Transaction(steps: [.toggleInlineMark(range: selection, .bold)], label: "Bold")
+        toggleMarkTx(.bold, range: selection, label: "Bold")
     }
 }
 
@@ -20,7 +30,7 @@ public struct ToggleItalicCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        Transaction(steps: [.toggleInlineMark(range: selection, .italic)], label: "Italic")
+        toggleMarkTx(.italic, range: selection, label: "Italic")
     }
 }
 
@@ -29,7 +39,7 @@ public struct ToggleStrikethroughCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        Transaction(steps: [.toggleInlineMark(range: selection, .strikethrough)], label: "Strikethrough")
+        toggleMarkTx(.strikethrough, range: selection, label: "Strikethrough")
     }
 }
 
@@ -38,6 +48,6 @@ public struct ToggleCodeSpanCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        Transaction(steps: [.toggleInlineMark(range: selection, .codeSpan)], label: "Code")
+        toggleMarkTx(.codeSpan, range: selection, label: "Code")
     }
 }
