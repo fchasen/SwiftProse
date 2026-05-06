@@ -165,8 +165,8 @@ public enum InlineCodePainter {
     /// Per-editor theming flows through the fragment's instance
     /// `fillColor`; this static is the global default.
     public static var fillColor: PlatformColor = .codeBlockDefaultFill
-    public static var cornerRadius: CGFloat = 4
-    public static var horizontalPadding: CGFloat = 4
+    public static var cornerRadius: CGFloat = 3
+    public static var horizontalPadding: CGFloat = 1
 
     public static func paint(
         fragment: NSTextLayoutFragment,
@@ -250,15 +250,20 @@ public enum InlineCodePainter {
         let startPoint = line.locationForCharacter(at: absStart)
         let endPoint = line.locationForCharacter(at: absEnd)
         let bounds = line.typographicBounds
-        // locationForCharacter returns a point on the baseline; use the line
-        // fragment's typographicBounds for vertical extent.
+        // Size the pill to the run's font (ascender + |descender|) anchored
+        // on the baseline, so it tracks glyph height rather than the line
+        // fragment's typographic height (which inflates with line spacing).
+        let runFont = (line.attributedString.attribute(.font, at: absStart, effectiveRange: nil) as? PlatformFont)
+            ?? PlatformFont.systemFont(ofSize: PlatformFont.systemFontSize)
+        let textHeight = runFont.ascender - runFont.descender
+        let textTop = startPoint.y - runFont.ascender
         let xMin = min(startPoint.x, endPoint.x) - horizontalPadding
         let xMax = max(startPoint.x, endPoint.x) + horizontalPadding
         let pill = CGRect(
             x: bounds.origin.x + xMin,
-            y: bounds.origin.y,
+            y: bounds.origin.y + textTop,
             width: max(0, xMax - xMin),
-            height: bounds.height
+            height: textHeight
         )
         let path = roundedPath(
             rect: pill,
@@ -270,6 +275,7 @@ public enum InlineCodePainter {
         context.addPath(path)
         context.fillPath()
     }
+
 }
 
 private func codeBlockTagFont() -> PlatformFont {
