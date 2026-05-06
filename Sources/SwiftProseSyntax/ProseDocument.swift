@@ -271,7 +271,14 @@ public extension ProseDocument {
             // first character (e.g. a paragraph starting with bold would
             // serialize as fully bold).
             if let leaf = blockPath.leaf, isLeafType(leaf.type, schema: schema) {
-                if isPresentationMarker(in: storage, at: blockRange.location) { return }
+                // Don't gate this on `isPresentationMarker` — a true
+                // content-bearing leaf (today: `horizontal_rule`) is
+                // stored as an `\u{FFFC}` carrying its attachment, and
+                // the attachment marker would cause the leaf to be
+                // dropped from the tree. The list-marker / inline-chip
+                // call sites below still consult `isPresentationMarker`
+                // because they're skipping chars during text aggregation,
+                // not skipping leaf appends.
                 openTo(parent: blockPath.droppingLast(), stack: &stack, openPath: &openPath)
                 let marks = storage.markSet(at: blockRange.location) ?? MarkSet()
                 stack[stack.count - 1].kids.append(.leaf(leaf, marks))

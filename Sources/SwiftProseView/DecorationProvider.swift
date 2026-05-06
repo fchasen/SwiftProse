@@ -22,6 +22,11 @@ public struct Decoration: Equatable, Sendable {
 public enum DecorationKind: Equatable, Sendable {
     case blockquoteBar(depth: Int, position: RunPosition)
     case codeBackground(language: String?, position: RunPosition)
+    /// Emitted for paragraphs whose `proseNodePath` ends in
+    /// `horizontal_rule`. The bundled layout-manager doesn't dispatch on
+    /// this — the rule is rendered by `HorizontalRuleAttachment` in
+    /// storage — but it remains in the public surface so host
+    /// `DecorationProvider`s can layer their own chrome.
     case horizontalRule
 }
 

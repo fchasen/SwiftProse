@@ -19,6 +19,9 @@ public final class BlockquoteLayoutFragment: NSTextLayoutFragment {
     public var barInset: CGFloat = 1
     public var isFirstInRun: Bool = true
     public var isLastInRun: Bool = true
+    /// Fill color for any inline code-span pills painted on top of the
+    /// bar. Set by the layout-manager delegate from the active theme.
+    public var inlineCodeFillColor: PlatformColor = .codeBlockDefaultFill
 
     public override func draw(at point: CGPoint, in context: CGContext) {
         let lines = textLineFragments
@@ -49,17 +52,18 @@ public final class BlockquoteLayoutFragment: NSTextLayoutFragment {
         context.restoreGState()
 
         // Inline code pills layer above the blockquote bar but below glyphs.
-        InlineCodePainter.paint(fragment: self, at: point, in: context)
+        InlineCodePainter.paint(fragment: self, at: point, in: context, fillColor: inlineCodeFillColor)
         super.draw(at: point, in: context)
     }
 }
 
-/// Replaces the visible `---` / `***` of a thematic break with a thin
-/// horizontal rule painted across the live text-container width. The
-/// underlying paragraph is only as wide as the source `---` glyphs, so
-/// reading width from `layoutFragmentFrame` would render a tiny stub —
-/// we ignore it and span the container instead, leaving a small inset
-/// on each side so the rule doesn't kiss the editor's edges.
+/// Paints a thin horizontal rule across the line fragment.
+///
+/// The bundled compiler emits horizontal rules as a single
+/// `HorizontalRuleAttachment` and the attachment paints itself, so the
+/// bundled layout-manager delegate doesn't dispatch to this class. It's
+/// kept on the public surface for hosts that want to render thematic
+/// breaks via a custom layout fragment instead of an attachment.
 public final class HorizontalRuleLayoutFragment: NSTextLayoutFragment {
     public var ruleColor: PlatformColor = .horizontalRuleDefault
     public var ruleHeight: CGFloat = 1
@@ -76,13 +80,11 @@ public final class HorizontalRuleLayoutFragment: NSTextLayoutFragment {
             width: width,
             height: ruleHeight
         )
-
         context.saveGState()
         context.translateBy(x: point.x, y: point.y)
         context.setFillColor(ruleColor.cgColor)
         context.fill(lineRect)
         context.restoreGState()
-        // Don't call super — we don't want the literal "---" text to draw.
     }
 }
 
@@ -104,6 +106,9 @@ public class CodeBlockLayoutFragment: NSTextLayoutFragment {
     public var verticalPadding: CGFloat = 4
     public var isFirstLine: Bool = false
     public var isLastLine: Bool = false
+    /// Background color drawn behind the code-block band. Set by the
+    /// layout-manager delegate from the active theme.
+    public var fillColor: PlatformColor = .codeBlockDefaultFill
 
     fileprivate func effectiveWidth(bounds: CGRect) -> CGFloat {
         // Read live container width so the fill reflects the editor's
@@ -172,8 +177,12 @@ public final class IndentedCodeBlockLayoutFragment: CodeBlockLayoutFragment {}
 /// horizontal padding extending past the first and last glyph. Drawn before
 /// `super.draw` so glyphs render on top of the fill.
 public final class InlineCodePainterLayoutFragment: NSTextLayoutFragment {
+    /// Fill color for the rounded code-span pill. Set by the
+    /// layout-manager delegate from the active theme.
+    public var fillColor: PlatformColor = .codeBlockDefaultFill
+
     public override func draw(at point: CGPoint, in context: CGContext) {
-        InlineCodePainter.paint(fragment: self, at: point, in: context)
+        InlineCodePainter.paint(fragment: self, at: point, in: context, fillColor: fillColor)
         super.draw(at: point, in: context)
     }
 }
@@ -183,6 +192,9 @@ public final class InlineCodePainterLayoutFragment: NSTextLayoutFragment {
 /// keeps its rounded backdrop too). All routines are stateless; a fragment
 /// just hands itself in.
 public enum InlineCodePainter {
+    /// Fallback fill color used when a fragment doesn't supply its own.
+    /// Per-editor theming flows through the fragment's instance
+    /// `fillColor`; this static is the global default.
     public static var fillColor: PlatformColor = .codeBlockDefaultFill
     public static var cornerRadius: CGFloat = 4
     public static var horizontalPadding: CGFloat = 4
@@ -190,7 +202,8 @@ public enum InlineCodePainter {
     public static func paint(
         fragment: NSTextLayoutFragment,
         at point: CGPoint,
-        in context: CGContext
+        in context: CGContext,
+        fillColor overrideFillColor: PlatformColor? = nil
     ) {
         guard let cs = fragment.textLayoutManager?.textContentManager as? NSTextContentStorage,
               let storage = cs.textStorage else { return }
@@ -204,9 +217,10 @@ public enum InlineCodePainter {
         }
         let lineFragments = fragment.textLineFragments
         guard !lineFragments.isEmpty else { return }
+        let resolvedFill = overrideFillColor ?? Self.fillColor
         context.saveGState()
         context.translateBy(x: point.x, y: point.y)
-        context.setFillColor(fillColor.cgColor)
+        context.setFillColor(resolvedFill.cgColor)
         for line in lineFragments {
             paintCodeRanges(in: line, storage: storage, elementStart: elementStart, context: context)
         }

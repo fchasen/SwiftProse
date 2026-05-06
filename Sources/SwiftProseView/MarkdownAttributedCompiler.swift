@@ -261,13 +261,22 @@ public final class MarkdownAttributedCompiler {
             }
         }
 
-        let baseFont: PlatformFont
+        var baseFont: PlatformFont
         switch segment.tag {
         case .heading:
-            let scale = theme.headingScale[segment.level] ?? 1.0
-            baseFont = theme.bodyFont.withProseTraits(.bold, scale: scale)
+            baseFont = theme.headingFont(level: segment.level)
         default:
             baseFont = theme.bodyFont
+        }
+        var foreground = theme.foregroundColor
+        if segment.blockquoteDepth > 0 {
+            let blockquote = theme.blockquote
+            if !blockquote.textTraits.isEmpty {
+                baseFont = baseFont.withProseTraits(baseFont.proseTraits.union(blockquote.textTraits))
+            }
+            if let textColor = blockquote.textColor {
+                foreground = textColor
+            }
         }
 
         let paragraphStyle = paragraphStyleFor(tag: segment.tag,
@@ -278,7 +287,7 @@ public final class MarkdownAttributedCompiler {
 
         let paragraphAttrs: [NSAttributedString.Key: Any] = [
             .font: baseFont,
-            .foregroundColor: theme.foregroundColor,
+            .foregroundColor: foreground,
             .paragraphStyle: paragraphStyle
         ]
 
@@ -606,21 +615,33 @@ public final class MarkdownAttributedCompiler {
         storage.endEditing()
     }
 
+    /// Emit a horizontal rule as a single `\u{FFFC}` carrying a
+    /// `HorizontalRuleAttachment`, plus a closing `\n`. PM-aligned: the
+    /// typed model has a `horizontal_rule` leaf with no inline content,
+    /// so storage holds a content-bearing attachment rather than the
+    /// literal `---` source overlaid by chrome.
     private func appendHorizontalRule(
         _ segment: BlockSegment,
         source: String,
         theme: ProseTheme,
         into out: NSMutableAttributedString
     ) {
-        let attrs: [NSAttributedString.Key: Any] = [
+        let baseAttrs: [NSAttributedString.Key: Any] = [
             .font: theme.bodyFont,
-            .foregroundColor: theme.markupColor
+            .foregroundColor: theme.foregroundColor
         ]
-        let nsSource = source as NSString
-        var content = nsSource.substring(with: segment.range)
-        if !content.hasSuffix("\n") { content.append("\n") }
+        let attachment = HorizontalRuleAttachment(
+            color: theme.horizontalRule.color,
+            thickness: theme.horizontalRule.thickness
+        )
+        let attachmentRun = NSMutableAttributedString(attachment: attachment)
+        attachmentRun.addAttributes(
+            baseAttrs,
+            range: NSRange(location: 0, length: attachmentRun.length)
+        )
+        attachmentRun.append(NSAttributedString(string: "\n", attributes: baseAttrs))
         appendStyled(
-            NSAttributedString(string: content, attributes: attrs),
+            attachmentRun,
             spec: BlockSpec(blockSegment: segment),
             into: out
         )
@@ -1208,6 +1229,9 @@ public final class MarkdownAttributedCompiler {
     ) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.lineBreakMode = .byWordWrapping
+        if theme.lineHeightMultiple != 1.0 {
+            style.lineHeightMultiple = theme.lineHeightMultiple
+        }
 
         let blockquoteIndent = CGFloat(blockquoteDepth) * 16
 

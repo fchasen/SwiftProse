@@ -44,12 +44,15 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                 let fragment = BlockquoteLayoutFragment(textElement: textElement, range: textElement.elementRange)
                 fragment.isFirstInRun = position == .start || position == .single
                 fragment.isLastInRun = position == .end || position == .single
+                fragment.barColor = controller.theme.blockquote.barColor
+                fragment.inlineCodeFillColor = controller.theme.codeBlock.fillColor
                 return fragment
             }
         }
         if let codeDeco = decorations.first(where: { if case .codeBackground = $0.kind { return true } else { return false } }) {
             if case .codeBackground(let language, let position) = codeDeco.kind {
                 let containerWidth = controller.textContainer.size.width
+                let codeStyle = controller.theme.codeBlock
                 if let language {
                     let fragment = FencedCodeBlockLayoutFragment(
                         textElement: textElement,
@@ -59,6 +62,8 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                     fragment.isFirstLine = position == .start || position == .single
                     fragment.isLastLine = position == .end || position == .single
                     fragment.containerWidth = containerWidth
+                    fragment.fillColor = codeStyle.fillColor
+                    fragment.languageTagColor = codeStyle.languageTagColor
                     return fragment
                 } else if let path = controller.textStorage.nodePath(at: elementStart),
                           path.leaf?.type == "code_block",
@@ -70,6 +75,7 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                     fragment.isFirstLine = position == .start || position == .single
                     fragment.isLastLine = position == .end || position == .single
                     fragment.containerWidth = containerWidth
+                    fragment.fillColor = codeStyle.fillColor
                     return fragment
                 } else {
                     let fragment = FencedCodeBlockLayoutFragment(
@@ -80,15 +86,16 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                     fragment.isFirstLine = position == .start || position == .single
                     fragment.isLastLine = position == .end || position == .single
                     fragment.containerWidth = containerWidth
+                    fragment.fillColor = codeStyle.fillColor
+                    fragment.languageTagColor = codeStyle.languageTagColor
                     return fragment
                 }
             }
         }
-        if decorations.contains(where: { if case .horizontalRule = $0.kind { return true } else { return false } }) {
-            return HorizontalRuleLayoutFragment(textElement: textElement, range: textElement.elementRange)
-        }
         if rangeContainsCodeSpan(controller.textStorage, range: lineRange) {
-            return InlineCodePainterLayoutFragment(textElement: textElement, range: textElement.elementRange)
+            let fragment = InlineCodePainterLayoutFragment(textElement: textElement, range: textElement.elementRange)
+            fragment.fillColor = controller.theme.codeBlock.fillColor
+            return fragment
         }
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }
