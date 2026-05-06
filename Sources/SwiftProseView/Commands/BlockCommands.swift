@@ -109,6 +109,59 @@ public struct ToggleTaskListCommand: Command {
     }
 }
 
+/// Move the cursor out of a fenced code block. If the block is empty,
+/// it's replaced by an empty paragraph; otherwise a fresh paragraph is
+/// appended after the block.
+public struct ExitCodeBlockCommand: Command {
+    public let id = "exitCodeBlock"
+    public init() {}
+
+    public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool {
+        let total = storage.length
+        guard total > 0 else { return false }
+        let probe = max(0, min(selection.location, total - 1))
+        return storage.blockSpec(at: probe)?.isCodeBlock == true
+    }
+
+    public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
+        let total = storage.length
+        guard total > 0 else { return nil }
+        let probe = max(0, min(selection.location, total - 1))
+        guard storage.blockSpec(at: probe)?.isCodeBlock == true else { return nil }
+        var blockStart = probe
+        while blockStart > 0, storage.blockSpec(at: blockStart - 1)?.isCodeBlock == true {
+            blockStart -= 1
+        }
+        var blockEnd = probe
+        while blockEnd < total, storage.blockSpec(at: blockEnd)?.isCodeBlock == true {
+            blockEnd += 1
+        }
+        let blockRange = NSRange(location: blockStart, length: blockEnd - blockStart)
+        let bodyText = (storage.string as NSString).substring(with: blockRange)
+        let isEmpty = bodyText
+            .replacingOccurrences(of: "\n", with: "")
+            .trimmingCharacters(in: .whitespaces)
+            .isEmpty
+        let plainAttrs = env.theme.plainParagraphAttributes()
+        let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
+        let mutationRange: NSRange
+        let landing: Int
+        if isEmpty {
+            mutationRange = blockRange
+            landing = blockStart
+        } else {
+            mutationRange = NSRange(location: blockEnd, length: 0)
+            landing = blockEnd
+        }
+        var tx = Transaction(
+            steps: [.replaceText(range: mutationRange, with: blank)],
+            label: "Exit Code Block"
+        )
+        tx.selection = .cursor(at: landing)
+        return tx
+    }
+}
+
 public struct ToggleBlockquoteCommand: Command {
     public let id = "blockquote"
     public init() {}
