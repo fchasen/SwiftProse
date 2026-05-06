@@ -120,10 +120,13 @@ The compiler stamps the canonical `proseNodePath` and `proseMarks` attributes on
 The editor is built on three layered primitives in `SwiftProseView`:
 
 - **`Operations`** — low-level `NSTextStorage` mutators (toggle bold / italic / strike / code, paragraph helpers, link insertion).
-- **`Step`** — typed, undoable edits: `replaceText`, `setSpec`, `toggleInlineMark`, `replaceAround`, `addMark`, `removeMark`, `setNodeAttrs`. Each step's `apply` returns its inverse so undo / redo round-trips for free.
-- **`Command`** — a registry-resolved unit that composes steps into a `Transaction` for an `EditorAction`. The default registry (`CommandRegistry.makeDefault()`) covers every action listed below.
+- **`Step`** — typed, undoable edits: `replaceText`, `setSpec`, `toggleInlineMark`, `replaceAround`, `addMark`, `removeMark`, `setNodeAttrs`, `addNodeMark`, `removeNodeMark`, `setDocAttr`, `replaceCellInline`, `setTableSubtree`. Each step's `apply` returns a typed inverse (`addMark` ↔ `removeMark`, `setNodeAttrs` ↔ `setNodeAttrs(prior)`, `replaceAround` ↔ `replaceAround`, `setSpec` ↔ `setSpec(priorSpec)`) so undo / redo preserves `NodeID`s. `Step.canApply(to:)` probes legality without mutating storage; `Transaction.apply` skips illegal steps cleanly.
+- **`Transaction`** — ordered list of `Step`s plus `selection: Selection?`, `scrollIntoView: Bool`, `meta: [String: AnyHashable]` (`setMeta(_:_:)` / `getMeta(_:)`), and `label: String?` that surfaces as `undoManager.setActionName`. `meta["addToHistory"] == false` skips undo recording; `meta["closeHistory"] == true` opens a fresh undo group. `Transaction.apply` unions every step's `mappedRange` so post-apply validation covers the full mutated area.
+- **`Command`** — a registry-resolved unit that composes steps into a `Transaction` for an `EditorAction`. The default registry (`CommandRegistry.makeDefault()`) covers every action listed below. `chainCommands(_:)` runs commands in order; first non-nil transaction wins. Generic `ToggleMarkCommand(id:mark:label:)` and `SetBlockTypeCommand(id:label:kind:)` subsume the per-mark / per-heading commands. PM-shaped command stubs ship in `PMCommands.swift`: `selectAll`, `splitBlock` / `splitBlockKeepMarks`, `joinBackward` / `joinForward`, `selectNodeBackward` / `selectNodeForward`, `selectTextblockStart` / `selectTextblockEnd`, `selectParentNode`, `joinUp` / `joinDown`, `lift`, `liftEmptyBlock`, `exitCodeBlock`. The `Transforms` enum exposes the PM `Transform` vocabulary (`lift`, `wrap`, `split`, `join`, `setBlockType`, `setNodeMarkup`, `clearIncompatible`) plus probes (`canSplit`, `canJoin`, `liftTarget`, `findWrapping`).
 
-`InputRule` runs the same machinery on typed text, matching against per-line patterns: `# `, `## ` … `###### ` for headings, `> ` for blockquotes, `- ` / `* ` / `+ ` for bullet lists, `1. ` for ordered lists, `- [ ] ` / `- [x] ` for task items, `---` for horizontal rules, ` ``` ` for fenced code blocks, and `**bold**` / `*italic*` / `~~strike~~` / `` `code` `` for inline marks. `InputRuleRunner.makeDefault()` ships the standard set.
+`StepMap.mapResult(_:bias:)` returns a `MapResult { pos, deleted, deletedBefore, deletedAfter, deletedAcross }` so callers can react when content around a mapped position was removed. `Mapping` tracks mirror pairs (`appendMap(_:mirrors:)`, `getMirror(_:)`, `invert()`, `appendMappingInverted(_:)`).
+
+`InputRule` runs the same machinery on typed text, matching against per-line patterns: `# `, `## ` … `###### ` for headings, `> ` for blockquotes, `- ` / `* ` / `+ ` for bullet lists, `1. ` for ordered lists, `- [ ] ` / `- [x] ` for task items, `---` for horizontal rules, ` ``` ` for fenced code blocks, and `**bold**` / `*italic*` / `~~strike~~` / `` `code` `` for inline marks. `InputRuleRunner.makeDefault()` ships the standard set. PM-style helpers `wrappingInputRule(...)` and `textblockTypeInputRule(...)` build rules from a regex plus a target node type. Bold / italic / strikethrough / codeSpan default to `inCode: .skip` so typing `*` inside a code block is literal. Optional smart-typography rules (`smartQuotes`, `ellipsis`, `emDash`) ship in `InputRule.smartSubstitutionRules(_:)` behind a public `RuleOptions` set. `EditorController.undoInputRule()` runs at the head of the Backspace chain — Backspace immediately after a rule fired undoes the rule rather than deleting a character.
 
 ```swift
 let controller = try EditorController(initialMarkdown: "draft\n")
@@ -134,6 +137,32 @@ controller.apply(Transaction(steps: [
 // → "## draft\n"
 ```
 
+### Selection
+
+`controller.currentTypedSelection` returns a typed `Selection`:
+
+- `.text(range, anchor, head)` — common cursor / range selection.
+- `.node(path, range)` — single-node selection (PM's `NodeSelection`), used for atomic blocks like horizontal rules and images.
+- `.all` — document-spanning selection (PM's `AllSelection`).
+
+A transaction's `selection` field installs the resulting selection on apply; convenience constructors `Selection.cursor(at:)` and `Selection.textRange(_:)` cover the common cases.
+
+### Keymap
+
+`EditorController.keymap` is a PM-style binding from key spec to `EditorAction`. Defaults (`Keymap.mac` / `Keymap.pc`) cover `Mod-b` / `Mod-i` / `Mod-e` / `Mod-]` / `Mod-[`. Specs come from `KeySpec.make(key:mod:shift:alt:)`. Hosts customize via `controller.keymap.bind("Mod-Shift-b", to: .bold)`.
+
+### Plugins
+
+`EditorPlugin` is a PM-style plugin protocol. `filterTransaction(_:controller:)` vetoes a transaction before apply; `appendTransaction(after:controller:)` follows up after apply. The `props: PluginProps` bag exposes `handleClick`, `handlePaste`, `handleDrop`, `handleKeyDown`, `handleTextInput` — the macOS click handler consults `plugins[*].props.handleClick` before built-in checkbox / cursor placement. Per-plugin state lives behind `PluginKey<State>`: `controller.setPluginState(_:for:)` / `controller.pluginState(for:)`.
+
+### History
+
+`EditorController.historyConfig: HistoryConfig` exposes `depth` (forwards to `undoManager.levelsOfUndo`) and `newGroupDelay`. `controller.closeHistoryGroup()` opens a fresh undo group; `controller.undoDepth` / `redoDepth` / `isHistoryTransaction(_:)` are read-only accessors.
+
+### Decorations
+
+`DecorationProvider` produces blockquote bars, code backgrounds, and HR lines from `proseNodePath`. `DecorationSet(_:)` aggregates multiple providers so hosts can layer custom decorations alongside the bundled `BlockSpecDecorationProvider`.
+
 ## ProseMirror JSON round-trip
 
 ```swift
@@ -141,7 +170,7 @@ try controller.loadProseMirrorJSON(json)
 let exported = try controller.exportProseMirrorJSON()
 ```
 
-`ProseMirrorCodec` encodes the editor's tree into a structural ProseMirror document — paragraphs, headings, lists (bullet / ordered / task), blockquotes, fenced and indented code blocks, horizontal rules, and pipe tables (as `table → table_row → (table_cell | table_header)` with per-cell `align` attrs) — and decodes the inverse. `SchemaMap` extends the inline mark surface for custom marks.
+`ProseMirrorCodec` encodes the editor's tree into a structural ProseMirror document — paragraphs, headings, lists (bullet / ordered / task), blockquotes, fenced and indented code blocks, horizontal rules, and pipe tables (as `table → table_row → (table_cell | table_header)` with per-cell `align` attrs) — and decodes the inverse. `SchemaMap` extends the inline mark surface for custom marks. The encoder merges adjacent inline runs with identical mark sets into a single PM `text` node, omits attrs whose value matches the schema default, and accepts an optional `markAliases` map (e.g. `["strike": "strikethrough"]`) for ecosystems that name marks differently on the wire.
 
 ### Schema posture
 
@@ -168,10 +197,16 @@ SwiftProseEditor(text: $text)
         controller.onDiagnostic = { diagnostic in
             // Spec-invariant violations the auto-repair pass caught.
         }
+        controller.onSchemaDiagnostic = { diagnostic in
+            // Typed-tree-level violations (unknown node/mark types,
+            // content-rule mismatches, marks on disallowed parents).
+        }
     }
 ```
 
-`onProseControllerReady` hands back the live `EditorController` once the editor finishes setup, giving direct access to its commands, transactions, undo manager, and tree. `onDocumentChange` fires after every character edit with the freshly-derived `ProseDocument` plus a `Step.replaceText` describing the storage edit.
+`onProseControllerReady` hands back the live `EditorController` once the editor finishes setup, giving direct access to its commands, transactions, undo manager, and tree. `onDocumentChange` fires after every character edit with the freshly-derived `ProseDocument` plus a `Step.replaceText` describing the storage edit. After every transaction the controller projects to a `ProseDocument` and runs `SchemaValidator`; violations surface through `onSchemaDiagnostic`.
+
+The single-callback properties above coexist with multi-subscriber registration: `controller.addOnDocumentChange(_:)` / `addOnDiagnostic(_:)` / `addOnSelectionChanged(_:)` return an `ObserverToken` usable with `controller.removeObserver(_:)`.
 
 ## Action set
 
