@@ -34,12 +34,36 @@ struct ProseDocumentTests {
     }
 
     @Test
-    func codeMarkHasNoSchemaExcludes() {
-        // PM-basic declares no excludes on `code`; same-type replacement is
-        // implicit. Application-level enforcement (drop other marks when
-        // adding `code`) lives in MarkSet.adding/MarkType.excludes plumbing.
+    func codeMarkExcludesAllOtherMarks() {
+        // PM convention `excludes: "_"` — the code mark is exclusive with
+        // every other mark, so adding `code` to a span that already has
+        // strong/em/link drops those marks.
         let code = schema.markType("code")!
-        #expect(code.excludes.isEmpty)
+        #expect(code.excludesAll)
+        #expect(code.excludes("strong"))
+        #expect(code.excludes("em"))
+        #expect(code.excludes("link"))
+        #expect(!code.excludes("code"))
+    }
+
+    @Test
+    func addingCodeMarkDropsStrongAndEmphasis() {
+        // The Phase 2 exit criterion — adding `code` over a `strong em`
+        // span leaves only `code`.
+        let base = MarkSet()
+            .adding(ProseMark(type: "strong"), in: schema)
+            .adding(ProseMark(type: "em"), in: schema)
+        let withCode = base.adding(ProseMark(type: "code"), in: schema)
+        #expect(withCode.marks.map(\.type) == ["code"])
+    }
+
+    @Test
+    func addingNonCodeMarkOverCodeDoesNotStick() {
+        // Symmetric exclusion — when `code` is already present, adding
+        // `strong` is a no-op (code excludes strong).
+        let base = MarkSet().adding(ProseMark(type: "code"), in: schema)
+        let attempt = base.adding(ProseMark(type: "strong"), in: schema)
+        #expect(attempt.marks.map(\.type) == ["code"])
     }
 
     // MARK: - MarkSet semantics

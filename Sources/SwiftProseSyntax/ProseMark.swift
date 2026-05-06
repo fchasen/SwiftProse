@@ -16,6 +16,23 @@ public struct ProseMark: Sendable, Equatable, Hashable {
         self.type = type
         self.attrs = attrs
     }
+
+    /// Add this mark to `set`, honoring schema-declared excludes. Mirrors
+    /// PM's `Mark.addToSet`.
+    public func addToSet(_ set: MarkSet, in schema: Schema) -> MarkSet {
+        set.adding(self, in: schema)
+    }
+
+    /// Remove this mark (matched by type) from `set`. Mirrors PM's
+    /// `Mark.removeFromSet`.
+    public func removeFromSet(_ set: MarkSet) -> MarkSet {
+        set.removing(type)
+    }
+
+    /// Whether this mark is present in `set` (by type).
+    public func isInSet(_ set: MarkSet) -> Bool {
+        set.contains(type: type)
+    }
 }
 
 /// Ordered, deduplicated collection of inline marks for a run of text. Two
@@ -56,19 +73,45 @@ public struct MarkSet: Sendable, Equatable, Hashable {
         return MarkSet(copy)
     }
 
-    /// Add a mark, sorting the result by the schema's declared mark-type
-    /// order (rank). Mirrors ProseMirror's `Mark.addToSet` ordering, which
-    /// guarantees `[strong, em]` and `[em, strong]` always serialize the
-    /// same way regardless of which mark was applied first.
+    /// Add a mark, dropping any pre-existing marks the schema says are
+    /// excluded by `mark`'s type (PM's `excludes: "..."` / `excludes: "_"`
+    /// semantics — both directions are honored). The result is sorted by
+    /// the schema's declared mark-type order (rank) so the same set always
+    /// serializes the same way regardless of which mark was applied first.
     public func adding(_ mark: ProseMark, in schema: Schema) -> MarkSet {
-        var working = marks.filter { $0.type != mark.type }
-        working.append(mark)
+        var working = marks.filter { existing in
+            // Drop any pre-existing mark of the same type — `mark` replaces
+            // it. Then drop pre-existing marks excluded by the new mark's
+            // type, and drop the new mark itself if any pre-existing mark
+            // already excludes its type.
+            if existing.type == mark.type { return false }
+            if let mt = schema.markType(mark.type), mt.excludes(existing.type) {
+                return false
+            }
+            if let et = schema.markType(existing.type), et.excludes(mark.type) {
+                // The pre-existing mark wins for this slot — caller's new
+                // mark gets discarded by the post-loop guard below.
+                return true
+            }
+            return true
+        }
+        let blocked = working.contains { existing in
+            schema.markType(existing.type)?.excludes(mark.type) == true
+        }
+        if !blocked {
+            working.append(mark)
+        }
         working.sort { schema.rank(ofMark: $0.type) < schema.rank(ofMark: $1.type) }
         return MarkSet(working)
     }
 
     public func removing(_ type: MarkType.Name) -> MarkSet {
         MarkSet(marks.filter { $0.type != type })
+    }
+
+    /// Whether `mark` is in this set (matched by type).
+    public func contains(_ mark: ProseMark) -> Bool {
+        marks.contains { $0.type == mark.type }
     }
 
     /// Union, with `other` winning when both sides hold a mark of the same

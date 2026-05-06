@@ -191,14 +191,20 @@ public struct NodeType: Sendable, Equatable, Hashable {
 }
 
 /// Inline mark declaration — type name, attrs (e.g. `href` for link), and
-/// any types this mark excludes (ProseMirror semantics: `code` excludes
-/// `em`/`strong`).
+/// the set of mark types it excludes (ProseMirror semantics).
 public struct MarkType: Sendable, Equatable, Hashable {
     public typealias Name = String
 
     public let name: Name
     public let attrs: [AttrSpec]
+    /// Named mark types this mark excludes (cannot coexist with on the
+    /// same character). Same-type replacement is implicit and not encoded
+    /// here.
     public let excludes: Set<Name>
+    /// Mirrors PM's `excludes: "_"` convention — when true, this mark
+    /// excludes all other mark types. Composes with `excludes` (the named
+    /// set) by union.
+    public let excludesAll: Bool
     /// Whether the mark "extends" at its boundaries. ProseMirror semantics:
     /// when typing immediately after an inclusive mark, the new text
     /// inherits the mark; when typing after a non-inclusive mark, it
@@ -210,12 +216,40 @@ public struct MarkType: Sendable, Equatable, Hashable {
         name: Name,
         attrs: [AttrSpec] = [],
         excludes: Set<Name> = [],
+        excludesAll: Bool = false,
         inclusive: Bool = true
     ) {
         self.name = name
         self.attrs = attrs
         self.excludes = excludes
+        self.excludesAll = excludesAll
         self.inclusive = inclusive
+    }
+
+    /// Whether this mark excludes a mark of `other` type. `excludesAll`
+    /// covers PM's "_" wildcard; the named set is consulted otherwise.
+    /// Same-type replacement is reported as `false` here — `MarkSet.adding`
+    /// handles dedup separately.
+    public func excludes(_ other: Name) -> Bool {
+        guard other != name else { return false }
+        if excludesAll { return true }
+        return excludes.contains(other)
+    }
+
+    /// Convenience: build a `ProseMark` instance of this type.
+    public func create(attrs: [String: ProseAttrValue] = [:]) -> ProseMark {
+        ProseMark(type: name, attrs: attrs)
+    }
+
+    /// Whether `set` contains a mark of this type.
+    public func isInSet(_ set: MarkSet) -> Bool {
+        set.contains(type: name)
+    }
+
+    /// Drop any mark of this type from `set` (and any marks excluded by
+    /// THIS type, mirroring PM's symmetric exclusion semantics).
+    public func removeFromSet(_ set: MarkSet) -> MarkSet {
+        set.removing(name)
     }
 }
 
@@ -477,7 +511,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
             ),
             MarkType(name: "em"),
             MarkType(name: "strong"),
-            MarkType(name: "code"),
+            MarkType(name: "code", excludesAll: true),
             MarkType(name: "strike")
         ],
         topNode: "doc"
