@@ -55,18 +55,25 @@ public final class BlockquoteLayoutFragment: NSTextLayoutFragment {
 }
 
 /// Replaces the visible `---` / `***` of a thematic break with a thin
-/// horizontal rule painted across the available width.
+/// horizontal rule painted across the live text-container width. The
+/// underlying paragraph is only as wide as the source `---` glyphs, so
+/// reading width from `layoutFragmentFrame` would render a tiny stub —
+/// we ignore it and span the container instead, leaving a small inset
+/// on each side so the rule doesn't kiss the editor's edges.
 public final class HorizontalRuleLayoutFragment: NSTextLayoutFragment {
     public var ruleColor: PlatformColor = .horizontalRuleDefault
     public var ruleHeight: CGFloat = 1
+    public var horizontalInset: CGFloat = 0
 
     public override func draw(at point: CGPoint, in context: CGContext) {
         let bounds = layoutFragmentFrame
+        let containerWidth = textLayoutManager?.textContainer?.size.width ?? bounds.width
+        let width = max(0, containerWidth - 2 * horizontalInset)
         let lineY = bounds.height / 2 - ruleHeight / 2
         let lineRect = CGRect(
-            x: 0,
+            x: horizontalInset - bounds.origin.x,
             y: lineY,
-            width: bounds.width,
+            width: width,
             height: ruleHeight
         )
 
