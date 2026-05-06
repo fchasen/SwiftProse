@@ -392,8 +392,8 @@ private func makeDefaultMarkdownSchema() -> Schema {
                 isLeaf: true,
                 attrs: [
                     AttrSpec("src", defaultValue: .string("")),
-                    AttrSpec("alt", defaultValue: .null),
-                    AttrSpec("title", defaultValue: .null)
+                    AttrSpec("alt", defaultValue: .string("")),
+                    AttrSpec("title", defaultValue: .string(""))
                 ]
             )
         ],
@@ -408,7 +408,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
                 name: "link",
                 attrs: [
                     AttrSpec("href", defaultValue: .string("")),
-                    AttrSpec("title", defaultValue: .null)
+                    AttrSpec("title", defaultValue: .string(""))
                 ],
                 inclusive: false
             ),

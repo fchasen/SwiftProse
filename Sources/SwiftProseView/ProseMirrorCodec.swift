@@ -245,8 +245,8 @@ public struct ProseMirrorCodec {
                 let before = line.length
                 line.append(NSAttributedString(string: placeholder, attributes: attrs))
                 var imgAttrs: [String: ProseAttrValue] = ["src": .string(src)]
-                imgAttrs["alt"] = alt.isEmpty ? .null : .string(alt)
-                imgAttrs["title"] = title.map(ProseAttrValue.string) ?? .null
+                imgAttrs["alt"] = .string(alt)
+                imgAttrs["title"] = .string(title ?? "")
                 imagePositions.append((NSRange(location: before, length: line.length - before), imgAttrs))
             default:
                 continue
@@ -453,6 +453,22 @@ public struct ProseMirrorCodec {
         )
     }
 
+    /// Encode a single mark, omitting attrs whose value matches the schema
+    /// default (so `link` with title "" emits no `title` field on the wire).
+    private func encodeMark(_ mark: ProseMark) -> PMMark {
+        guard !mark.attrs.isEmpty else { return PMMark(type: mark.type) }
+        let markType = Schema.defaultMarkdown.markType(mark.type)
+        var dict: [String: PMValue] = [:]
+        for (k, v) in mark.attrs {
+            if let spec = markType?.attrs.first(where: { $0.name == k }),
+               let dflt = spec.defaultValue, dflt == v {
+                continue
+            }
+            dict[k] = v.toPMValue()
+        }
+        return PMMark(type: mark.type, attrs: dict.isEmpty ? nil : dict)
+    }
+
     private func encodeInlines(_ nodes: [TreeNode]) -> [PMNode] {
         var out: [PMNode] = []
         for node in nodes {
@@ -461,17 +477,7 @@ public struct ProseMirrorCodec {
                 guard !text.isEmpty else { continue }
                 var pm = PMNode(type: "text", text: text)
                 if !marks.isEmpty {
-                    pm.marks = marks.marks.map { mark in
-                        var attrs: [String: PMValue]? = nil
-                        if !mark.attrs.isEmpty {
-                            var dict: [String: PMValue] = [:]
-                            for (k, v) in mark.attrs {
-                                dict[k] = v.toPMValue()
-                            }
-                            attrs = dict
-                        }
-                        return PMMark(type: mark.type, attrs: attrs)
-                    }
+                    pm.marks = marks.marks.map { encodeMark($0) }
                 }
                 out.append(pm)
             case .leaf(let pn) where pn.type == "hard_break":
@@ -479,15 +485,11 @@ public struct ProseMirrorCodec {
             case .leaf(let pn) where pn.type == "image":
                 var pmAttrs: [String: PMValue] = [:]
                 pmAttrs["src"] = .string(pn.attrs["src"]?.stringValue ?? "")
-                if let alt = pn.attrs["alt"]?.stringValue {
+                if let alt = pn.attrs["alt"]?.stringValue, !alt.isEmpty {
                     pmAttrs["alt"] = .string(alt)
-                } else {
-                    pmAttrs["alt"] = .null
                 }
-                if let title = pn.attrs["title"]?.stringValue {
+                if let title = pn.attrs["title"]?.stringValue, !title.isEmpty {
                     pmAttrs["title"] = .string(title)
-                } else {
-                    pmAttrs["title"] = .null
                 }
                 out.append(PMNode(type: "image", attrs: pmAttrs))
             case .leaf, .structural:
