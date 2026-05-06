@@ -168,6 +168,12 @@ public final class TableBlockView: PlatformView {
     /// can't push a column past the container. Past this width the cell
     /// wraps.
     static let maxNaturalColumnWidth: CGFloat = 360
+    /// Headroom (in points) granted to the edited cell before its
+    /// column's width is redistributed. Keeping this above zero means
+    /// the column grows shortly *before* the cell would actually wrap
+    /// rather than at the wrap boundary, smoothing the transition.
+    /// Below this threshold typing leaves column widths stable.
+    static let columnRedistributionSlack: CGFloat = 12
     static let cellHorizontalPadding: CGFloat = 8
     static let cellVerticalPadding: CGFloat = 6
     static let borderWidth: CGFloat = 1
@@ -234,9 +240,23 @@ public final class TableBlockView: PlatformView {
         }
         cellViews[rowIdx][colIdx].applyInlineRuns(runs)
         invalidateRow(rowIdx)
-        // Natural-width per column may have shifted; invalidate so the
-        // grid redistributes width on next layout pass.
-        invalidateColumnWidths()
+        // Keep column widths sticky during typing so the grid doesn't
+        // reflow on every keystroke. Only redistribute when the edited
+        // cell's natural width approaches the current column allocation
+        // — i.e. when it's about to wrap. `columnRedistributionSlack`
+        // gives the column a bit of headroom so it grows just before
+        // overflow rather than at it.
+        let cellNeedsMoreRoom: Bool = {
+            guard let cached = cachedColumnWidths,
+                  colIdx < cached.widths.count else { return true }
+            let editedCell: TreeNode = .structural(cellNode, cellKids)
+            let natural = CellView.measureNaturalWidth(cell: editedCell, theme: theme)
+            let cappedNatural = min(natural, Self.maxNaturalColumnWidth)
+            return cappedNatural + Self.columnRedistributionSlack > cached.widths[colIdx]
+        }()
+        if cellNeedsMoreRoom {
+            invalidateColumnWidths()
+        }
         reflowAfterMutation()
     }
 
@@ -248,11 +268,7 @@ public final class TableBlockView: PlatformView {
     /// taller rows).
     private func reflowAfterMutation() {
         let proposedWidth = bounds.width > 0 ? bounds.width : Self.minTableWidth
-        let newSize = TableBlockView.intrinsicSize(
-            for: subtree,
-            theme: theme,
-            proposedWidth: proposedWidth
-        )
+        let newSize = intrinsicSizeUsingCache(proposedWidth: proposedWidth)
         let sizeChanged = abs(newSize.height - frame.height) > 0.5
             || abs(newSize.width - frame.width) > 0.5
         if sizeChanged {
@@ -321,6 +337,47 @@ public final class TableBlockView: PlatformView {
         return CGSize(
             width: totalWidth,
             height: totalHeight + 2 * borderWidth + tableMeasurementSlack
+        )
+    }
+
+    /// Instance-side intrinsic size that prefers cached column widths
+    /// when they're valid for `proposedWidth`. Keeps `attachmentBounds`
+    /// and `reflowAfterMutation` reporting the same height the cells
+    /// will actually render at — without this, the static path would
+    /// recompute column widths from fresh natural measurements every
+    /// keystroke and the reported height would disagree with the
+    /// cached widths driving cell layout.
+    public func intrinsicSizeUsingCache(proposedWidth: CGFloat) -> CGSize {
+        let dims = TableBlockView.dimensions(of: subtree)
+        guard dims.cols > 0, dims.rows > 0 else {
+            return CGSize(
+                width: max(proposedWidth, Self.minTableWidth),
+                height: Self.minRowHeight
+            )
+        }
+        let widths: [CGFloat]
+        if let cached = cachedColumnWidths,
+           abs(cached.containerWidth - proposedWidth) < 0.5,
+           cached.widths.count == dims.cols {
+            widths = cached.widths
+        } else {
+            widths = TableBlockView.measureColumnWidths(
+                for: subtree,
+                theme: theme,
+                containerWidth: max(proposedWidth, 1)
+            )
+            cachedColumnWidths = (containerWidth: proposedWidth, widths: widths)
+        }
+        let heights = TableBlockView.measureRowHeights(
+            for: subtree,
+            theme: theme,
+            columnWidths: widths
+        )
+        let totalWidth = widths.reduce(0, +)
+        let totalHeight = heights.reduce(0, +)
+        return CGSize(
+            width: totalWidth,
+            height: totalHeight + 2 * Self.borderWidth + Self.tableMeasurementSlack
         )
     }
 

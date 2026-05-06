@@ -119,11 +119,21 @@ public final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
             proposedLineFragment: proposedLineFragment,
             textContainer: textContainer
         )
-        let size = TableBlockView.intrinsicSize(
-            for: subtree,
-            theme: theme,
-            proposedWidth: proposedWidth
-        )
+        // Prefer the bound view's cache so the reported size matches
+        // the widths cells will actually render at; otherwise the
+        // static path would recompute column widths from fresh natural
+        // measurements and disagree with sticky-width cell layout
+        // (clipping or gaps).
+        let size: CGSize
+        if let blockView = view as? TableBlockView {
+            size = blockView.intrinsicSizeUsingCache(proposedWidth: proposedWidth)
+        } else {
+            size = TableBlockView.intrinsicSize(
+                for: subtree,
+                theme: theme,
+                proposedWidth: proposedWidth
+            )
+        }
         // Resize the realized view in lock-step so the on-screen frame
         // matches the size we just reported to the layout manager.
         if let blockView = view as? TableBlockView {
