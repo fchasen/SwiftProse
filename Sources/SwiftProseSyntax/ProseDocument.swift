@@ -165,14 +165,14 @@ public extension ProseDocument {
             result.append(NSAttributedString(string: text, attributes: attrs))
 
         case .leaf(let node, let marks):
-            // Placeholder character. Block-shaped leaves (horizontal_rule,
-            // link_reference) emit "\n" so the paragraph carries the leaf
-            // attributes. Inline leaves (hard_break) emit U+2028 (line
-            // separator) so the surrounding paragraph stays one block.
+            // Block-shaped leaves emit "\n" so the paragraph carries the
+            // leaf attributes. Inline leaves whose NodeType opts in via
+            // `linebreakReplacement` emit U+2028 so they sit inline.
             let placeholder: String
-            switch node.type {
-            case "hard_break": placeholder = "\u{2028}"
-            default: placeholder = "\n"
+            if schema.nodeType(node.type)?.linebreakReplacement == true {
+                placeholder = "\u{2028}"
+            } else {
+                placeholder = "\n"
             }
             let path = NodePath(ancestors + [node])
             let attrs: [NSAttributedString.Key: Any] = [
