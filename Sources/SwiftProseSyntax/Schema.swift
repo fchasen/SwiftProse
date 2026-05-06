@@ -408,10 +408,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
             ),
             MarkType(name: "em"),
             MarkType(name: "strong"),
-            MarkType(
-                name: "code",
-                excludes: ["strong", "em", "link", "strike"]
-            ),
+            MarkType(name: "code"),
             MarkType(name: "strike")
         ],
         topNode: "doc"

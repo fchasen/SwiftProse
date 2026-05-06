@@ -34,10 +34,12 @@ struct ProseDocumentTests {
     }
 
     @Test
-    func codeMarkExcludesEmphasis() {
+    func codeMarkHasNoSchemaExcludes() {
+        // PM-basic declares no excludes on `code`; same-type replacement is
+        // implicit. Application-level enforcement (drop other marks when
+        // adding `code`) lives in MarkSet.adding/MarkType.excludes plumbing.
         let code = schema.markType("code")!
-        #expect(code.excludes.contains("strong"))
-        #expect(code.excludes.contains("em"))
+        #expect(code.excludes.isEmpty)
     }
 
     // MARK: - MarkSet semantics
