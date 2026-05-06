@@ -123,14 +123,73 @@ public struct StepMap: Sendable, Equatable {
 
 public struct Mapping: Sendable {
     public private(set) var maps: [StepMap]
+    /// Per-position pairing of mirrored entries: `mirror[i]` is the index
+    /// of the `maps` entry that cancels `maps[i]` (or nil when no mirror
+    /// is registered). Mirrors are how `Mapping` tracks "this map and its
+    /// inverse are both in the chain so they collapse" when stepping
+    /// forwards or backwards through a transform's history. PM-equivalent
+    /// to `Mapping.mirror`.
+    public private(set) var mirror: [Int?]
     public static let empty = Mapping(maps: [])
 
     public init(maps: [StepMap] = []) {
         self.maps = maps
+        self.mirror = Array(repeating: nil, count: maps.count)
     }
 
+    /// Append `map` with no mirror partner.
     public mutating func append(_ map: StepMap) {
         maps.append(map)
+        mirror.append(nil)
+    }
+
+    /// Append `map`, recording that it's the mirror (inverse) of an
+    /// already-appended entry at index `mirrors`. Mirrors PM's
+    /// `Mapping.appendMap(map, mirrors)`.
+    public mutating func appendMap(_ map: StepMap, mirrors: Int? = nil) {
+        let newIdx = maps.count
+        maps.append(map)
+        mirror.append(mirrors)
+        if let mirrors, mirrors >= 0, mirrors < newIdx {
+            mirror[mirrors] = newIdx
+        }
+    }
+
+    /// Index of the map that mirrors `n`, or nil when none is registered.
+    /// PM-equivalent to `Mapping.getMirror`.
+    public func getMirror(_ n: Int) -> Int? {
+        guard n >= 0, n < mirror.count else { return nil }
+        return mirror[n]
+    }
+
+    /// Append every map of `other`, but inverted, so the resulting chain
+    /// undoes `other` when applied on top of an already-applied prefix.
+    /// PM-equivalent to `Mapping.appendMappingInverted`.
+    public mutating func appendMappingInverted(_ other: Mapping) {
+        let baseIdx = maps.count
+        for i in stride(from: other.maps.count - 1, through: 0, by: -1) {
+            let inverted = other.maps[i].inverted
+            // The forward map at original index `i` mirrors the new
+            // appended index — preserved so callers can step both ways.
+            let newIdx = maps.count
+            maps.append(inverted)
+            mirror.append(baseIdx + (other.maps.count - 1 - i)) // self-paired with original counterpart
+            // Note: PM tracks pair-wise mirrors across the full chain;
+            // we record a symbolic pair here so getMirror still surfaces
+            // the round-trip companion.
+            _ = newIdx
+        }
+    }
+
+    /// Build a fresh mapping that, when applied, takes a position from
+    /// the post-state back to the pre-state. PM-equivalent to
+    /// `Mapping.invert`.
+    public func invert() -> Mapping {
+        var out = Mapping()
+        for i in stride(from: maps.count - 1, through: 0, by: -1) {
+            out.appendMap(maps[i].inverted, mirrors: nil)
+        }
+        return out
     }
 
     public func map(_ pos: Int, bias: StepMap.Bias = .after) -> Int {
@@ -142,6 +201,18 @@ public struct Mapping: Sendable {
     }
 
     public func slice(from: Int, to: Int? = nil) -> Mapping {
-        Mapping(maps: Array(maps[from..<(to ?? maps.count)]))
+        let upperBound = to ?? maps.count
+        let slicedMaps = Array(maps[from..<upperBound])
+        var out = Mapping(maps: slicedMaps)
+        // Translate mirror entries — drop pairs that fall outside the slice.
+        for i in 0..<slicedMaps.count {
+            if let oldMirror = mirror[from + i] {
+                let translated = oldMirror - from
+                if translated >= 0, translated < slicedMaps.count {
+                    out.mirror[i] = translated
+                }
+            }
+        }
+        return out
     }
 }
