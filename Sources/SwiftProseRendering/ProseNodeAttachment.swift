@@ -46,8 +46,13 @@ public final class ProseNodeAttachment: NSTextAttachment, ProseSubtreeAttachment
         self.subtree = subtree
     }
 
-    /// TextKit 1 fallback path. Mirrors `TableAttachmentViewProvider`'s
-    /// sizing.
+    /// View-layer hook for accurate subtree sizing. The TK2 layout
+    /// manager calls this TK1 `attachmentBounds` override when sizing
+    /// the hosting line fragment — the view provider's override is not
+    /// consulted there, so without this the fragment is too short and
+    /// bottom rows fall outside the laid-out region.
+    public static var sizingProvider: ((TreeNode, CGFloat) -> CGSize)?
+
     public override func attachmentBounds(
         for textContainer: NSTextContainer?,
         proposedLineFragment lineFrag: CGRect,
@@ -58,6 +63,10 @@ public final class ProseNodeAttachment: NSTextAttachment, ProseSubtreeAttachment
             proposedLineFragment: lineFrag,
             textContainer: textContainer
         )
+        if let sizing = ProseNodeAttachment.sizingProvider {
+            let size = sizing(subtree, width)
+            return CGRect(origin: .zero, size: size)
+        }
         let height = ProseNodeAttachment.preferredHeight(
             for: subtree,
             width: width

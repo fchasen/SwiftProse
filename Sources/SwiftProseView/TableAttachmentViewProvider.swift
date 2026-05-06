@@ -23,6 +23,15 @@ public final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
             TableAttachmentViewProvider.self,
             forFileType: ProseNodeAttachment.attachmentFileType
         )
+        // TK2 sizes line fragments through the TK1 attachmentBounds
+        // path; route that to the same measurement the provider uses.
+        ProseNodeAttachment.sizingProvider = { subtree, width in
+            TableBlockView.intrinsicSize(
+                for: subtree,
+                theme: TableAttachmentViewProvider.sharedTheme,
+                proposedWidth: width
+            )
+        }
     }
     private static var registered = false
 

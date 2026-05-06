@@ -147,6 +147,51 @@ import UIKit
         #expect(maxBottom <= size.height + 0.5)
     }
 
+    /// Regression: the TK1 `attachmentBounds` path must report the
+    /// wrapped-cell measurement, not the placeholder `rows × 30`. TK2
+    /// sizes line fragments through this path, so a stale value here
+    /// drops bottom rows behind the next block.
+    @Test func tk1AttachmentBoundsReflectsWrappedRowCount() throws {
+        _ = try EditorController(initialMarkdown: "")
+        let cells: (String, Bool) -> TreeNode = { text, header in
+            .structural(
+                ProseNode(
+                    type: header ? "table_header" : "table_cell",
+                    attrs: ["align": .null]
+                ),
+                [.structural(ProseNode(type: "paragraph"),
+                             [.inline(text: text, marks: MarkSet())])]
+            )
+        }
+        let row: ([String], Bool) -> TreeNode = { texts, header in
+            .structural(
+                ProseNode(type: "table_row", attrs: ["header": .bool(header)]),
+                texts.map { cells($0, header) }
+            )
+        }
+        let longText = String(repeating: "wraps wraps ", count: 12)
+        let subtree = TreeNode.structural(ProseNode(type: "table"), [
+            row(["h1", "h2"], true),
+            row(["a", "b"], false),
+            row(["c", longText], false),
+            row(["d", "e"], false)
+        ])
+        let attachment = ProseNodeAttachment(subtree: subtree)
+        let proposed = CGRect(x: 0, y: 0, width: 240, height: 18)
+        let bounds = attachment.attachmentBounds(
+            for: nil,
+            proposedLineFragment: proposed,
+            glyphPosition: .zero,
+            characterIndex: 0
+        )
+        let measured = TableBlockView.intrinsicSize(
+            for: subtree,
+            theme: TableAttachmentViewProvider.sharedTheme,
+            proposedWidth: proposed.width
+        )
+        #expect(abs(bounds.height - measured.height) < 0.5)
+    }
+
     @Test func tableBlockViewBuildsCellSubviewsForRunsAndColumns() throws {
         let cellA = TreeNode.structural(
             ProseNode(type: "table_header", attrs: ["align": .null]),
