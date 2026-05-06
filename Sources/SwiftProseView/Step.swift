@@ -71,6 +71,20 @@ public enum Step {
     /// alignment changes). Storage character range stays the same;
     /// inverse restores the prior subtree.
     case setTableSubtree(tableID: NodeID, subtree: TreeNode)
+    /// Add an inline mark to a single leaf node (image, hard_break) by
+    /// `NodePath`. PM-equivalent `AddNodeMarkStep`. The mark lives on the
+    /// leaf's `proseMarks` storage attribute alongside any inline marks
+    /// already there; the rendering layer projects via the same path as
+    /// `addMark`.
+    case addNodeMark(path: NodePath, mark: ProseMark)
+    /// Remove a mark of `markType` from a single leaf node. PM-equivalent
+    /// `RemoveNodeMarkStep`.
+    case removeNodeMark(path: NodePath, markType: MarkType.Name)
+    /// Replace one attribute of the document root. PM-equivalent
+    /// `DocAttrStep`. Storage doesn't carry doc-level attrs in our model;
+    /// the controller surfaces this through a side-channel for hosts that
+    /// need to track e.g. "current language" without round-tripping.
+    case setDocAttr(name: String, value: ProseAttrValue)
 
     public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedStep {
         switch self {
@@ -97,7 +111,122 @@ public enum Step {
             )
         case .setTableSubtree(let tableID, let subtree):
             return applySetTableSubtree(in: storage, tableID: tableID, subtree: subtree)
+        case .addNodeMark(let path, let mark):
+            return applyAddNodeMark(in: storage, path: path, mark: mark, env: env)
+        case .removeNodeMark(let path, let markType):
+            return applyRemoveNodeMark(in: storage, path: path, markType: markType, env: env)
+        case .setDocAttr(let name, let value):
+            return applySetDocAttr(in: storage, name: name, value: value)
         }
+    }
+
+    private func applyAddNodeMark(
+        in storage: NSTextStorage,
+        path: NodePath,
+        mark: ProseMark,
+        env: StepEnvironment
+    ) -> AppliedStep {
+        guard let leafID = path.leaf?.id else {
+            return AppliedStep(
+                inverse: .removeNodeMark(path: path, markType: mark.type),
+                mappedRange: NSRange(location: 0, length: 0),
+                affectedLineRange: NSRange(location: 0, length: 0),
+                stepMap: .empty
+            )
+        }
+        var resolvedRange: NSRange?
+        let schema = env.compiler.schema
+        storage.enumerateNodePaths { runRange, runPath in
+            guard runPath.leaf?.id == leafID else { return }
+            resolvedRange = resolvedRange.map { NSUnionRange($0, runRange) } ?? runRange
+        }
+        guard let safe = resolvedRange else {
+            return AppliedStep(
+                inverse: .removeNodeMark(path: path, markType: mark.type),
+                mappedRange: NSRange(location: 0, length: 0),
+                affectedLineRange: NSRange(location: 0, length: 0),
+                stepMap: .empty
+            )
+        }
+        storage.beginEditing()
+        let current = (storage.attribute(.proseMarks, at: safe.location, effectiveRange: nil) as? MarkSetBox)?.marks ?? MarkSet()
+        let updated = current.adding(mark, in: schema)
+        storage.addAttribute(.proseMarks, value: MarkSetBox(updated), range: safe)
+        applyRenderingAttribute(for: mark, in: storage, range: safe, theme: env.theme)
+        storage.endEditing()
+        let inverse = Step.removeNodeMark(path: path, markType: mark.type)
+        return AppliedStep(inverse: inverse, mappedRange: safe, affectedLineRange: safe, stepMap: .empty)
+    }
+
+    private func applyRemoveNodeMark(
+        in storage: NSTextStorage,
+        path: NodePath,
+        markType: MarkType.Name,
+        env: StepEnvironment
+    ) -> AppliedStep {
+        guard let leafID = path.leaf?.id else {
+            return AppliedStep(
+                inverse: .addNodeMark(path: path, mark: ProseMark(type: markType)),
+                mappedRange: NSRange(location: 0, length: 0),
+                affectedLineRange: NSRange(location: 0, length: 0),
+                stepMap: .empty
+            )
+        }
+        var resolvedRange: NSRange?
+        var priorMark: ProseMark?
+        storage.enumerateNodePaths { runRange, runPath in
+            guard runPath.leaf?.id == leafID else { return }
+            resolvedRange = resolvedRange.map { NSUnionRange($0, runRange) } ?? runRange
+            if priorMark == nil,
+               let box = storage.attribute(.proseMarks, at: runRange.location, effectiveRange: nil) as? MarkSetBox,
+               let existing = box.marks.mark(of: markType) {
+                priorMark = existing
+            }
+        }
+        guard let safe = resolvedRange else {
+            return AppliedStep(
+                inverse: .addNodeMark(path: path, mark: ProseMark(type: markType)),
+                mappedRange: NSRange(location: 0, length: 0),
+                affectedLineRange: NSRange(location: 0, length: 0),
+                stepMap: .empty
+            )
+        }
+        storage.beginEditing()
+        if let box = storage.attribute(.proseMarks, at: safe.location, effectiveRange: nil) as? MarkSetBox {
+            let updated = box.marks.removing(markType)
+            if updated.isEmpty {
+                storage.removeAttribute(.proseMarks, range: safe)
+            } else {
+                storage.addAttribute(.proseMarks, value: MarkSetBox(updated), range: safe)
+            }
+        }
+        removeRenderingAttribute(forMarkType: markType, in: storage, range: safe, theme: env.theme)
+        storage.endEditing()
+        let inverse: Step
+        if let priorMark {
+            inverse = .addNodeMark(path: path, mark: priorMark)
+        } else {
+            inverse = .addNodeMark(path: path, mark: ProseMark(type: markType))
+        }
+        return AppliedStep(inverse: inverse, mappedRange: safe, affectedLineRange: safe, stepMap: .empty)
+    }
+
+    private func applySetDocAttr(
+        in storage: NSTextStorage,
+        name: String,
+        value: ProseAttrValue
+    ) -> AppliedStep {
+        // Storage doesn't carry doc attrs; the controller's surface
+        // mirrors them externally. The Step itself is recorded so the
+        // transaction history is complete; an inverse stays as a setDocAttr
+        // back to whatever the prior value was (captured by the caller).
+        let inverse = Step.setDocAttr(name: name, value: value)
+        return AppliedStep(
+            inverse: inverse,
+            mappedRange: NSRange(location: 0, length: 0),
+            affectedLineRange: NSRange(location: 0, length: 0),
+            stepMap: .empty
+        )
     }
 
     private func applyReplaceCellInline(
@@ -477,6 +606,10 @@ public enum Step {
         case .replaceCellInline, .setTableSubtree:
             // Identity-addressed by `tableID` — character positions don't
             // factor in. Mapping is a no-op.
+            return self
+        case .addNodeMark, .removeNodeMark, .setDocAttr:
+            // Identity-addressed by NodePath / no positional anchor —
+            // mapping is a no-op.
             return self
         }
     }

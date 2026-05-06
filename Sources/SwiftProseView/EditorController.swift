@@ -581,7 +581,8 @@ public final class EditorController {
             case .replaceAround(let outer, _, _, _):
                 lo = min(lo, outer.location)
                 hi = max(hi, outer.location + outer.length)
-            case .setNodeAttrs, .replaceCellInline, .setTableSubtree:
+            case .setNodeAttrs, .replaceCellInline, .setTableSubtree,
+                 .addNodeMark, .removeNodeMark, .setDocAttr:
                 // Identity-addressed; no positional bounds — leave as the
                 // current accumulator. The apply path resolves the
                 // affected range from the stored NodePath / table id.
