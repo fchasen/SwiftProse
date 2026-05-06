@@ -139,6 +139,20 @@ let exported = try controller.exportProseMirrorJSON()
 
 `ProseMirrorCodec` encodes the editor's tree into a structural ProseMirror document — paragraphs, headings, lists (bullet / ordered / task), blockquotes, fenced and indented code blocks, horizontal rules, and pipe tables (as `table → table_row → (table_cell | table_header)` with per-cell `align` attrs) — and decodes the inverse. `SchemaMap` extends the inline mark surface for custom marks.
 
+### Schema posture
+
+`Schema.defaultMarkdown` ships as a **typed superset** of `prosemirror-schema-basic` + `addListNodes`. Wire-format-load-bearing attributes track PM exactly (`ordered_list.order`, `code_block.params`, `image.{src,alt,title}` defaults of `""`, `link.{href,title}` defaults of `""`, `table_cell.colwidth` as `[Int]`); the codec omits attrs when their value matches the schema default. Marks are declared in PM-basic order: `[link, em, strong, code, strike]`.
+
+The schema layers in extensions over PM-basic that are not part of the canonical wire format:
+
+- `task_list` (block) and `list_item.checked` — checkbox lists. Encoded as a `bullet_list` with `[x] ` / `[ ] ` prefix on the first paragraph so a vanilla PM consumer still renders the items.
+- `html_block` (block, plain text content) — passed through verbatim.
+- `link_reference` (block, leaf with `label` / `href` / `title`) — markdown reference-style link definitions, kept as their own structural block.
+- `strike` mark — strikethrough; not in PM-basic (a few PM ecosystems call it `strikethrough`).
+- `table_*` — `prosemirror-tables`-shaped subtree (table → table_row → table_cell|table_header), with per-cell `align` / `colspan` / `rowspan` / `colwidth` attrs.
+
+Hosts targeting strict PM-basic interop should strip these extension nodes / marks at the application layer before sending JSON over the wire.
+
 ## Observing the document
 
 ```swift
