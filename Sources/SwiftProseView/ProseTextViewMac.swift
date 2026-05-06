@@ -281,10 +281,15 @@ final class ProseNSTextView: NSTextView {
     weak var proseController: EditorController?
 
     override func mouseDown(with event: NSEvent) {
-        // Single click without modifiers on a task-list checkbox toggles it
-        // in place — the standard editable-text-view single-click reserves
-        // for cursor placement, but flipping a checkbox is a more obvious
-        // affordance.
+        // Plugin handleClick gets first crack — return true to consume.
+        if let controller = proseController, !controller.plugins.isEmpty {
+            let point = convert(event.locationInWindow, from: nil)
+            let charIndex = characterIndexForInsertion(at: point)
+            for plugin in controller.plugins {
+                if plugin.props.handleClick?(controller, charIndex) == true { return }
+            }
+        }
+        // Built-in: single click on a task-list checkbox toggles it.
         if event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
            let storage = textStorage {
             let point = convert(event.locationInWindow, from: nil)
@@ -295,9 +300,6 @@ final class ProseNSTextView: NSTextView {
                 }
             }
         }
-        // Pipe-table click handling: only the top-right toggle is wired —
-        // it flips the whole table to raw monospace source. Cell-content
-        // edits aren't routed back through painted cells yet.
         super.mouseDown(with: event)
     }
 
