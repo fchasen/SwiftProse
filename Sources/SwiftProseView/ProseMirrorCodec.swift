@@ -15,10 +15,19 @@ public enum ProseMirrorCodecError: Error {
 public struct ProseMirrorCodec {
     public let schemaMap: SchemaMap
     public let theme: ProseTheme
+    /// Optional encode-time alias map for marks (e.g. emit `strike` as
+    /// `strikethrough` for ecosystems that use that name). Symmetric on
+    /// decode — incoming aliased names map back to internal names.
+    public var markAliases: [MarkType.Name: MarkType.Name]
 
-    public init(schemaMap: SchemaMap = .basic, theme: ProseTheme = .default) {
+    public init(
+        schemaMap: SchemaMap = .basic,
+        theme: ProseTheme = .default,
+        markAliases: [MarkType.Name: MarkType.Name] = [:]
+    ) {
         self.schemaMap = schemaMap
         self.theme = theme
+        self.markAliases = markAliases
     }
 
     // MARK: decode
@@ -458,7 +467,8 @@ public struct ProseMirrorCodec {
     /// Encode a single mark, omitting attrs whose value matches the schema
     /// default (so `link` with title "" emits no `title` field on the wire).
     private func encodeMark(_ mark: ProseMark) -> PMMark {
-        guard !mark.attrs.isEmpty else { return PMMark(type: mark.type) }
+        let wireType = markAliases[mark.type] ?? mark.type
+        guard !mark.attrs.isEmpty else { return PMMark(type: wireType) }
         let markType = Schema.defaultMarkdown.markType(mark.type)
         var dict: [String: PMValue] = [:]
         for (k, v) in mark.attrs {
@@ -468,7 +478,7 @@ public struct ProseMirrorCodec {
             }
             dict[k] = v.toPMValue()
         }
-        return PMMark(type: mark.type, attrs: dict.isEmpty ? nil : dict)
+        return PMMark(type: wireType, attrs: dict.isEmpty ? nil : dict)
     }
 
     private func encodeInlines(_ nodes: [TreeNode]) -> [PMNode] {
