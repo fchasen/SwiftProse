@@ -112,7 +112,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         }
 
         public func textViewDidChangeSelection(_ textView: UITextView) {
-            parent.controller.onSelectionChanged?(textView.selectedRange)
+            parent.controller.fanoutSelectionChanged(textView.selectedRange)
         }
 
         public func textView(_ textView: UITextView,

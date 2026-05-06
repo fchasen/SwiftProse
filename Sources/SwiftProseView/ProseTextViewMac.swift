@@ -191,7 +191,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
 
         public func textViewDidChangeSelection(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
-            parent.controller.onSelectionChanged?(tv.selectedRange())
+            parent.controller.fanoutSelectionChanged(tv.selectedRange())
         }
 
         public func undoManager(for view: NSTextView) -> UndoManager? {

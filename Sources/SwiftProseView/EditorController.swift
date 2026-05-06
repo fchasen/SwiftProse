@@ -43,6 +43,59 @@ public final class EditorController {
     /// `onDiagnostic` so hosts can route them to a separate sink (e.g.
     /// surface schema drift as warnings rather than user-facing errors).
     public var onSchemaDiagnostic: ((SchemaDiagnostic) -> Void)?
+
+    // Multi-subscriber observer lists. Single-callback properties above
+    // remain for the common case; `addOn…` registers additional
+    // subscribers and returns a token usable with `removeObserver`.
+    private var documentChangeObservers: [(UUID, (ProseDocument, Step) -> Void)] = []
+    private var diagnosticObservers: [(UUID, (SpecDiagnostic) -> Void)] = []
+    private var selectionChangedObservers: [(UUID, (NSRange) -> Void)] = []
+
+    public struct ObserverToken: Hashable, Sendable {
+        let id: UUID
+    }
+
+    @discardableResult
+    public func addOnDocumentChange(_ handler: @escaping (ProseDocument, Step) -> Void) -> ObserverToken {
+        let id = UUID()
+        documentChangeObservers.append((id, handler))
+        return ObserverToken(id: id)
+    }
+
+    @discardableResult
+    public func addOnDiagnostic(_ handler: @escaping (SpecDiagnostic) -> Void) -> ObserverToken {
+        let id = UUID()
+        diagnosticObservers.append((id, handler))
+        return ObserverToken(id: id)
+    }
+
+    @discardableResult
+    public func addOnSelectionChanged(_ handler: @escaping (NSRange) -> Void) -> ObserverToken {
+        let id = UUID()
+        selectionChangedObservers.append((id, handler))
+        return ObserverToken(id: id)
+    }
+
+    public func removeObserver(_ token: ObserverToken) {
+        documentChangeObservers.removeAll { $0.0 == token.id }
+        diagnosticObservers.removeAll { $0.0 == token.id }
+        selectionChangedObservers.removeAll { $0.0 == token.id }
+    }
+
+    func fanoutDocumentChange(_ document: ProseDocument, _ step: Step) {
+        onDocumentChange?(document, step)
+        for (_, handler) in documentChangeObservers { handler(document, step) }
+    }
+
+    func fanoutDiagnostic(_ diagnostic: SpecDiagnostic) {
+        onDiagnostic?(diagnostic)
+        for (_, handler) in diagnosticObservers { handler(diagnostic) }
+    }
+
+    func fanoutSelectionChanged(_ range: NSRange) {
+        onSelectionChanged?(range)
+        for (_, handler) in selectionChangedObservers { handler(range) }
+    }
     /// Fires whenever the host text view's selection moves, with the new
     /// selection range. Hosts wire this to keep an observable selection in
     /// sync without polling. Forwarded by the platform coordinators in
@@ -185,10 +238,9 @@ public final class EditorController {
             if !self.textStorage.editedMask.isEmpty {
                 self.cachedDocument = nil
             }
-            if self.textStorage.editedMask.contains(.editedCharacters),
-               let onDocumentChange = self.onDocumentChange {
+            if self.textStorage.editedMask.contains(.editedCharacters) {
                 let derived = self.deriveReplaceTextStep()
-                onDocumentChange(self.document, derived)
+                self.fanoutDocumentChange(self.document, derived)
             }
             guard !self.applyingMarkdown else { return }
             if self.textStorage.editedMask.contains(.editedCharacters) {
@@ -640,7 +692,7 @@ public final class EditorController {
     func validateAndRepair(in range: NSRange) {
         let specDiagnostics = SpecValidator.validate(in: textStorage, range: range)
         for diagnostic in specDiagnostics {
-            onDiagnostic?(diagnostic)
+            fanoutDiagnostic(diagnostic)
         }
         if !specDiagnostics.isEmpty {
             SpecValidator.repair(in: textStorage, range: range)
