@@ -960,20 +960,32 @@ public struct Transaction {
     public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedTransaction {
         var inverses: [Step] = []
         var mapping = Mapping.empty
-        var mappedRange: NSRange = NSRange(location: 0, length: 0)
+        // Accumulate the union of every step's mappedRange so downstream
+        // validation runs over the full area the transaction touched —
+        // not just the last step's range, which would miss earlier edits.
+        // PM's Transform tracks `from..to` similarly across the chain.
+        var unionLo: Int? = nil
+        var unionHi: Int? = nil
         for step in steps {
             let mapped = step.mapped(through: mapping)
-            // Probe legality first — bail out cleanly if the step can't
-            // land. `apply` is otherwise allowed to commit partial state
-            // (e.g. some addAttribute calls) before the failure mode is
-            // detected, which leaves storage half-edited.
             if mapped.canApply(to: storage) != nil {
                 continue
             }
             let applied = mapped.apply(to: storage, env: env)
             inverses.insert(applied.inverse, at: 0)
             mapping.append(applied.stepMap)
-            mappedRange = applied.mappedRange
+            if applied.mappedRange.length > 0 || applied.mappedRange.location != 0 {
+                let stepLo = applied.mappedRange.location
+                let stepHi = applied.mappedRange.location + applied.mappedRange.length
+                unionLo = unionLo.map { min($0, stepLo) } ?? stepLo
+                unionHi = unionHi.map { max($0, stepHi) } ?? stepHi
+            }
+        }
+        let mappedRange: NSRange
+        if let lo = unionLo, let hi = unionHi, hi >= lo {
+            mappedRange = NSRange(location: lo, length: hi - lo)
+        } else {
+            mappedRange = NSRange(location: 0, length: 0)
         }
         return AppliedTransaction(
             inverse: Transaction(steps: inverses, label: label),
