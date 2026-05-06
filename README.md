@@ -54,7 +54,7 @@ SwiftProseEditor(text: $text)
 - **Status bar** — `.words`, `.characters`, `.cursor` (line:column).
 - **Sizing** — `.fitsContent` (height tracks content, starting from `minHeight`) or `.fillContainer` (fixed-height, scrolls internally).
 - **Context menu** — append `ContextMenuItem`s to the platform's right-click / edit menu.
-- **Spell / grammar / autocorrect** — `spellChecking:` accepts `.off`, `.spelling` (default — continuous underlines), `.spellingAndGrammar`, or `.full` (adds autocorrect). On macOS, code blocks and inline code spans are excluded automatically via the spell-check delegate; on iOS the toggle applies to the whole text view.
+- **Spell / grammar / autocorrect** — `spellChecking:` accepts `.off`, `.spelling`, `.spellingAndGrammar`, or `.full` (default — continuous underlines, grammar checking, autocorrect). On macOS, code blocks and inline code spans are excluded automatically via the spell-check delegate; on iOS the toggle applies to the whole text view.
 
 ## Theming
 

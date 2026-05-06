@@ -20,7 +20,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         sizing: EditorSizing = .fitsContent,
         minHeight: CGFloat = 96,
         editMenuBuilder: EditMenuBuilder? = nil,
-        spellChecking: ProseSpellChecking = .spelling
+        spellChecking: ProseSpellChecking = .full
     ) {
         self.controller = controller
         self._text = text
@@ -38,7 +38,11 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no
         applySpellChecking(spellChecking, to: textView)
-        textView.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        let inset = controller.theme.textContainerInset
+        textView.textContainerInset = UIEdgeInsets(
+            top: inset.height, left: inset.width,
+            bottom: inset.height, right: inset.width
+        )
         textView.adjustsFontForContentSizeCategory = true
         textView.isScrollEnabled = (sizing == .fillContainer)
         if #available(iOS 16.0, *) {
@@ -57,6 +61,14 @@ public struct ProseTextViewIOS: UIViewRepresentable {
     public func updateUIView(_ uiView: UITextView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        let themeInset = controller.theme.textContainerInset
+        let desired = UIEdgeInsets(
+            top: themeInset.height, left: themeInset.width,
+            bottom: themeInset.height, right: themeInset.width
+        )
+        if uiView.textContainerInset != desired {
+            uiView.textContainerInset = desired
+        }
         applySpellChecking(spellChecking, to: uiView)
         coordinator.applyExternalText(text, to: uiView)
     }

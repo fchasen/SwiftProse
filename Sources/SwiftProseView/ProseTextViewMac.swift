@@ -18,7 +18,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
         sizing: EditorSizing = .fitsContent,
         minHeight: CGFloat = 96,
         contextMenuItems: [ProseContextMenuItem] = [],
-        spellChecking: ProseSpellChecking = .spelling
+        spellChecking: ProseSpellChecking = .full
     ) {
         self.controller = controller
         self._text = text
@@ -43,7 +43,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         applySpellChecking(spellChecking, to: textView)
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.textContainerInset = controller.theme.textContainerInset
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isHorizontallyResizable = false
@@ -70,6 +70,11 @@ public struct ProseTextViewMac: NSViewRepresentable {
             scrollView.hasHorizontalScroller = false
             scrollView.borderType = .noBorder
             scrollView.drawsBackground = false
+            // Let AppKit pad the document view by the enclosing window's
+            // safe-area insets (toolbar height) so the first line sits
+            // below the bar at rest, while content scrolls under it when
+            // the surrounding SwiftUI view ignores the top safe area.
+            scrollView.automaticallyAdjustsContentInsets = true
             textView.autoresizingMask = [.width]
             textView.usesFindBar = true
             scrollView.documentView = textView
@@ -84,6 +89,10 @@ public struct ProseTextViewMac: NSViewRepresentable {
         if let mtv = textView as? ProseNSTextView,
            mtv.minimumIntrinsicHeight != minHeight {
             mtv.minimumIntrinsicHeight = minHeight
+        }
+        let inset = controller.theme.textContainerInset
+        if textView.textContainerInset != inset {
+            textView.textContainerInset = inset
         }
         applySpellChecking(spellChecking, to: textView)
         coordinator.applyExternalText(text, to: textView)
