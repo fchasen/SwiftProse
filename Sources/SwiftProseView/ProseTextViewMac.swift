@@ -10,19 +10,22 @@ public struct ProseTextViewMac: NSViewRepresentable {
     public let sizing: EditorSizing
     public let minHeight: CGFloat
     public let contextMenuItems: [ProseContextMenuItem]
+    public let spellChecking: ProseSpellChecking
 
     public init(
         controller: EditorController,
         text: Binding<String>,
         sizing: EditorSizing = .fitsContent,
         minHeight: CGFloat = 96,
-        contextMenuItems: [ProseContextMenuItem] = []
+        contextMenuItems: [ProseContextMenuItem] = [],
+        spellChecking: ProseSpellChecking = .off
     ) {
         self.controller = controller
         self._text = text
         self.sizing = sizing
         self.minHeight = minHeight
         self.contextMenuItems = contextMenuItems
+        self.spellChecking = spellChecking
     }
 
     public func makeNSView(context: Context) -> NSView {
@@ -38,6 +41,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
+        applySpellChecking(spellChecking, to: textView)
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.minSize = NSSize(width: 0, height: 0)
@@ -81,7 +85,20 @@ public struct ProseTextViewMac: NSViewRepresentable {
            mtv.minimumIntrinsicHeight != minHeight {
             mtv.minimumIntrinsicHeight = minHeight
         }
+        applySpellChecking(spellChecking, to: textView)
         coordinator.applyExternalText(text, to: textView)
+    }
+
+    private func applySpellChecking(_ mode: ProseSpellChecking, to textView: NSTextView) {
+        if textView.isContinuousSpellCheckingEnabled != mode.spellingEnabled {
+            textView.isContinuousSpellCheckingEnabled = mode.spellingEnabled
+        }
+        if textView.isGrammarCheckingEnabled != mode.grammarEnabled {
+            textView.isGrammarCheckingEnabled = mode.grammarEnabled
+        }
+        if textView.isAutomaticSpellingCorrectionEnabled != mode.autocorrectEnabled {
+            textView.isAutomaticSpellingCorrectionEnabled = mode.autocorrectEnabled
+        }
     }
 
     public func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? {
@@ -231,6 +248,23 @@ public struct ProseTextViewMac: NSViewRepresentable {
             let location = parent.controller.currentSelection.location
             let probe = max(0, min(location, total - 1))
             return storage.blockSpec(at: probe)?.isListItem ?? false
+        }
+
+        /// Clip the spell-checker's candidate range to the first contiguous
+        /// run that doesn't fall inside a code block or inline `code` mark.
+        /// Returning a zero-length range short-circuits the check entirely.
+        public func textView(
+            _ textView: NSTextView,
+            shouldCheckTextIn range: NSRange,
+            offset: Int,
+            types checkingTypes: UnsafeMutablePointer<NSTextCheckingTypes>
+        ) -> NSRange {
+            guard parent.spellChecking != .off else { return range }
+            let storage = parent.controller.textStorage
+            return ProseSpellChecking.firstCheckableRange(
+                in: range,
+                storage: storage
+            )
         }
 
         public func textView(_ view: NSTextView,

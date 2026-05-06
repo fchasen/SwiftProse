@@ -15,14 +15,28 @@ public struct InputRule {
     public let id: String
     public let pattern: NSRegularExpression
     public let handler: (Match) -> Transaction?
+    /// How this rule handles cursors inside a code block. PM convention:
+    /// inline-mark rules (bold, italic, codeSpan) `.skip` so the user
+    /// can type `*` literally inside `code_block`. Block-shape rules
+    /// (heading, list) default to `.run` since they're already inert
+    /// when the cursor is mid-code-block (the regex anchors at start of
+    /// line, which a code block usually doesn't satisfy).
+    public let inCode: InCodePolicy
+
+    public enum InCodePolicy: Sendable, Equatable {
+        case run    // evaluate the rule normally
+        case skip   // never fire when the cursor is inside a code block
+    }
 
     public init(
         id: String,
         pattern: NSRegularExpression,
+        inCode: InCodePolicy = .run,
         handler: @escaping (Match) -> Transaction?
     ) {
         self.id = id
         self.pattern = pattern
+        self.inCode = inCode
         self.handler = handler
     }
 
@@ -33,6 +47,7 @@ public struct InputRule {
         id: String,
         pattern: String,
         options: NSRegularExpression.Options = [],
+        inCode: InCodePolicy = .run,
         handler: @escaping (Match) -> Transaction?
     ) {
         let regex: NSRegularExpression
@@ -41,7 +56,7 @@ public struct InputRule {
         } catch {
             preconditionFailure("InputRule \(id) pattern \(pattern) failed to compile: \(error)")
         }
-        self.init(id: id, pattern: regex, handler: handler)
+        self.init(id: id, pattern: regex, inCode: inCode, handler: handler)
     }
 
     /// What the runner hands the rule's handler. Ranges are storage-absolute

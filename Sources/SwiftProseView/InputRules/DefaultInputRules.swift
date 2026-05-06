@@ -191,14 +191,16 @@ public extension InputRule {
 
     static let bold = InputRule(
         id: "inputRule.bold",
-        pattern: "\\*\\*([^*\\n]+)\\*\\*$"
+        pattern: "\\*\\*([^*\\n]+)\\*\\*$",
+        inCode: .skip
     ) { match in
         recompileLine(match: match, label: "Bold")
     }
 
     static let italic = InputRule(
         id: "inputRule.italic",
-        pattern: "(?<![*])\\*([^*\\n]+)\\*$"
+        pattern: "(?<![*])\\*([^*\\n]+)\\*$",
+        inCode: .skip
     ) { match in
         recompileLine(match: match, label: "Italic")
     }
@@ -209,7 +211,8 @@ public extension InputRule {
     /// inner capture group directly.
     static let strikethrough = InputRule(
         id: "inputRule.strikethrough",
-        pattern: "~~([^~\\n]+)~~$"
+        pattern: "~~([^~\\n]+)~~$",
+        inCode: .skip
     ) { match in
         let innerRange = match.captureRanges.indices.contains(1) ? match.captureRanges[1] : match.matchedRange
         guard innerRange.location != NSNotFound else { return nil }
@@ -220,7 +223,8 @@ public extension InputRule {
 
     static let codeSpan = InputRule(
         id: "inputRule.codeSpan",
-        pattern: "`([^`\\n]+)`$"
+        pattern: "`([^`\\n]+)`$",
+        inCode: .skip
     ) { match in
         recompileLine(match: match, label: "Inline code")
     }

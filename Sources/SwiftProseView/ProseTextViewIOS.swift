@@ -12,19 +12,22 @@ public struct ProseTextViewIOS: UIViewRepresentable {
     public let sizing: EditorSizing
     public let minHeight: CGFloat
     public let editMenuBuilder: EditMenuBuilder?
+    public let spellChecking: ProseSpellChecking
 
     public init(
         controller: EditorController,
         text: Binding<String>,
         sizing: EditorSizing = .fitsContent,
         minHeight: CGFloat = 96,
-        editMenuBuilder: EditMenuBuilder? = nil
+        editMenuBuilder: EditMenuBuilder? = nil,
+        spellChecking: ProseSpellChecking = .off
     ) {
         self.controller = controller
         self._text = text
         self.sizing = sizing
         self.minHeight = minHeight
         self.editMenuBuilder = editMenuBuilder
+        self.spellChecking = spellChecking
     }
 
     public func makeUIView(context: Context) -> UITextView {
@@ -34,7 +37,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         textView.smartQuotesType = .no
         textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no
-        textView.autocorrectionType = .default
+        applySpellChecking(spellChecking, to: textView)
         textView.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         textView.adjustsFontForContentSizeCategory = true
         textView.isScrollEnabled = (sizing == .fillContainer)
@@ -54,7 +57,19 @@ public struct ProseTextViewIOS: UIViewRepresentable {
     public func updateUIView(_ uiView: UITextView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        applySpellChecking(spellChecking, to: uiView)
         coordinator.applyExternalText(text, to: uiView)
+    }
+
+    private func applySpellChecking(_ mode: ProseSpellChecking, to textView: UITextView) {
+        let spelling: UITextSpellCheckingType = mode.spellingEnabled ? .yes : .no
+        if textView.spellCheckingType != spelling {
+            textView.spellCheckingType = spelling
+        }
+        let autocorrect: UITextAutocorrectionType = mode.autocorrectEnabled ? .yes : .no
+        if textView.autocorrectionType != autocorrect {
+            textView.autocorrectionType = autocorrect
+        }
     }
 
     public func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {

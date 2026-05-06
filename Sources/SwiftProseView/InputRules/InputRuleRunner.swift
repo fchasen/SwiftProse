@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProseSyntax
 #if canImport(AppKit) && os(macOS)
 import AppKit
 #elseif canImport(UIKit)
@@ -45,7 +46,9 @@ public final class InputRuleRunner {
         let prefixNS = prefix as NSString
         let searchRange = NSRange(location: 0, length: prefixNS.length)
 
+        let inCodeBlock = storage.blockSpec(at: max(0, min(cursor, max(0, total - 1))))?.isCodeBlock == true
         for rule in rules {
+            if rule.inCode == .skip, inCodeBlock { continue }
             guard let match = rule.pattern.firstMatch(in: prefix, options: [], range: searchRange) else {
                 continue
             }
