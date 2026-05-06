@@ -57,37 +57,6 @@ public final class BlockquoteLayoutFragment: NSTextLayoutFragment {
     }
 }
 
-/// Paints a thin horizontal rule across the line fragment.
-///
-/// The bundled compiler emits horizontal rules as a single
-/// `HorizontalRuleAttachment` and the attachment paints itself, so the
-/// bundled layout-manager delegate doesn't dispatch to this class. It's
-/// kept on the public surface for hosts that want to render thematic
-/// breaks via a custom layout fragment instead of an attachment.
-public final class HorizontalRuleLayoutFragment: NSTextLayoutFragment {
-    public var ruleColor: PlatformColor = .horizontalRuleDefault
-    public var ruleHeight: CGFloat = 1
-    public var horizontalInset: CGFloat = 0
-
-    public override func draw(at point: CGPoint, in context: CGContext) {
-        let bounds = layoutFragmentFrame
-        let containerWidth = textLayoutManager?.textContainer?.size.width ?? bounds.width
-        let width = max(0, containerWidth - 2 * horizontalInset)
-        let lineY = bounds.height / 2 - ruleHeight / 2
-        let lineRect = CGRect(
-            x: horizontalInset - bounds.origin.x,
-            y: lineY,
-            width: width,
-            height: ruleHeight
-        )
-        context.saveGState()
-        context.translateBy(x: point.x, y: point.y)
-        context.setFillColor(ruleColor.cgColor)
-        context.fill(lineRect)
-        context.restoreGState()
-    }
-}
-
 /// Marker base class used by the layout manager delegate to flag a line
 /// fragment as belonging to a code block. The host text view paints code
 /// block BGs in one continuous run via a `CAShapeLayer` — going through

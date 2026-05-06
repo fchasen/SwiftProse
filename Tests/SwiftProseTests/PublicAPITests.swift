@@ -50,7 +50,7 @@ import UIKit
     @Test func embedderCanInstallCustomDecorationProvider() throws {
         final class FixedProvider: DecorationProvider {
             func decorations(in range: NSRange, storage: NSAttributedString) -> [Decoration] {
-                [Decoration(range: NSRange(location: 0, length: 0), kind: .horizontalRule)]
+                [Decoration(range: NSRange(location: 0, length: 0), kind: .codeBackground(language: nil, position: .single))]
             }
         }
         let provider: DecorationProvider = FixedProvider()
