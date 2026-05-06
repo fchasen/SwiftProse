@@ -490,6 +490,17 @@ public final class EditorController {
         return NSRange(location: 0, length: 0)
     }
 
+    /// Typed view of `currentSelection`. For now, every selection
+    /// surfaces as `.text` — `.node` and `.all` are reserved for future
+    /// commands (Backspace-on-HR selects the node, Cmd+A produces
+    /// `.all`). Hosts that want to react differently to a node selection
+    /// inspect the case.
+    public var currentTypedSelection: Selection {
+        let range = currentSelection
+        let head = range.location + range.length
+        return .text(range: range, anchor: range.location, head: head)
+    }
+
 
     /// Insert plain text at the host text view's cursor (or replace its
     /// selection). Cursor lands after the inserted text.
