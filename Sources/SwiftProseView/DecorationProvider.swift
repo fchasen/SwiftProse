@@ -36,6 +36,33 @@ public protocol DecorationProvider: AnyObject {
     func decorations(in range: NSRange, storage: NSAttributedString) -> [Decoration]
 }
 
+/// Aggregates multiple `DecorationProvider`s into one. Decorations from
+/// each provider are concatenated; downstream consumers sort by zIndex
+/// when painting so layering stays predictable across providers.
+public final class DecorationSet: DecorationProvider {
+    public private(set) var providers: [DecorationProvider] = []
+
+    public init(_ providers: [DecorationProvider] = []) {
+        self.providers = providers
+    }
+
+    public func add(_ provider: DecorationProvider) {
+        providers.append(provider)
+    }
+
+    public func remove(_ provider: DecorationProvider) {
+        providers.removeAll { $0 === provider }
+    }
+
+    public func decorations(in range: NSRange, storage: NSAttributedString) -> [Decoration] {
+        var out: [Decoration] = []
+        for provider in providers {
+            out.append(contentsOf: provider.decorations(in: range, storage: storage))
+        }
+        return out
+    }
+}
+
 /// Decoration provider that reads `proseNodePath` to derive structural
 /// chrome (blockquote bars, code backgrounds, hr lines). Walks paragraph
 /// by paragraph; for each, inspects the path's ancestors and leaf type.
