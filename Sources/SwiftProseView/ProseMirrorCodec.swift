@@ -175,8 +175,15 @@ public struct ProseMirrorCodec {
         if let raw = attrs?["rowspan"] {
             if case .int(let i) = raw { out["rowspan"] = .int(i) }
         }
+        // PM's colwidth is `null | number[]` (one entry per column the cell
+        // spans). Our internal model carries a single int, so collapse the
+        // first array element. Tolerate the legacy `int` shape too.
         if let raw = attrs?["colwidth"] {
-            if case .int(let i) = raw { out["colwidth"] = .int(i) }
+            if case .array(let arr) = raw, let first = arr.first?.intValue {
+                out["colwidth"] = .int(first)
+            } else if case .int(let i) = raw {
+                out["colwidth"] = .int(i)
+            }
         }
         return out
     }
@@ -418,21 +425,17 @@ public struct ProseMirrorCodec {
                 default: continue
                 }
                 var attrs: [String: PMValue] = [:]
-                if let align = cellNode.attrs["align"]?.stringValue {
+                if let align = cellNode.attrs["align"]?.stringValue, !align.isEmpty {
                     attrs["align"] = .string(align)
-                } else {
-                    attrs["align"] = .null
                 }
-                if let cs = cellNode.attrs["colspan"]?.intValue {
+                if let cs = cellNode.attrs["colspan"]?.intValue, cs != 1 {
                     attrs["colspan"] = .int(cs)
                 }
-                if let rs = cellNode.attrs["rowspan"]?.intValue {
+                if let rs = cellNode.attrs["rowspan"]?.intValue, rs != 1 {
                     attrs["rowspan"] = .int(rs)
                 }
                 if let cw = cellNode.attrs["colwidth"]?.intValue {
-                    attrs["colwidth"] = .int(cw)
-                } else {
-                    attrs["colwidth"] = .null
+                    attrs["colwidth"] = .array([.int(cw)])
                 }
                 let inner = cellKids.compactMap { encodeBlock($0) }
                 encodedCells.append(PMNode(

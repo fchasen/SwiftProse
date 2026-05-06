@@ -259,7 +259,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
         "ordered_list",
         "task_list"
     ]
-    let tableCellChildren: Set<String> = ["paragraph"]
+    let tableCellChildren: Set<String> = blockChildren
     return Schema(
         nodeTypes: [
             NodeType(
@@ -357,7 +357,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
             NodeType(
                 name: "table_cell",
                 group: "table_block",
-                content: ContentExpression("paragraph+", allowedNodes: tableCellChildren),
+                content: ContentExpression("block+", allowedNodes: tableCellChildren),
                 attrs: [
                     AttrSpec("align", defaultValue: .null),
                     AttrSpec("colspan", defaultValue: .int(1)),
@@ -368,7 +368,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
             NodeType(
                 name: "table_header",
                 group: "table_block",
-                content: ContentExpression("paragraph+", allowedNodes: tableCellChildren),
+                content: ContentExpression("block+", allowedNodes: tableCellChildren),
                 attrs: [
                     AttrSpec("align", defaultValue: .null),
                     AttrSpec("colspan", defaultValue: .int(1)),
