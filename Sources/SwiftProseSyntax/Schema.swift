@@ -292,7 +292,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
                 name: "ordered_list",
                 group: "block",
                 content: ContentExpression("list_item+", allowedNodes: ["list_item"]),
-                attrs: [AttrSpec("start", defaultValue: .int(1))]
+                attrs: [AttrSpec("order", defaultValue: .int(1))]
             ),
             NodeType(
                 name: "task_list",

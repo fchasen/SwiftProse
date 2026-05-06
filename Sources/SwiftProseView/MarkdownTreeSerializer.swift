@@ -71,7 +71,7 @@ public struct MarkdownTreeSerializer {
             case "blockquote": emitBlockquote(kids, ctx: &ctx)
             case "bullet_list": emitBulletList(kids, ctx: &ctx)
             case "ordered_list":
-                let start = pn.attrs["start"]?.intValue ?? 1
+                let start = pn.attrs["order"]?.intValue ?? 1
                 emitOrderedList(start: start, kids: kids, ctx: &ctx)
             case "task_list": emitTaskList(kids, ctx: &ctx)
             case "list_item": emitListItem(node: pn, kids: kids, ctx: &ctx)

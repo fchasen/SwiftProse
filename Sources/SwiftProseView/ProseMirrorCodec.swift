@@ -348,7 +348,7 @@ public struct ProseMirrorCodec {
                 return PMNode(type: "bullet_list", content: items.orNilIfEmpty())
             case "ordered_list":
                 let items = kids.compactMap { encodeBlock($0) }
-                let start = pn.attrs["start"]?.intValue ?? 1
+                let start = pn.attrs["order"]?.intValue ?? 1
                 let attrs: [String: PMValue]? = (start != 1) ? ["order": .int(start)] : nil
                 return PMNode(type: "ordered_list", attrs: attrs, content: items.orNilIfEmpty())
             case "list_item":
