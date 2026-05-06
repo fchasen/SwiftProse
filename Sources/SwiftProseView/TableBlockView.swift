@@ -1119,25 +1119,17 @@ public final class CellView: PlatformView {
             onFocus: { [weak self] in
                 self?.markActive()
             },
-            onCommand: { [weak self] command in
-                self?.handleCellCommand(command) ?? false
+            onTab: { [weak self] forward in
+                self?.tableParent()?.advanceCellFocus(forward: forward) ?? false
+            },
+            onEscape: { [weak self] in
+                guard let table = self?.tableParent() else { return false }
+                table.resignActiveCell()
+                return true
             }
         )
         self.delegateProxy = proxy
         textView.delegate = proxy
-    }
-
-    fileprivate func handleCellCommand(_ command: CellCommand) -> Bool {
-        guard let table = tableParent() else { return false }
-        switch command {
-        case .advanceForward:
-            return table.advanceCellFocus(forward: true)
-        case .advanceBackward:
-            return table.advanceCellFocus(forward: false)
-        case .cancel:
-            table.resignActiveCell()
-            return true
-        }
     }
 
     /// Make this cell's text view the first responder. Used by Tab /
@@ -1179,24 +1171,21 @@ public final class CellView: PlatformView {
     private var delegateProxy: CellEditDelegate?
 }
 
-fileprivate enum CellCommand {
-    case advanceForward
-    case advanceBackward
-    case cancel
-}
-
 private final class CellEditDelegate: NSObject {
-    private let onChange: () -> Void
-    private let onFocus: () -> Void
-    private let onCommand: (CellCommand) -> Bool
+    fileprivate let onChange: () -> Void
+    fileprivate let onFocus: () -> Void
+    fileprivate let onTab: (Bool) -> Bool
+    fileprivate let onEscape: () -> Bool
     init(
         onChange: @escaping () -> Void,
         onFocus: @escaping () -> Void,
-        onCommand: @escaping (CellCommand) -> Bool
+        onTab: @escaping (Bool) -> Bool,
+        onEscape: @escaping () -> Bool
     ) {
         self.onChange = onChange
         self.onFocus = onFocus
-        self.onCommand = onCommand
+        self.onTab = onTab
+        self.onEscape = onEscape
     }
 
     #if canImport(AppKit) && os(macOS)
@@ -1213,13 +1202,13 @@ private final class CellEditDelegate: NSObject {
 extension CellEditDelegate: NSTextViewDelegate {
     @objc func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if commandSelector == #selector(NSResponder.insertTab(_:)) {
-            return onCommand(.advanceForward)
+            return onTab(true)
         }
         if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
-            return onCommand(.advanceBackward)
+            return onTab(false)
         }
         if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-            return onCommand(.cancel)
+            return onEscape()
         }
         return false
     }
@@ -1238,7 +1227,7 @@ extension CellEditDelegate: UITextViewDelegate {
         replacementText text: String
     ) -> Bool {
         if text == "\t" {
-            _ = onCommand(.advanceForward)
+            _ = onTab(true)
             return false
         }
         return true
