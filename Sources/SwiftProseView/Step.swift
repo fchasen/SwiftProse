@@ -56,6 +56,10 @@ public enum Step {
     /// Walks the storage's `proseNodePath` runs, finds the run whose path
     /// matches by NodeID, and rewrites the leaf with merged attributes.
     case setNodeAttrs(path: NodePath, attrs: [String: ProseAttrValue])
+    /// Position-addressed variant of setNodeAttrs — locates the leaf
+    /// containing `pos` and rewrites its attrs. Survives collab / codec
+    /// round-trips where NodeIDs aren't stable across encode→decode.
+    case setNodeAttrsAt(pos: Int, attrs: [String: ProseAttrValue])
     /// Replace one cell's inline runs inside an isolating-table
     /// attachment. Storage character range stays the same; only
     /// `attachment.subtree` mutates and the view re-renders the cell.
@@ -117,7 +121,55 @@ public enum Step {
             return applyRemoveNodeMark(in: storage, path: path, markType: markType, env: env)
         case .setDocAttr(let name, let value):
             return applySetDocAttr(in: storage, name: name, value: value)
+        case .setNodeAttrsAt(let pos, let attrs):
+            return applySetNodeAttrsAt(in: storage, pos: pos, attrs: attrs)
         }
+    }
+
+    private func applySetNodeAttrsAt(
+        in storage: NSTextStorage,
+        pos: Int,
+        attrs: [String: ProseAttrValue]
+    ) -> AppliedStep {
+        guard pos >= 0, pos < storage.length,
+              let path = storage.nodePath(at: pos),
+              let leaf = path.leaf else {
+            return AppliedStep(
+                inverse: .setNodeAttrsAt(pos: pos, attrs: attrs),
+                mappedRange: NSRange(location: 0, length: 0),
+                affectedLineRange: NSRange(location: 0, length: 0),
+                stepMap: .empty
+            )
+        }
+        // Resolve the full run carrying this leaf so the inverse can
+        // re-apply at the same position even after surrounding edits.
+        let leafID = leaf.id
+        var resolvedRange: NSRange?
+        let priorAttrs = leaf.attrs
+        storage.enumerateNodePaths { runRange, runPath in
+            guard runPath.leaf?.id == leafID else { return }
+            resolvedRange = resolvedRange.map { NSUnionRange($0, runRange) } ?? runRange
+        }
+        guard let safe = resolvedRange else {
+            return AppliedStep(
+                inverse: .setNodeAttrsAt(pos: pos, attrs: priorAttrs),
+                mappedRange: NSRange(location: 0, length: 0),
+                affectedLineRange: NSRange(location: 0, length: 0),
+                stepMap: .empty
+            )
+        }
+        let merged = priorAttrs.merging(attrs) { _, new in new }
+        let updatedLeaf = ProseNode(id: leafID, type: leaf.type, attrs: merged)
+        let updatedPath = NodePath(path.nodes.dropLast() + [updatedLeaf])
+        storage.beginEditing()
+        storage.setNodePath(updatedPath, in: safe)
+        storage.endEditing()
+        return AppliedStep(
+            inverse: .setNodeAttrsAt(pos: pos, attrs: priorAttrs),
+            mappedRange: safe,
+            affectedLineRange: safe,
+            stepMap: .empty
+        )
     }
 
     private func applyAddNodeMark(
@@ -632,6 +684,11 @@ public enum Step {
             return found ? nil : .unknownTableID(tableID)
         case .setDocAttr:
             return nil
+        case .setNodeAttrsAt(let pos, _):
+            if pos < 0 || pos >= len {
+                return .rangeOutOfBounds(NSRange(location: pos, length: 0), length: len)
+            }
+            return nil
         }
     }
 
@@ -643,8 +700,9 @@ public enum Step {
         switch self {
         case .replaceText, .toggleInlineMark, .addMark, .removeMark:
             return false
-        case .setSpec, .replaceAround, .setNodeAttrs, .replaceCellInline,
-             .setTableSubtree, .addNodeMark, .removeNodeMark, .setDocAttr:
+        case .setSpec, .replaceAround, .setNodeAttrs, .setNodeAttrsAt,
+             .replaceCellInline, .setTableSubtree, .addNodeMark,
+             .removeNodeMark, .setDocAttr:
             return true
         }
     }
@@ -714,6 +772,8 @@ public enum Step {
             // Identity-addressed by NodePath / no positional anchor —
             // mapping is a no-op.
             return self
+        case .setNodeAttrsAt(let pos, let attrs):
+            return .setNodeAttrsAt(pos: mapping.map(pos, bias: .before), attrs: attrs)
         }
     }
 
