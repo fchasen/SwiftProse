@@ -302,7 +302,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
             NodeType(
                 name: "list_item",
                 group: "list_item",
-                content: ContentExpression("block+", allowedNodes: listItemChildren),
+                content: ContentExpression("paragraph block*", allowedNodes: listItemChildren),
                 attrs: [
                     AttrSpec("checked", defaultValue: .null),
                     AttrSpec("order", defaultValue: .null)

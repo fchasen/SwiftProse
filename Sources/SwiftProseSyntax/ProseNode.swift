@@ -332,12 +332,8 @@ private func leafNode(for kind: BlockSpec.Kind) -> ProseNode {
         return ProseNode(type: "paragraph")
     case .heading(let level):
         return ProseNode(type: "heading", attrs: ["level": .int(level)])
-    case .unorderedListItem:
+    case .unorderedListItem, .orderedListItem, .taskListItem:
         return ProseNode(type: "paragraph")
-    case .orderedListItem(let index):
-        return ProseNode(type: "paragraph", attrs: ["__listOrder": .int(index)])
-    case .taskListItem(let checked):
-        return ProseNode(type: "paragraph", attrs: ["__listChecked": .bool(checked)])
     case .fencedCode(let language):
         return ProseNode(
             type: "code_block",
@@ -383,22 +379,18 @@ public extension BlockSpec {
         let level = max(0, listPairs - 1)
         switch leaf.type {
         case "paragraph":
-            // Paragraph leaves under a list_item carry __listOrder /
-            // __listChecked attrs that distinguish list-item kinds.
+            // List-item kind comes from the wrapping list_item's attrs (the
+            // typed model carries `checked` / `order` on the item itself).
             if let parent = path.nodes.dropLast().last, parent.type == "list_item" {
                 if let listType = path.nodes.dropLast(2).last?.type {
                     switch listType {
                     case "bullet_list":
                         return BlockSpec(kind: .unorderedListItem, blockquoteDepth: depth, listLevel: level)
                     case "ordered_list":
-                        let index = leaf.attrs["__listOrder"]?.intValue
-                            ?? parent.attrs["order"]?.intValue
-                            ?? 1
+                        let index = parent.attrs["order"]?.intValue ?? 1
                         return BlockSpec(kind: .orderedListItem(index: index), blockquoteDepth: depth, listLevel: level)
                     case "task_list":
-                        let checked = leaf.attrs["__listChecked"]?.boolValue
-                            ?? parent.attrs["checked"]?.boolValue
-                            ?? false
+                        let checked = parent.attrs["checked"]?.boolValue ?? false
                         return BlockSpec(kind: .taskListItem(checked: checked), blockquoteDepth: depth, listLevel: level)
                     default: break
                     }
