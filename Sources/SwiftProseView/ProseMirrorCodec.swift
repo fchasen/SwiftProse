@@ -509,20 +509,10 @@ public struct ProseMirrorCodec {
 }
 
 // MARK: - tree-direct helpers
-
-private extension ProseAttrValue {
-    func toPMValue() -> PMValue {
-        switch self {
-        case .null: return .null
-        case .bool(let v): return .bool(v)
-        case .int(let v): return .int(v)
-        case .double(let v): return .double(v)
-        case .string(let v): return .string(v)
-        case .array(let v): return .array(v.map { $0.toPMValue() })
-        case .object(let v): return .object(v.mapValues { $0.toPMValue() })
-        }
-    }
-}
+//
+// `ProseAttrValue.toPMValue()` and the inverse `init(pmValue:)` live on
+// `Schema`'s SchemaJSON.swift so headless callers can convert without
+// pulling in the View layer.
 
 private extension Array where Element == PMNode {
     func orNilIfEmpty() -> [PMNode]? {
