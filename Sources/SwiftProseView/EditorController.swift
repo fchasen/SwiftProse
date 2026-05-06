@@ -114,6 +114,30 @@ public final class EditorController {
     /// Key spec → EditorAction bindings. Platform text views consult
     /// `keymap.action(forKey:)` before falling back to default behavior.
     public var keymap: Keymap = .mac
+    /// Last input rule that fired and the line range it touched. Backspace
+    /// consults this; if the cursor hasn't moved since the rule fired,
+    /// Backspace undoes the rule rather than deleting a character.
+    public private(set) var lastInputRule: (id: String, lineRange: NSRange)?
+
+    /// Record that an input rule fired. Called by InputRuleRunner.
+    public func didFireInputRule(id: String, lineRange: NSRange) {
+        lastInputRule = (id, lineRange)
+    }
+
+    /// Try to undo the most-recently-fired input rule. Returns true when
+    /// an undo was performed. Bound as the head of the Backspace chain
+    /// so a stray autoprompt rule doesn't confuse the user.
+    @discardableResult
+    public func undoInputRule() -> Bool {
+        guard lastInputRule != nil else { return false }
+        guard undoManager.canUndo else {
+            lastInputRule = nil
+            return false
+        }
+        undoManager.undo()
+        lastInputRule = nil
+        return true
+    }
     /// Registered plugins — order matters: filterTransaction / appendTransaction
     /// run in registration order.
     public private(set) var plugins: [EditorPlugin] = []
@@ -866,6 +890,9 @@ public final class EditorController {
                 didFire = true
             }
         )
+        if didFire, let fired = inputRules.lastFiredRule {
+            lastInputRule = fired
+        }
         if didFire {
             // Inline rules (bold, italic, code-span, etc.) conclude a
             // styling event — the user has just closed `**bold**` or `` `code` ``.
@@ -1279,6 +1306,9 @@ public final class EditorController {
 
     @discardableResult
     public func handleBackspace() -> Bool {
+        // PM convention: Backspace right after an input rule fired undoes
+        // the rule rather than deleting a character.
+        if undoInputRule() { return true }
         let selection = currentSelection
         guard selection.length == 0 else { return false }
         let cursor = selection.location

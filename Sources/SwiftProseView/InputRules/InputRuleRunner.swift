@@ -13,9 +13,17 @@ import UIKit
 public final class InputRuleRunner {
     public private(set) var rules: [InputRule]
     private(set) var isApplying: Bool = false
+    /// Most recently fired rule and the line range it touched. Cleared
+    /// when `evaluate` is called and no rule fires; backspace handlers
+    /// read this to decide whether to undo a rule rather than delete.
+    public private(set) var lastFiredRule: (id: String, lineRange: NSRange)?
 
     public init(rules: [InputRule] = []) {
         self.rules = rules
+    }
+
+    public func clearLastFiredRule() {
+        lastFiredRule = nil
     }
 
     public func register(_ rule: InputRule) {
@@ -87,6 +95,7 @@ public final class InputRuleRunner {
             guard let tx = rule.handler(context) else { continue }
             isApplying = true
             defer { isApplying = false }
+            lastFiredRule = (rule.id, lineRange)
             apply(tx)
             return true
         }
