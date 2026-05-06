@@ -37,6 +37,12 @@ public final class EditorController {
     public weak var hostTextView: AnyObject?
     public var intrinsicSizeInvalidator: (() -> Void)?
     public var onDiagnostic: ((SpecDiagnostic) -> Void)?
+    /// Fires for each `SchemaDiagnostic` produced after a transaction —
+    /// typed-tree-level violations (unknown node/mark types, content-rule
+    /// mismatches, marks on disallowed parents). Distinct from
+    /// `onDiagnostic` so hosts can route them to a separate sink (e.g.
+    /// surface schema drift as warnings rather than user-facing errors).
+    public var onSchemaDiagnostic: ((SchemaDiagnostic) -> Void)?
     /// Fires whenever the host text view's selection moves, with the new
     /// selection range. Hosts wire this to keep an observable selection in
     /// sync without polling. Forwarded by the platform coordinators in
@@ -556,13 +562,29 @@ public final class EditorController {
     /// Validate the spec invariants in `range`, repair drift, and forward
     /// any diagnostics. Called after every transaction so corrupted state
     /// auto-heals before the user sees it.
+    ///
+    /// Two validators run sequentially:
+    /// 1. `SpecValidator` — line-level structural invariants (the
+    ///    historical SwiftProse spec layer); has both `validate` and
+    ///    `repair` paths.
+    /// 2. `SchemaValidator` — typed-tree-level checks (unknown node /
+    ///    mark types, content-rule mismatches, marks on disallowed
+    ///    parents). Reports diagnostics; repair is left to `SpecValidator`.
     func validateAndRepair(in range: NSRange) {
-        let diagnostics = SpecValidator.validate(in: textStorage, range: range)
-        for diagnostic in diagnostics {
+        let specDiagnostics = SpecValidator.validate(in: textStorage, range: range)
+        for diagnostic in specDiagnostics {
             onDiagnostic?(diagnostic)
         }
-        if !diagnostics.isEmpty {
+        if !specDiagnostics.isEmpty {
             SpecValidator.repair(in: textStorage, range: range)
+        }
+        // Project the live storage to a typed tree and run the schema-level
+        // validator. Diagnostics surface through onSchemaDiagnostic so hosts
+        // can wire them into the same surface as block-spec diagnostics.
+        let document = ProseDocument.from(storage: textStorage, schema: compiler.schema)
+        let schemaDiagnostics = SchemaValidator.validate(document)
+        for diagnostic in schemaDiagnostics {
+            onSchemaDiagnostic?(diagnostic)
         }
     }
 
