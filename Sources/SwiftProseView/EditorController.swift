@@ -58,6 +58,9 @@ public final class EditorController {
 
     public let commands: CommandRegistry
     public let inputRules: InputRuleRunner
+    /// Key spec → EditorAction bindings. Platform text views consult
+    /// `keymap.action(forKey:)` before falling back to default behavior.
+    public var keymap: Keymap = .mac
     /// Registry of `NodeViewProvider`s keyed by node-type name. Hosts
     /// register providers at startup to take over the rendering of an
     /// `isolating`-flagged node type (today: `table`). Empty by default —

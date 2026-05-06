@@ -333,14 +333,8 @@ final class ProseNSTextView: NSTextView {
     }
 
     private func shortcutAction(forCommandKey key: String, shift: Bool) -> EditorAction? {
-        switch (key, shift) {
-        case ("b", false): return .bold
-        case ("i", false): return .italic
-        case ("e", false): return .codeSpan
-        case ("]", false): return .indent
-        case ("[", false): return .outdent
-        default: return nil
-        }
+        let spec = KeySpec.make(key: key, mod: true, shift: shift)
+        return proseController?.keymap.action(forKey: spec)
     }
 
     override var intrinsicContentSize: NSSize {
