@@ -1,22 +1,38 @@
 import Foundation
 
 /// One node in the in-memory document tree. Structural nodes hold ordered
-/// children, leaf nodes are terminal (hr, hard_break, image, etc.), and
-/// inline runs hold text plus a `MarkSet`. Inline runs are the only nodes
-/// that carry text content; everything else is a structural container or a
-/// pointless-leaf marker.
+/// children, leaf nodes are terminal (hr, hard_break, image, etc.) and may
+/// carry inline marks (an image inside a link span keeps its link mark),
+/// and inline runs hold text plus a `MarkSet`. Inline runs are the only
+/// nodes that carry text content; everything else is a structural
+/// container or a pointless-leaf marker.
 public indirect enum TreeNode: Sendable, Equatable {
     case structural(ProseNode, [TreeNode])
-    case leaf(ProseNode)
+    case leaf(ProseNode, MarkSet)
     case inline(text: String, marks: MarkSet)
+
+    /// Convenience for callers that don't carry marks on the leaf.
+    public static func leaf(_ node: ProseNode) -> TreeNode {
+        .leaf(node, MarkSet())
+    }
 }
 
 public extension TreeNode {
     var node: ProseNode? {
         switch self {
         case .structural(let node, _): return node
-        case .leaf(let node): return node
+        case .leaf(let node, _): return node
         case .inline: return nil
+        }
+    }
+
+    /// Marks attached to this node, if any. Inline runs and leaves both
+    /// can carry marks; structural nodes do not.
+    var marks: MarkSet {
+        switch self {
+        case .leaf(_, let marks): return marks
+        case .inline(_, let marks): return marks
+        case .structural: return MarkSet()
         }
     }
 
@@ -52,7 +68,7 @@ public extension TreeNode {
     private func isBlockLike(_ child: TreeNode) -> Bool {
         switch child {
         case .inline: return false
-        case .leaf(let node):
+        case .leaf(let node, _):
             // Inline leaves (hard_break) don't insert paragraph separators.
             return node.type != "hard_break"
         case .structural: return true
@@ -148,7 +164,7 @@ public extension ProseDocument {
             ]
             result.append(NSAttributedString(string: text, attributes: attrs))
 
-        case .leaf(let node):
+        case .leaf(let node, let marks):
             // Placeholder character. Block-shaped leaves (horizontal_rule,
             // link_reference) emit "\n" so the paragraph carries the leaf
             // attributes. Inline leaves (hard_break) emit U+2028 (line
@@ -161,7 +177,7 @@ public extension ProseDocument {
             let path = NodePath(ancestors + [node])
             let attrs: [NSAttributedString.Key: Any] = [
                 .proseNodePath: NodePathBox(path),
-                .proseMarks: MarkSetBox(MarkSet())
+                .proseMarks: MarkSetBox(marks)
             ]
             result.append(NSAttributedString(string: placeholder, attributes: attrs))
 
@@ -193,7 +209,7 @@ public extension ProseDocument {
     private func isBlockLike(_ child: TreeNode) -> Bool {
         switch child {
         case .inline: return false
-        case .leaf(let node): return node.type != "hard_break"
+        case .leaf(let node, _): return node.type != "hard_break"
         case .structural: return true
         }
     }
@@ -202,7 +218,7 @@ public extension ProseDocument {
         for kid in kids {
             switch kid {
             case .inline: continue
-            case .leaf(let node) where node.type == "hard_break": continue
+            case .leaf(let node, _) where node.type == "hard_break": continue
             default: return false
             }
         }
@@ -257,7 +273,8 @@ public extension ProseDocument {
             if let leaf = blockPath.leaf, isLeafType(leaf.type, schema: schema) {
                 if isPresentationMarker(in: storage, at: blockRange.location) { return }
                 openTo(parent: blockPath.droppingLast(), stack: &stack, openPath: &openPath)
-                stack[stack.count - 1].kids.append(.leaf(leaf))
+                let marks = storage.markSet(at: blockRange.location) ?? MarkSet()
+                stack[stack.count - 1].kids.append(.leaf(leaf, marks))
                 return
             }
             // When the leaf is an `isolating`-flagged structural node

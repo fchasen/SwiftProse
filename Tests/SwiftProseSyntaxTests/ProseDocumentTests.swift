@@ -392,8 +392,8 @@ struct ProseDocumentTests {
         switch (a, b) {
         case (.inline(let ta, let ma), .inline(let tb, let mb)):
             return ta == tb && ma == mb
-        case (.leaf(let na), .leaf(let nb)):
-            return na.equalsIgnoringID(nb)
+        case (.leaf(let na, let ma), .leaf(let nb, let mb)):
+            return na.equalsIgnoringID(nb) && ma == mb
         case (.structural(let na, let ka), .structural(let nb, let kb)):
             guard na.equalsIgnoringID(nb) else { return false }
             // Allow merged-adjacent inline runs to be reshaped — compare
@@ -435,7 +435,7 @@ struct ProseDocumentTests {
         switch tree {
         case .inline(let text, let marks):
             return "\(indent)inline(\(text.debugDescription) marks=\(marks.marks.map(\.type)))"
-        case .leaf(let node):
+        case .leaf(let node, _):
             return "\(indent)leaf(\(node.type))"
         case .structural(let node, let kids):
             let head = "\(indent)\(node.type) attrs=\(node.attrs)"

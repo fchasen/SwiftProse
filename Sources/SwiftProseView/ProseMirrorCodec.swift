@@ -393,7 +393,7 @@ public struct ProseMirrorCodec {
             default:
                 return nil
             }
-        case .leaf(let pn):
+        case .leaf(let pn, _):
             switch pn.type {
             case "horizontal_rule":
                 return PMNode(type: "horizontal_rule")
@@ -483,9 +483,9 @@ public struct ProseMirrorCodec {
                     pm.marks = marks.marks.map { encodeMark($0) }
                 }
                 out.append(pm)
-            case .leaf(let pn) where pn.type == "hard_break":
+            case .leaf(let pn, _) where pn.type == "hard_break":
                 out.append(PMNode(type: "hard_break"))
-            case .leaf(let pn) where pn.type == "image":
+            case .leaf(let pn, let marks) where pn.type == "image":
                 var pmAttrs: [String: PMValue] = [:]
                 pmAttrs["src"] = .string(pn.attrs["src"]?.stringValue ?? "")
                 if let alt = pn.attrs["alt"]?.stringValue, !alt.isEmpty {
@@ -494,7 +494,11 @@ public struct ProseMirrorCodec {
                 if let title = pn.attrs["title"]?.stringValue, !title.isEmpty {
                     pmAttrs["title"] = .string(title)
                 }
-                out.append(PMNode(type: "image", attrs: pmAttrs))
+                var imgNode = PMNode(type: "image", attrs: pmAttrs)
+                if !marks.isEmpty {
+                    imgNode.marks = marks.marks.map { encodeMark($0) }
+                }
+                out.append(imgNode)
             case .leaf, .structural:
                 continue
             }

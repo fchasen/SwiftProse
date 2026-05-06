@@ -121,18 +121,28 @@ public struct NodePathSynthesizer {
             case .codeSpan:
                 working = working.adding(ProseMark(type: "code"), in: schema)
             case .link:
-                let href: String
-                if let url = attrs[.proseLink] as? String {
+                // The compiler also stamps `.proseInline = .link` on image
+                // alt-text spans (the `[alt]` of `![alt](url)`) even though
+                // no surrounding link region exists. Only synthesize a
+                // `link` mark when the position has a concrete destination
+                // attribute — that signals a real link span, not just
+                // image-internal styling.
+                let href: String?
+                if let url = attrs[.proseLink] as? String, !url.isEmpty {
                     href = url
                 } else if let url = attrs[.link] as? URL {
                     href = url.absoluteString
+                } else if let url = attrs[.link] as? String, !url.isEmpty {
+                    href = url
                 } else {
-                    href = ""
+                    href = nil
                 }
-                working = working.adding(
-                    ProseMark(type: "link", attrs: ["href": .string(href)]),
-                    in: schema
-                )
+                if let href {
+                    working = working.adding(
+                        ProseMark(type: "link", attrs: ["href": .string(href)]),
+                        in: schema
+                    )
+                }
             default:
                 break
             }

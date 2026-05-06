@@ -79,7 +79,7 @@ import UIKit
         #expect(root.type == "doc")
         let topTypes = kids.compactMap { kid -> String? in
             if case .structural(let n, _) = kid { return n.type }
-            if case .leaf(let n) = kid { return n.type }
+            if case .leaf(let n, _) = kid { return n.type }
             return nil
         }
         #expect(topTypes.contains("heading"))

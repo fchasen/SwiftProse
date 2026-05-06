@@ -88,7 +88,7 @@ public struct MarkdownTreeSerializer {
                 // if the wrapping is unrecognized.
                 for child in kids { emitBlock(child, ctx: &ctx) }
             }
-        case .leaf(let pn):
+        case .leaf(let pn, _):
             switch pn.type {
             case "horizontal_rule":
                 ctx.emitBlankLineBetweenBlocks()
@@ -415,10 +415,10 @@ public struct MarkdownTreeSerializer {
             switch child {
             case .inline(let text, let marks):
                 result.append(emitInline(text: text, marks: marks))
-            case .leaf(let node) where node.type == "hard_break":
+            case .leaf(let node, _) where node.type == "hard_break":
                 result.append("  \n")
-            case .leaf(let node) where node.type == "image":
-                result.append(emitImage(node))
+            case .leaf(let node, let marks) where node.type == "image":
+                result.append(emitImage(node, marks: marks))
             case .leaf:
                 continue
             case .structural:
@@ -431,18 +431,25 @@ public struct MarkdownTreeSerializer {
         return result
     }
 
-    private func emitImage(_ node: ProseNode) -> String {
+    private func emitImage(_ node: ProseNode, marks: MarkSet = MarkSet()) -> String {
         let src = node.attrs["src"]?.stringValue ?? ""
         let alt = node.attrs["alt"]?.stringValue ?? ""
         let title = node.attrs["title"]?.stringValue
         let escapedSrc = src
             .replacingOccurrences(of: "(", with: "\\(")
             .replacingOccurrences(of: ")", with: "\\)")
+        var inner: String
         if let title, !title.isEmpty {
             let escapedTitle = title.replacingOccurrences(of: "\"", with: "\\\"")
-            return "![\(alt)](\(escapedSrc) \"\(escapedTitle)\")"
+            inner = "![\(alt)](\(escapedSrc) \"\(escapedTitle)\")"
+        } else {
+            inner = "![\(alt)](\(escapedSrc))"
         }
-        return "![\(alt)](\(escapedSrc))"
+        if let link = marks.mark(of: "link") {
+            let href = link.attrs["href"]?.stringValue ?? ""
+            inner = "[\(inner)](\(href))"
+        }
+        return inner
     }
 
     private func emitInline(text: String, marks: MarkSet) -> String {

@@ -44,7 +44,7 @@ public enum SchemaValidator {
             for kid in kids {
                 validateNode(kid, schema: schema, parent: pn, into: &diagnostics)
             }
-        case .leaf(let pn):
+        case .leaf(let pn, _):
             if schema.nodeType(pn.type) == nil {
                 diagnostics.append(.unknownNodeType(name: pn.type))
             }
@@ -68,7 +68,7 @@ public enum SchemaValidator {
     private static func childTypeName(_ node: TreeNode) -> NodeType.Name {
         switch node {
         case .structural(let pn, _): return pn.type
-        case .leaf(let pn): return pn.type
+        case .leaf(let pn, _): return pn.type
         case .inline: return "text"
         }
     }
