@@ -66,6 +66,39 @@ struct ProseDocumentTests {
         #expect(attempt.marks.map(\.type) == ["code"])
     }
 
+    // MARK: - NodeType.create family
+
+    @Test
+    func nodeTypeCreateFillsDeclaredDefaults() {
+        let ordered = schema.nodeType("ordered_list")!
+        let node = ordered.create()
+        #expect(node.attrs["order"] == .int(1))
+    }
+
+    @Test
+    func nodeTypeCreateMergesPassedAttrsOverDefaults() {
+        let ordered = schema.nodeType("ordered_list")!
+        let node = ordered.create(attrs: ["order": .int(5)])
+        #expect(node.attrs["order"] == .int(5))
+    }
+
+    @Test
+    func nodeTypeCreateCheckedFailsForMissingRequiredAttr() throws {
+        // The default schema has no defaultless attrs — fabricate a node
+        // type with one to exercise the throw path.
+        let nt = NodeType(
+            name: "needsAttr",
+            attrs: [AttrSpec("required" /* no default */)]
+        )
+        do {
+            _ = try nt.createChecked(attrs: [:])
+            Issue.record("createChecked should throw on missing required attr")
+        } catch let NodeTypeAttrError.missingRequired(node, attr) {
+            #expect(node == "needsAttr")
+            #expect(attr == "required")
+        }
+    }
+
     // MARK: - MarkSet semantics
 
     @Test

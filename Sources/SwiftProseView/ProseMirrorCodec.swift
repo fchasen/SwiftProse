@@ -104,7 +104,8 @@ public struct ProseMirrorCodec {
     ) {
         let rows = node.content ?? []
         guard !rows.isEmpty else { return }
-        let tableNode = ProseNode(type: "table")
+        let schema = Schema.defaultMarkdown
+        let tableNode = schema.nodeType("table")?.create() ?? ProseNode(type: "table")
         let spec = context.makeBlockSpec(kind: .paragraph)
         let baseAttrs = schemaMap.baseAttributes(for: spec, theme: theme)
 
@@ -112,16 +113,13 @@ public struct ProseMirrorCodec {
             let isHeader = (row.content ?? []).contains {
                 $0.type == "table_header"
             }
-            let rowNode = ProseNode(
-                type: "table_row",
-                attrs: ["header": .bool(isHeader)]
-            )
+            let rowNode = schema.nodeType("table_row")?.create(attrs: ["header": .bool(isHeader)])
+                ?? ProseNode(type: "table_row", attrs: ["header": .bool(isHeader)])
             for cell in row.content ?? [] {
                 guard cell.type == "table_cell" || cell.type == "table_header" else { continue }
-                let cellNode = ProseNode(
-                    type: cell.type,
-                    attrs: tableCellAttrs(from: cell.attrs)
-                )
+                let cellAttrs = tableCellAttrs(from: cell.attrs)
+                let cellNode = schema.nodeType(cell.type)?.create(attrs: cellAttrs)
+                    ?? ProseNode(type: cell.type, attrs: cellAttrs)
                 let cellLine = NSMutableAttributedString()
                 for paragraph in cell.content ?? [] {
                     for inlineNode in paragraph.content ?? [] {
@@ -282,7 +280,8 @@ public struct ProseMirrorCodec {
                 guard absRange.length > 0,
                       absRange.location + absRange.length <= result.length,
                       let basePath = result.nodePath(at: absRange.location) else { continue }
-                let imageNode = ProseNode(type: "image", attrs: imgAttrs)
+                let imageNode = Schema.defaultMarkdown.nodeType("image")?.create(attrs: imgAttrs)
+                    ?? ProseNode(type: "image", attrs: imgAttrs)
                 let extended = basePath.appending(imageNode)
                 result.setNodePath(extended, in: absRange)
             }

@@ -206,17 +206,14 @@ public extension NodePath {
         predecessor: NodePath? = nil,
         schema: Schema = .defaultMarkdown
     ) -> NodePath {
-        let docNode = predecessor?.root ?? ProseNode(
-            type: schema.topNodeName,
-            attrs: schema.topNode.defaultAttrs()
-        )
+        let docNode = predecessor?.root ?? schema.topNode.create()
         var nodes: [ProseNode] = [docNode]
         let prevBlockquotes = predecessor.map(blockquoteAncestors) ?? []
         for i in 0..<spec.blockquoteDepth {
             if i < prevBlockquotes.count {
                 nodes.append(prevBlockquotes[i])
             } else {
-                nodes.append(ProseNode(type: "blockquote"))
+                nodes.append(mintNode("blockquote", schema: schema))
             }
         }
         if spec.isListItem, let kind = listKind(for: spec.kind) {
@@ -226,13 +223,6 @@ public extension NodePath {
                 let listNode: ProseNode
                 let itemNode: ProseNode
                 let isLeafLevel = (level == depth)
-                // At inner levels (level < depth), an outer list_item from
-                // the predecessor is reused regardless of list kind so that
-                // a nested list of a different kind (e.g. bullet inside
-                // ordered) lives inside the same list_item as its sibling
-                // paragraph. At the leaf level only kind-matching ancestors
-                // are reused — that's how `- a\n- b` shares its list while
-                // `- a\n1. b` doesn't.
                 let canReuse: Bool
                 if level < prevLists.count {
                     canReuse = isLeafLevel ? (prevLists[level].kind == kind) : true
@@ -244,19 +234,21 @@ public extension NodePath {
                     if level < depth {
                         itemNode = prevLists[level].itemNode
                     } else {
-                        itemNode = ProseNode(
-                            type: "list_item",
-                            attrs: itemAttrs(for: spec.kind)
+                        itemNode = mintNode(
+                            "list_item",
+                            attrs: itemAttrs(for: spec.kind),
+                            schema: schema
                         )
                     }
                 } else {
-                    listNode = ProseNode(type: listNodeName(for: kind))
+                    listNode = mintNode(listNodeName(for: kind), schema: schema)
                     if level < depth {
-                        itemNode = ProseNode(type: "list_item")
+                        itemNode = mintNode("list_item", schema: schema)
                     } else {
-                        itemNode = ProseNode(
-                            type: "list_item",
-                            attrs: itemAttrs(for: spec.kind)
+                        itemNode = mintNode(
+                            "list_item",
+                            attrs: itemAttrs(for: spec.kind),
+                            schema: schema
                         )
                     }
                 }
@@ -264,9 +256,23 @@ public extension NodePath {
                 nodes.append(itemNode)
             }
         }
-        nodes.append(leafNode(for: spec.kind))
+        nodes.append(leafNode(for: spec.kind, schema: schema))
         return NodePath(nodes)
     }
+}
+
+/// Build a `ProseNode` of `type` honoring the schema's declared defaults.
+/// Falls back to a bare-attrs constructor when the schema doesn't know
+/// the type — keeps old call sites working during rollout.
+private func mintNode(
+    _ type: String,
+    attrs: [String: ProseAttrValue] = [:],
+    schema: Schema
+) -> ProseNode {
+    if let nt = schema.nodeType(type) {
+        return nt.create(attrs: attrs)
+    }
+    return ProseNode(type: type, attrs: attrs)
 }
 
 private enum ListAncestorKind: Equatable {
@@ -336,36 +342,38 @@ private func itemAttrs(for kind: BlockSpec.Kind) -> [String: ProseAttrValue] {
     }
 }
 
-private func leafNode(for kind: BlockSpec.Kind) -> ProseNode {
+private func leafNode(for kind: BlockSpec.Kind, schema: Schema) -> ProseNode {
     switch kind {
     case .paragraph:
-        return ProseNode(type: "paragraph")
+        return mintNode("paragraph", schema: schema)
     case .heading(let level):
-        return ProseNode(type: "heading", attrs: ["level": .int(level)])
+        return mintNode("heading", attrs: ["level": .int(level)], schema: schema)
     case .unorderedListItem, .orderedListItem, .taskListItem:
-        return ProseNode(type: "paragraph")
+        return mintNode("paragraph", schema: schema)
     case .fencedCode(let language):
-        return ProseNode(
-            type: "code_block",
+        return mintNode(
+            "code_block",
             attrs: [
                 "params": .string(language ?? ""),
                 "fenced": .bool(true)
-            ]
+            ],
+            schema: schema
         )
     case .indentedCode:
-        return ProseNode(
-            type: "code_block",
+        return mintNode(
+            "code_block",
             attrs: [
                 "params": .string(""),
                 "fenced": .bool(false)
-            ]
+            ],
+            schema: schema
         )
     case .horizontalRule:
-        return ProseNode(type: "horizontal_rule")
+        return mintNode("horizontal_rule", schema: schema)
     case .htmlBlock:
-        return ProseNode(type: "html_block")
+        return mintNode("html_block", schema: schema)
     case .linkReferenceDefinition:
-        return ProseNode(type: "link_reference")
+        return mintNode("link_reference", schema: schema)
     }
 }
 

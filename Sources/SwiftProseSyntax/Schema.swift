@@ -188,6 +188,47 @@ public struct NodeType: Sendable, Equatable, Hashable {
         }
         return out
     }
+
+    /// Build a `ProseNode` of this type, filling declared defaults for
+    /// any attribute not present in `attrs`. Mirrors PM's `NodeType.create`
+    /// (the non-checked variant). Required attrs (those with no default)
+    /// that are missing from the passed-in dictionary are simply absent
+    /// on the result — use `createChecked` to fail fast on missing
+    /// required attrs.
+    public func create(attrs: [String: ProseAttrValue] = [:]) -> ProseNode {
+        var merged = defaultAttrs()
+        for (k, v) in attrs { merged[k] = v }
+        return ProseNode(type: name, attrs: merged)
+    }
+
+    /// Same as `create(attrs:)` but throws when any required attribute
+    /// (defaultless) is missing from the input. Mirrors PM's
+    /// `NodeType.createChecked`.
+    public func createChecked(
+        attrs: [String: ProseAttrValue] = [:]
+    ) throws -> ProseNode {
+        for spec in self.attrs where spec.defaultValue == nil {
+            if attrs[spec.name] == nil {
+                throw NodeTypeAttrError.missingRequired(node: name, attr: spec.name)
+            }
+        }
+        return create(attrs: attrs)
+    }
+
+    /// Build a node and let it fill any missing attribute slots from the
+    /// schema defaults. PM's `createAndFill` also computes content-shape
+    /// children for default content; SwiftProse stores no inline children
+    /// inside `ProseNode`, so this collapses to the `create` shape — kept
+    /// as a separate method for callers that want the PM name.
+    public func createAndFill(
+        attrs: [String: ProseAttrValue] = [:]
+    ) -> ProseNode {
+        create(attrs: attrs)
+    }
+}
+
+public enum NodeTypeAttrError: Error, Equatable, Sendable {
+    case missingRequired(node: NodeType.Name, attr: String)
 }
 
 /// Inline mark declaration — type name, attrs (e.g. `href` for link), and
