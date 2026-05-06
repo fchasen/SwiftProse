@@ -481,7 +481,20 @@ public struct ProseMirrorCodec {
                 if !marks.isEmpty {
                     pm.marks = marks.marks.map { encodeMark($0) }
                 }
-                out.append(pm)
+                // Adjacent text-node merging: when the previous emitted
+                // node was a text node carrying the same mark set, fuse
+                // them so the wire form has exactly one PM text run per
+                // contiguous mark span.
+                if let prev = out.last,
+                   prev.type == "text",
+                   pmMarksEqual(prev.marks, pm.marks),
+                   let prevText = prev.text {
+                    var merged = prev
+                    merged.text = prevText + text
+                    out[out.count - 1] = merged
+                } else {
+                    out.append(pm)
+                }
             case .leaf(let pn, _) where pn.type == "hard_break":
                 out.append(PMNode(type: "hard_break"))
             case .leaf(let pn, let marks) where pn.type == "image":
@@ -503,6 +516,19 @@ public struct ProseMirrorCodec {
             }
         }
         return out
+    }
+
+    /// PM-mark-equal helper for the adjacency merge above. Two text runs
+    /// with no marks are equal; non-empty mark lists must match by type
+    /// and attrs in declared order.
+    private func pmMarksEqual(_ a: [PMMark]?, _ b: [PMMark]?) -> Bool {
+        let aa = a ?? []
+        let bb = b ?? []
+        guard aa.count == bb.count else { return false }
+        for (lhs, rhs) in zip(aa, bb) {
+            if lhs != rhs { return false }
+        }
+        return true
     }
 
 }
