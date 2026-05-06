@@ -635,6 +635,37 @@ public enum Step {
         }
     }
 
+    /// Coalesce two adjacent steps when they describe the same logical
+    /// edit — e.g. typing two characters in a row produces two
+    /// `replaceText` inserts that fuse into one. Returns nil when the
+    /// steps don't merge cleanly.
+    public func merge(_ other: Step) -> Step? {
+        switch (self, other) {
+        case let (.replaceText(r1, a1), .replaceText(r2, a2)):
+            // Pure insert at the tail of the previous insert.
+            guard r1.length == 0,
+                  r2.length == 0,
+                  r2.location == r1.location + a1.length else { return nil }
+            let merged = NSMutableAttributedString(attributedString: a1)
+            merged.append(a2)
+            return .replaceText(range: r1, with: merged)
+        case let (.addMark(r1, m1), .addMark(r2, m2)):
+            guard m1.type == m2.type, m1.attrs == m2.attrs else { return nil }
+            let lo = min(r1.location, r2.location)
+            let hi = max(r1.location + r1.length, r2.location + r2.length)
+            guard lo <= hi else { return nil }
+            return .addMark(range: NSRange(location: lo, length: hi - lo), mark: m1)
+        case let (.removeMark(r1, t1), .removeMark(r2, t2)):
+            guard t1 == t2 else { return nil }
+            let lo = min(r1.location, r2.location)
+            let hi = max(r1.location + r1.length, r2.location + r2.length)
+            guard lo <= hi else { return nil }
+            return .removeMark(range: NSRange(location: lo, length: hi - lo), markType: t1)
+        default:
+            return nil
+        }
+    }
+
     public func mapped(through mapping: Mapping) -> Step {
         guard !mapping.maps.isEmpty else { return self }
         switch self {
