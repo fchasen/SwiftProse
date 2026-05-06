@@ -1110,6 +1110,14 @@ public final class EditorController {
                 if onLink && key == .foregroundColor { continue }
                 if let v = raw[key] { attrs[key] = v }
             }
+            // Inline-code carry-forward is gated on the cursor sitting
+            // strictly inside an existing code span — the chars on both
+            // sides must already be tagged. Typing at the trailing edge
+            // (after `code` but before the next char) doesn't extend the
+            // span, matching PM's non-inclusive `code` mark behavior.
+            if isInsideCodeSpan(at: location) {
+                attrs[.proseInline] = InlineTag.codeSpan
+            }
         }
         if let anchor = storedMarksAnchor, anchor == location, !storedInlineMarks.isEmpty {
             attrs = applyingStoredMarks(to: attrs)
@@ -1117,6 +1125,14 @@ public final class EditorController {
             clearStoredInlineMarks()
         }
         applyTypingAttributes(attrs)
+    }
+
+    private func isInsideCodeSpan(at location: Int) -> Bool {
+        let total = textStorage.length
+        guard total > 0, location > 0, location < total else { return false }
+        let before = textStorage.safeAttribute(.proseInline, at: location - 1) as? InlineTag
+        let after = textStorage.safeAttribute(.proseInline, at: location) as? InlineTag
+        return before == .codeSpan && after == .codeSpan
     }
 
     private func applyingStoredMarks(
