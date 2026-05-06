@@ -514,6 +514,8 @@ private extension ProseAttrValue {
         case .int(let v): return .int(v)
         case .double(let v): return .double(v)
         case .string(let v): return .string(v)
+        case .array(let v): return .array(v.map { $0.toPMValue() })
+        case .object(let v): return .object(v.mapValues { $0.toPMValue() })
         }
     }
 }

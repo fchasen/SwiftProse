@@ -26,16 +26,18 @@ public struct NodeID: Sendable, Equatable, Hashable, Codable {
     public init(raw: UUID) { self.raw = raw }
 }
 
-/// JSON-roundtrippable scalar for node and mark attributes. Mirrors the
-/// subset of ProseMirror attribute values we actually use (heading level,
-/// list start index, table-cell alignment, etc.). Nested objects and arrays
-/// aren't needed; expand the case set if a future schema requires them.
-public enum ProseAttrValue: Sendable, Equatable, Hashable {
+/// JSON-roundtrippable value for node and mark attributes. Mirrors PM's
+/// attribute shape — scalars (null / bool / int / double / string) plus
+/// arrays and dictionary objects so cell colwidths, schema attribute
+/// arrays, and nested attribute bags survive the codec.
+public indirect enum ProseAttrValue: Sendable, Equatable, Hashable {
     case null
     case bool(Bool)
     case int(Int)
     case double(Double)
     case string(String)
+    case array([ProseAttrValue])
+    case object([String: ProseAttrValue])
 
     public var stringValue: String? {
         if case .string(let s) = self { return s }
@@ -47,6 +49,14 @@ public enum ProseAttrValue: Sendable, Equatable, Hashable {
     }
     public var boolValue: Bool? {
         if case .bool(let b) = self { return b }
+        return nil
+    }
+    public var arrayValue: [ProseAttrValue]? {
+        if case .array(let v) = self { return v }
+        return nil
+    }
+    public var objectValue: [String: ProseAttrValue]? {
+        if case .object(let v) = self { return v }
         return nil
     }
 }

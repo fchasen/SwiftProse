@@ -32,13 +32,14 @@ public struct PMMark: Codable, Sendable, Equatable {
     }
 }
 
-public enum PMValue: Codable, Sendable, Equatable, Hashable {
+public indirect enum PMValue: Codable, Sendable, Equatable, Hashable {
     case string(String)
     case int(Int)
     case double(Double)
     case bool(Bool)
     case null
     case array([PMValue])
+    case object([String: PMValue])
 
     public var stringValue: String? {
         if case .string(let v) = self { return v }
@@ -57,6 +58,10 @@ public enum PMValue: Codable, Sendable, Equatable, Hashable {
         if case .array(let v) = self { return v }
         return nil
     }
+    public var objectValue: [String: PMValue]? {
+        if case .object(let v) = self { return v }
+        return nil
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
@@ -66,6 +71,7 @@ public enum PMValue: Codable, Sendable, Equatable, Hashable {
         else if let v = try? c.decode(Double.self) { self = .double(v) }
         else if let v = try? c.decode(String.self) { self = .string(v) }
         else if let v = try? c.decode([PMValue].self) { self = .array(v) }
+        else if let v = try? c.decode([String: PMValue].self) { self = .object(v) }
         else { self = .null }
     }
 
@@ -78,6 +84,7 @@ public enum PMValue: Codable, Sendable, Equatable, Hashable {
         case .bool(let v): try c.encode(v)
         case .null: try c.encodeNil()
         case .array(let v): try c.encode(v)
+        case .object(let v): try c.encode(v)
         }
     }
 }
