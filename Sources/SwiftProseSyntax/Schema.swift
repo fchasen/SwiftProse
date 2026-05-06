@@ -281,10 +281,16 @@ public struct AttrSpec: Sendable, Equatable, Hashable {
 public struct ContentExpression: Sendable, Equatable, Hashable {
     public let raw: String
     public let allowedNodes: Set<String>
+    /// Compiled state-machine view of `raw` — exposed so callers needing
+    /// PM-style operations (`matchType`, `validEnd`, `defaultType`) can
+    /// drive the parser directly. Built lazily-equivalent at init.
+    public let match: ContentMatch
 
     public init(_ raw: String, allowedNodes: Set<String>) {
         self.raw = raw
         self.allowedNodes = allowedNodes
+        self.match = ContentMatch.parse(raw, allowedNodes: allowedNodes)
+            ?? ContentMatch(raw: raw, elements: [])
     }
 
     public func allows(child name: NodeType.Name) -> Bool {
@@ -298,6 +304,11 @@ public struct ContentExpression: Sendable, Equatable, Hashable {
         case zeroOrOne   // ?
     }
 
+    /// Trailing quantifier on the expression's last element. Preserved
+    /// for backwards-compatible callers — single-element expressions like
+    /// `"block+"` are common and this answer matches the prior semantics.
+    /// Composite expressions (e.g. `"paragraph block*"`) collapse to the
+    /// trailing element's quantifier.
     public var quantifier: Quantifier {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         switch trimmed.last {
@@ -308,18 +319,16 @@ public struct ContentExpression: Sendable, Equatable, Hashable {
         }
     }
 
-    /// Whether `childTypes` satisfies this expression. Each child must be
-    /// in `allowedNodes`, and the count must satisfy the quantifier.
+    /// Whether `childTypes` satisfies this expression. Backed by the
+    /// compiled `ContentMatch` so multi-element patterns like
+    /// `"paragraph block*"` are validated correctly.
     public func matches(childTypes: [NodeType.Name]) -> Bool {
+        // Defensive: empty allowed set means nothing matches, but PM
+        // schemas never declare such expressions; preserved for tests.
         for type in childTypes where !allowedNodes.contains(type) {
             return false
         }
-        switch quantifier {
-        case .exactlyOne: return childTypes.count == 1
-        case .oneOrMore: return childTypes.count >= 1
-        case .zeroOrMore: return true
-        case .zeroOrOne: return childTypes.count <= 1
-        }
+        return match.matches(childTypes)
     }
 }
 
