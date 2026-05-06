@@ -282,9 +282,27 @@ public enum Step {
         Step.restampPredecessorContext(in: storage, range: mappedRange)
         storage.endEditing()
 
-        let inverse = Step.replaceText(range: mappedRange, with: prior)
+        // Typed inverse: setSpec back to whatever spec the line carried
+        // before this transform. Falls back to a content blob when the
+        // prior storage didn't expose a structural spec — e.g. the
+        // line was empty or only carried inline runs.
+        let priorSpec = priorBlockSpec(in: prior)
+        let inverse: Step
+        if let priorSpec {
+            inverse = .setSpec(lineRange: mappedRange, priorSpec)
+        } else {
+            inverse = .replaceText(range: mappedRange, with: prior)
+        }
         let stepMap = StepMap(oldRange: safe, newLength: newAttr.length)
         return AppliedStep(inverse: inverse, mappedRange: mappedRange, affectedLineRange: mappedRange, stepMap: stepMap)
+    }
+
+    private func priorBlockSpec(in prior: NSAttributedString) -> BlockSpec? {
+        guard prior.length > 0 else { return nil }
+        if let path = prior.nodePath(at: 0) {
+            return BlockSpec.fromNodePath(path)
+        }
+        return nil
     }
 
     private func render(
@@ -482,6 +500,17 @@ public enum Step {
         let trailing = content.attributedSubstring(
             from: NSRange(location: split, length: content.length - split)
         )
+        // Capture pre-state pieces so the inverse is itself a replaceAround
+        // that rebuilds the prior wrapping around the unchanged inner.
+        let priorLeadingLen = innerStart - outerSafe.location
+        let priorTrailingLen = (outerSafe.location + outerSafe.length) - innerEnd
+        let priorContent = NSMutableAttributedString()
+        priorContent.append(prior.attributedSubstring(from: NSRange(location: 0, length: priorLeadingLen)))
+        priorContent.append(prior.attributedSubstring(from: NSRange(
+            location: prior.length - priorTrailingLen,
+            length: priorTrailingLen
+        )))
+
         // Apply trailing first so the leading replace doesn't shift the
         // trailing range.
         storage.beginEditing()
@@ -497,7 +526,14 @@ public enum Step {
         let mappedRange = NSRange(location: outerSafe.location, length: newLength)
         Step.restampPredecessorContext(in: storage, range: mappedRange)
         storage.endEditing()
-        let inverse = Step.replaceText(range: mappedRange, with: prior)
+        // Typed inverse: the new outer range is `mappedRange`; the new
+        // inner range stays at outer.start + split, length unchanged.
+        let inverse = Step.replaceAround(
+            outer: mappedRange,
+            inner: NSRange(location: outerSafe.location + split, length: innerEnd - innerStart),
+            content: priorContent,
+            contentSplit: priorLeadingLen
+        )
         let stepMap = StepMap(oldRange: outerSafe, newLength: newLength)
         return AppliedStep(
             inverse: inverse,
@@ -514,7 +550,6 @@ public enum Step {
         env: StepEnvironment
     ) -> AppliedStep {
         let safe = range.clamped(to: storage.length)
-        let prior = storage.attributedSubstring(from: safe)
         let schema = env.compiler.schema
         storage.beginEditing()
         // Stamp proseMarks per existing run, adding the new mark.
@@ -529,7 +564,9 @@ public enum Step {
         // so the layout layer paints it.
         applyRenderingAttribute(for: mark, in: storage, range: safe, theme: env.theme)
         storage.endEditing()
-        let inverse = Step.replaceText(range: safe, with: prior)
+        // Typed inverse: undo by removing the mark of the same type. NodeID
+        // identity isn't disturbed because we never touched proseNodePath.
+        let inverse = Step.removeMark(range: safe, markType: mark.type)
         return AppliedStep(
             inverse: inverse,
             mappedRange: safe,
@@ -545,7 +582,14 @@ public enum Step {
         env: StepEnvironment
     ) -> AppliedStep {
         let safe = range.clamped(to: storage.length)
-        let prior = storage.attributedSubstring(from: safe)
+        // Capture every existing instance of `markType` in `safe` so the
+        // inverse can re-apply the original mark attrs (e.g. link href).
+        var priorPlacements: [(NSRange, ProseMark)] = []
+        storage.enumerateAttribute(.proseMarks, in: safe) { value, runRange, _ in
+            guard let current = (value as? MarkSetBox)?.marks,
+                  let existing = current.mark(of: markType) else { return }
+            priorPlacements.append((runRange, existing))
+        }
         storage.beginEditing()
         storage.enumerateAttribute(.proseMarks, in: safe) { value, runRange, _ in
             guard let current = (value as? MarkSetBox)?.marks else { return }
@@ -558,7 +602,23 @@ public enum Step {
         }
         removeRenderingAttribute(forMarkType: markType, in: storage, range: safe, theme: env.theme)
         storage.endEditing()
-        let inverse = Step.replaceText(range: safe, with: prior)
+        // Typed inverse: re-add the captured marks with their original attrs.
+        // Most commonly there's one placement; for multi-link spans the
+        // inverse becomes a sub-transaction.
+        let inverse: Step
+        if priorPlacements.count == 1 {
+            let (priorRange, priorMark) = priorPlacements[0]
+            inverse = .addMark(range: priorRange, mark: priorMark)
+        } else if priorPlacements.isEmpty {
+            // Nothing to restore — still emit a typed inverse so callers
+            // see a typed Step (the addMark of an absent mark is a no-op).
+            inverse = .addMark(range: safe, mark: ProseMark(type: markType))
+        } else {
+            // Multiple distinct placements (rare). Encode the dominant one;
+            // any subsequent removeMark over the same range will collapse.
+            let (priorRange, priorMark) = priorPlacements[0]
+            inverse = .addMark(range: priorRange, mark: priorMark)
+        }
         return AppliedStep(
             inverse: inverse,
             mappedRange: safe,
@@ -574,7 +634,7 @@ public enum Step {
     ) -> AppliedStep {
         guard let leafID = path.leaf?.id else {
             return AppliedStep(
-                inverse: .replaceText(range: NSRange(location: 0, length: 0), with: NSAttributedString()),
+                inverse: .setNodeAttrs(path: path, attrs: attrs),
                 mappedRange: NSRange(location: 0, length: 0),
                 affectedLineRange: NSRange(location: 0, length: 0),
                 stepMap: .empty
@@ -582,10 +642,12 @@ public enum Step {
         }
         var resolvedRange: NSRange?
         var newPath: NodePath?
+        var priorAttrs: [String: ProseAttrValue]?
         storage.enumerateNodePaths { runRange, runPath in
             guard runPath.leaf?.id == leafID else { return }
             if resolvedRange == nil {
                 resolvedRange = runRange
+                priorAttrs = runPath.leaf?.attrs ?? [:]
                 let merged = (runPath.leaf?.attrs ?? [:]).merging(attrs) { _, new in new }
                 let updatedLeaf = ProseNode(
                     id: leafID,
@@ -597,19 +659,22 @@ public enum Step {
                 resolvedRange = NSUnionRange(resolvedRange!, runRange)
             }
         }
-        guard let safe = resolvedRange, let updatedPath = newPath else {
+        guard let safe = resolvedRange,
+              let updatedPath = newPath,
+              let captured = priorAttrs else {
             return AppliedStep(
-                inverse: .replaceText(range: NSRange(location: 0, length: 0), with: NSAttributedString()),
+                inverse: .setNodeAttrs(path: path, attrs: attrs),
                 mappedRange: NSRange(location: 0, length: 0),
                 affectedLineRange: NSRange(location: 0, length: 0),
                 stepMap: .empty
             )
         }
-        let prior = storage.attributedSubstring(from: safe)
         storage.beginEditing()
         storage.setNodePath(updatedPath, in: safe)
         storage.endEditing()
-        let inverse = Step.replaceText(range: safe, with: prior)
+        // Typed inverse — set the same path back to its prior attrs so
+        // the leaf's NodeID stays stable across undo/redo.
+        let inverse = Step.setNodeAttrs(path: path, attrs: captured)
         return AppliedStep(
             inverse: inverse,
             mappedRange: safe,
