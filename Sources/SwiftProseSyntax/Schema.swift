@@ -76,6 +76,31 @@ public struct NodeType: Sendable, Equatable, Hashable {
     /// reverse-projection lifts the attachment's structural subtree back
     /// into the document tree at this point.
     public let isolating: Bool
+    /// PM's `atom` spec field — atomic node with non-text content treated
+    /// as a single addressable unit. Combined with `isLeaf` / `isText` to
+    /// derive `isAtom`.
+    public let atomSpec: Bool
+    /// PM's `code` spec field — content is treated as raw text (e.g.
+    /// `code_block`). Coupled with `allowedMarks: .none` in practice.
+    public let isCode: Bool
+    /// PM's `defining` shorthand — true means both `definingForContent`
+    /// and `definingAsContext` are true. When transforms move content out
+    /// of a defining ancestor, the ancestor is preserved.
+    public let defining: Bool
+    /// PM's `definingForContent` — when content from this node is moved,
+    /// the wrapper survives.
+    public let definingForContent: Bool
+    /// PM's `definingAsContext` — when this node sits as a child's
+    /// context, the context survives content edits.
+    public let definingAsContext: Bool
+    /// Whether this node may host a `NodeSelection`. Mirrors PM default
+    /// (true for leaves, false otherwise unless overridden).
+    public let selectable: Bool
+    /// Whether this node may be dragged as a unit.
+    public let draggable: Bool
+    /// Whether this node is the schema's stand-in for a hard linebreak
+    /// (used by typing/serialization to round-trip newline characters).
+    public let linebreakReplacement: Bool
 
     public init(
         name: Name,
@@ -86,7 +111,15 @@ public struct NodeType: Sendable, Equatable, Hashable {
         isText: Bool = false,
         attrs: [AttrSpec] = [],
         allowedMarks: AllowedMarks = .all,
-        isolating: Bool = false
+        isolating: Bool = false,
+        atomSpec: Bool = false,
+        isCode: Bool = false,
+        defining: Bool = false,
+        definingForContent: Bool? = nil,
+        definingAsContext: Bool? = nil,
+        selectable: Bool? = nil,
+        draggable: Bool = false,
+        linebreakReplacement: Bool = false
     ) {
         var resolved = groups
         if let group, !group.isEmpty {
@@ -102,6 +135,15 @@ public struct NodeType: Sendable, Equatable, Hashable {
         self.attrs = attrs
         self.allowedMarks = allowedMarks
         self.isolating = isolating
+        self.atomSpec = atomSpec
+        self.isCode = isCode
+        self.defining = defining
+        self.definingForContent = definingForContent ?? defining
+        self.definingAsContext = definingAsContext ?? defining
+        // PM default: leaves are selectable, non-leaves are not (unless atom).
+        self.selectable = selectable ?? (isLeaf || atomSpec)
+        self.draggable = draggable
+        self.linebreakReplacement = linebreakReplacement
     }
 
     /// Whether `mark` is permitted on this node's content. Convenience
@@ -134,10 +176,10 @@ public struct NodeType: Sendable, Equatable, Hashable {
         return allowed.contains("text") || allowed.contains("hard_break")
     }
 
-    /// Atomic node — leaf or non-text. Mirrors PM's `isAtom`. Used by
-    /// position arithmetic to decide whether a node "counts as" a single
-    /// step or contains addressable children.
-    public var isAtom: Bool { isLeaf || isText }
+    /// Atomic node — leaf, text, or explicitly marked atom via `atomSpec`.
+    /// Mirrors PM's `isAtom`. Used by position arithmetic to decide whether
+    /// a node "counts as" a single step or contains addressable children.
+    public var isAtom: Bool { isLeaf || isText || atomSpec }
 
     public func defaultAttrs() -> [String: ProseAttrValue] {
         var out: [String: ProseAttrValue] = [:]
@@ -301,7 +343,8 @@ private func makeDefaultMarkdownSchema() -> Schema {
             NodeType(
                 name: "blockquote",
                 group: "block",
-                content: ContentExpression("block+", allowedNodes: blockChildren)
+                content: ContentExpression("block+", allowedNodes: blockChildren),
+                defining: true
             ),
             NodeType(
                 name: "bullet_list",
@@ -326,7 +369,8 @@ private func makeDefaultMarkdownSchema() -> Schema {
                 attrs: [
                     AttrSpec("checked", defaultValue: .null),
                     AttrSpec("order", defaultValue: .null)
-                ]
+                ],
+                defining: true
             ),
             NodeType(
                 name: "code_block",
@@ -336,7 +380,9 @@ private func makeDefaultMarkdownSchema() -> Schema {
                     AttrSpec("params", defaultValue: .string("")),
                     AttrSpec("fenced", defaultValue: .bool(true))
                 ],
-                allowedMarks: .none
+                allowedMarks: .none,
+                isCode: true,
+                defining: true
             ),
             NodeType(
                 name: "horizontal_rule",
@@ -404,7 +450,9 @@ private func makeDefaultMarkdownSchema() -> Schema {
             NodeType(
                 name: "hard_break",
                 group: "inline",
-                isLeaf: true
+                isLeaf: true,
+                selectable: false,
+                linebreakReplacement: true
             ),
             NodeType(
                 name: "image",
@@ -414,7 +462,8 @@ private func makeDefaultMarkdownSchema() -> Schema {
                     AttrSpec("src", defaultValue: .string("")),
                     AttrSpec("alt", defaultValue: .string("")),
                     AttrSpec("title", defaultValue: .string(""))
-                ]
+                ],
+                draggable: true
             )
         ],
         markTypes: [
