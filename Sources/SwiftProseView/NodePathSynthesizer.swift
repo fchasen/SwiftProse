@@ -75,7 +75,7 @@ public struct NodePathSynthesizer {
         leafType: String
     ) {
         // Code blocks and html blocks don't carry marks; their content is
-        // literal text (the schema's `allowsMarks: false`).
+        // literal text (the schema's `allowedMarks: .none`).
         switch leafType {
         case "code_block", "html_block", "link_reference":
             storage.setMarkSet(MarkSet(), in: blockRange)

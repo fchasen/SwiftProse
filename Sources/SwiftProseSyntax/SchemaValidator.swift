@@ -9,9 +9,9 @@ public enum SchemaDiagnostic: Equatable, Sendable {
 }
 
 /// Walks a `ProseDocument` and emits diagnostics for schema violations:
-/// unknown node or mark types, content-expression mismatches, marks on
-/// nodes whose type sets `allowsMarks == false` (code blocks, html blocks).
-/// Reports only; line-level storage-shape repair is `SpecValidator`.
+/// unknown node or mark types, content-expression mismatches, marks not
+/// permitted by the parent's `allowedMarks` policy (code blocks, html
+/// blocks). Reports only; line-level storage-shape repair is `SpecValidator`.
 public enum SchemaValidator {
 
     public static func validate(_ document: ProseDocument) -> [SchemaDiagnostic] {
@@ -55,7 +55,7 @@ public enum SchemaValidator {
                     diagnostics.append(.unknownMarkType(name: mark.type))
                     continue
                 }
-                if let parentType, !parentType.allowsMarks {
+                if let parentType, !parentType.allows(mark: mark.type) {
                     diagnostics.append(.markOnDisallowedNode(
                         parent: parent!.type,
                         mark: mark.type

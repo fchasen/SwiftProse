@@ -66,10 +66,10 @@ public struct NodeType: Sendable, Equatable, Hashable {
     public let isLeaf: Bool
     public let isText: Bool
     public let attrs: [AttrSpec]
-    /// Whether this node accepts inline marks on its text content. False for
-    /// code-text contexts (the `code` mark on text inside `code_block` would
-    /// be redundant; emit none).
-    public let allowsMarks: Bool
+    /// Which inline marks the node accepts on its content. Mirrors PM's
+    /// `marks` spec: `all` (default), `none` (code/html blocks suppress
+    /// marks on their text), or a named whitelist.
+    public let allowedMarks: AllowedMarks
     /// Marks the node as a self-managed subtree — a `NodeViewProvider`
     /// renders the storage anchor as a single attachment that owns its own
     /// editing surface (cell grid, image gallery, embedded editor). The
@@ -85,7 +85,7 @@ public struct NodeType: Sendable, Equatable, Hashable {
         isLeaf: Bool = false,
         isText: Bool = false,
         attrs: [AttrSpec] = [],
-        allowsMarks: Bool = true,
+        allowedMarks: AllowedMarks = .all,
         isolating: Bool = false
     ) {
         var resolved = groups
@@ -100,8 +100,19 @@ public struct NodeType: Sendable, Equatable, Hashable {
         self.isLeaf = isLeaf
         self.isText = isText
         self.attrs = attrs
-        self.allowsMarks = allowsMarks
+        self.allowedMarks = allowedMarks
         self.isolating = isolating
+    }
+
+    /// Whether `mark` is permitted on this node's content. Convenience
+    /// wrapper over `allowedMarks` so callers don't need to switch over the
+    /// enum every time.
+    public func allows(mark: MarkType.Name) -> Bool {
+        switch allowedMarks {
+        case .all: return true
+        case .none: return false
+        case .named(let set): return set.contains(mark)
+        }
     }
 
     public var group: String? { groups.first }
@@ -164,6 +175,15 @@ public struct MarkType: Sendable, Equatable, Hashable {
         self.excludes = excludes
         self.inclusive = inclusive
     }
+}
+
+/// Per-node policy for which inline marks may appear on the node's content.
+/// Mirrors ProseMirror's `marks` spec field — `"_"` (any), `""` (none), or
+/// a named whitelist. Carried on `NodeType.allowedMarks`.
+public enum AllowedMarks: Sendable, Equatable, Hashable {
+    case all
+    case none
+    case named(Set<MarkType.Name>)
 }
 
 public struct AttrSpec: Sendable, Equatable, Hashable {
@@ -316,7 +336,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
                     AttrSpec("params", defaultValue: .string("")),
                     AttrSpec("fenced", defaultValue: .bool(true))
                 ],
-                allowsMarks: false
+                allowedMarks: .none
             ),
             NodeType(
                 name: "horizontal_rule",
@@ -327,7 +347,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
                 name: "html_block",
                 group: "block",
                 content: ContentExpression("text*", allowedNodes: ["text"]),
-                allowsMarks: false
+                allowedMarks: .none
             ),
             NodeType(
                 name: "link_reference",

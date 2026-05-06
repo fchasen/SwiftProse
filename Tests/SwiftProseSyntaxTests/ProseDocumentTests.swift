@@ -28,9 +28,9 @@ struct ProseDocumentTests {
 
     @Test
     func codeBlockDoesNotAllowMarks() {
-        #expect(schema.nodeType("code_block")?.allowsMarks == false)
-        #expect(schema.nodeType("html_block")?.allowsMarks == false)
-        #expect(schema.nodeType("paragraph")?.allowsMarks == true)
+        #expect(schema.nodeType("code_block")?.allowedMarks == AllowedMarks.none)
+        #expect(schema.nodeType("html_block")?.allowedMarks == AllowedMarks.none)
+        #expect(schema.nodeType("paragraph")?.allowedMarks == AllowedMarks.all)
     }
 
     @Test
