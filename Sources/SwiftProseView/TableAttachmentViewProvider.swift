@@ -36,6 +36,14 @@ public final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
     /// to the active controller.
     public static var sharedDispatch: ((Transaction) -> Void)? = nil
 
+    /// Closure invoked when a `TableBlockView`'s reported intrinsic size
+    /// changes after a cell or structural mutation. The controller hooks
+    /// this to call `layoutManager.invalidateLayout(for:)` for the
+    /// attachment's storage range — without that, TextKit 2 keeps the
+    /// previously-reported `attachmentBounds` and the line fragment
+    /// hosting the table clips taller rows.
+    public static var sharedInvalidateAttachment: ((ProseNodeAttachment) -> Void)? = nil
+
     public override func loadView() {
         super.loadView()
         let theme = TableAttachmentViewProvider.sharedTheme
@@ -67,6 +75,15 @@ public final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
         if let attachment = textAttachment as? ProseNodeAttachment {
             attachment.viewProvider = self
             attachment.boundView = blockView
+        }
+        // Wire the block view's layout-change notification to TextKit 2
+        // layout invalidation. Cell edits / structural mutations grow or
+        // shrink the table; without this, the line fragment hosting the
+        // attachment keeps its prior height and clips the new rows.
+        blockView.layoutDidChange = { [weak self] in
+            guard let self,
+                  let att = self.textAttachment as? ProseNodeAttachment else { return }
+            TableAttachmentViewProvider.sharedInvalidateAttachment?(att)
         }
         // Tell TextKit 2 to track the view's bounds so layout updates
         // when the grid grows after a structural mutation (insert row,

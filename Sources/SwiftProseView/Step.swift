@@ -136,6 +136,11 @@ public enum Step {
         rows[rowIdx] = .structural(rowNode, cells)
         attachment.update(subtree: .structural(table, rows))
         attachment.boundView?.updateCellInline(row: rowIdx, column: colIdx, runs: runs)
+        // The bound view's `layoutDidChange` already routes through this
+        // hook on-screen, but off-screen attachments have no realized
+        // view yet — invalidate directly so the storage range is flagged
+        // for re-query when the attachment scrolls in.
+        TableAttachmentViewProvider.sharedInvalidateAttachment?(attachment)
         let inverse = Step.replaceCellInline(
             tableID: tableID, row: rowIdx, column: colIdx, runs: priorRuns
         )
@@ -163,6 +168,7 @@ public enum Step {
         let prior = attachment.subtree
         attachment.update(subtree: subtree)
         attachment.boundView?.update(subtree: subtree)
+        TableAttachmentViewProvider.sharedInvalidateAttachment?(attachment)
         let inverse = Step.setTableSubtree(tableID: tableID, subtree: prior)
         return AppliedStep(
             inverse: inverse,

@@ -151,6 +151,14 @@ public final class EditorController {
         TableAttachmentViewProvider.sharedDispatch = { [weak self] tx in
             _ = self?.apply(tx)
         }
+        // When a cell edit / structural mutation changes the table's
+        // measured size, the view provider asks us to invalidate the
+        // attachment's storage range so TextKit 2 re-queries
+        // `attachmentBounds`. Without this, line fragments host the
+        // table at its stale height and clip the taller rows.
+        TableAttachmentViewProvider.sharedInvalidateAttachment = { [weak self] att in
+            self?.invalidateTableAttachmentLayout(att)
+        }
 
         storageObserver = NotificationCenter.default.addObserver(
             forName: NSTextStorage.didProcessEditingNotification,
@@ -1298,6 +1306,88 @@ public final class EditorController {
 
     private func compileFor(_ markdown: String) -> NSAttributedString {
         return compiler.compile(markdown, theme: theme)
+    }
+
+    /// Invalidate the storage range hosting a specific table
+    /// attachment so TextKit 2 re-queries its `attachmentBounds` —
+    /// fired by `TableAttachmentViewProvider` whenever the realized
+    /// `TableBlockView` reports a new intrinsic size after a cell edit
+    /// or structural mutation.
+    ///
+    /// In `.fitsContent` mode `intrinsicSizeInvalidator` triggers the
+    /// host's layout pipeline to re-read `usageBoundsForTextContainer`.
+    /// In `.fillContainer` mode no invalidator is wired, so this method
+    /// also calls `ensureLayout` on the document range and nudges the
+    /// host text view directly — without that, the line fragment
+    /// hosting the table keeps its old height and the scroll view's
+    /// content size never widens to fit the taller table.
+    func invalidateTableAttachmentLayout(_ attachment: ProseNodeAttachment) {
+        guard textStorage.length > 0 else { return }
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        var hits: [NSRange] = []
+        textStorage.enumerateAttribute(
+            NSAttributedString.Key("NSAttachment"),
+            in: fullRange
+        ) { value, range, _ in
+            guard let att = value as? ProseNodeAttachment, att === attachment else { return }
+            hits.append(range)
+        }
+        guard !hits.isEmpty else { return }
+        let docStart = contentStorage.documentRange.location
+        for range in hits {
+            guard let start = contentStorage.location(docStart, offsetBy: range.location),
+                  let end = contentStorage.location(docStart, offsetBy: range.location + range.length),
+                  let textRange = NSTextRange(location: start, end: end) else { continue }
+            layoutManager.invalidateLayout(for: textRange)
+        }
+        // Force the layout manager to re-run the invalidated fragment
+        // synchronously so `attachmentBounds` is queried with the
+        // attachment's new subtree before any caller reads
+        // `usageBoundsForTextContainer`.
+        layoutManager.ensureLayout(for: contentStorage.documentRange)
+        intrinsicSizeInvalidator?()
+        // `.fillContainer` mode never wires `intrinsicSizeInvalidator`,
+        // and even in `.fitsContent` mode the text view's frame doesn't
+        // re-read the new `usageBoundsForTextContainer` until a layout
+        // pass kicks off. Mark the host as needing layout / display so
+        // the scroll view (or intrinsic-size driven container) reflows
+        // around the taller table on the next runloop tick.
+        #if canImport(AppKit) && os(macOS)
+        if let tv = hostTextView as? NSTextView {
+            tv.needsLayout = true
+            tv.needsDisplay = true
+            // In `.fillContainer` (NSScrollView), NSTextView's auto-
+            // resize fires on character edits. Our attribute-only
+            // attachment mutation doesn't trigger it, so the text view
+            // keeps its old frame and the scroll view never widens to
+            // expose the taller table. Push the frame up to the layout
+            // manager's reported usage now.
+            let used = layoutManager.usageBoundsForTextContainer
+            let inset = tv.textContainerInset
+            let neededHeight = used.height + inset.height * 2
+            if tv.frame.height < neededHeight - 0.5 {
+                var newFrame = tv.frame
+                newFrame.size.height = neededHeight
+                tv.frame = newFrame
+            }
+        }
+        #else
+        if let tv = hostTextView as? UITextView {
+            tv.setNeedsLayout()
+            tv.setNeedsDisplay()
+            // UITextView caches contentSize from its layout; nudge it
+            // when the layout grew but no character edit fired.
+            let used = layoutManager.usageBoundsForTextContainer
+            let inset = tv.textContainerInset
+            let neededHeight = used.height + inset.top + inset.bottom
+            if tv.contentSize.height < neededHeight - 0.5 {
+                tv.contentSize = CGSize(
+                    width: tv.contentSize.width,
+                    height: neededHeight
+                )
+            }
+        }
+        #endif
     }
 
     /// Invalidate layout for every range that hosts a table attachment

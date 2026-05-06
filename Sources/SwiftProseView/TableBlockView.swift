@@ -141,9 +141,33 @@ public final class TableBlockView: PlatformView {
 
     private(set) var cellViews: [[CellView]] = []
 
+    /// Cached row heights — `nil` entries are stale and re-probed on
+    /// next `rowHeights()` call. Targeted invalidation keeps per-
+    /// keystroke editing affordable: a single cell edit only invalidates
+    /// its row, leaving sibling rows' measurements intact.
+    private var cachedRowHeights: [CGFloat?] = []
+    /// Cached column widths keyed by container width. Invalidated when
+    /// a cell's content changes (natural widths shift) or the container
+    /// resizes.
+    private var cachedColumnWidths: (containerWidth: CGFloat, widths: [CGFloat])?
+
+    /// Closure fired when the table's reported intrinsic size changes
+    /// after a cell or structural mutation. Wired by
+    /// `TableAttachmentViewProvider` to invalidate the attachment's
+    /// storage range in TextKit 2 so the line fragment hosting this
+    /// table re-queries `attachmentBounds` and the document reflows.
+    public var layoutDidChange: (() -> Void)?
+
     /// Minimum cell height. Cell typography sets a higher one if needed.
     static let minRowHeight: CGFloat = 36
     static let minTableWidth: CGFloat = 280
+    /// Floor for any column's width — keeps very-narrow tables legible
+    /// even when their natural content widths are tiny.
+    static let minColumnWidth: CGFloat = 64
+    /// Cap on a column's natural single-line width so one long word
+    /// can't push a column past the container. Past this width the cell
+    /// wraps.
+    static let maxNaturalColumnWidth: CGFloat = 360
     static let cellHorizontalPadding: CGFloat = 8
     static let cellVerticalPadding: CGFloat = 6
     static let borderWidth: CGFloat = 1
@@ -181,8 +205,10 @@ public final class TableBlockView: PlatformView {
     /// Replace the displayed subtree (e.g. after a structural command).
     public func update(subtree: TreeNode) {
         self.subtree = subtree
+        invalidateAllRows()
+        invalidateColumnWidths()
         rebuild()
-        layoutCells()
+        reflowAfterMutation()
     }
 
     /// Replace just one cell's inline content (a `Step.replaceCellInline`
@@ -207,6 +233,71 @@ public final class TableBlockView: PlatformView {
             self.subtree = .structural(table, rows)
         }
         cellViews[rowIdx][colIdx].applyInlineRuns(runs)
+        invalidateRow(rowIdx)
+        // Natural-width per column may have shifted; invalidate so the
+        // grid redistributes width on next layout pass.
+        invalidateColumnWidths()
+        reflowAfterMutation()
+    }
+
+    /// Recompute intrinsic size against the current container width and
+    /// resize the realized view in lock-step. Fires `layoutDidChange`
+    /// when the reported size differs from the prior frame so the host
+    /// layout manager re-queries `attachmentBounds` (otherwise the line
+    /// fragment hosting this table keeps its old height and clips
+    /// taller rows).
+    private func reflowAfterMutation() {
+        let proposedWidth = bounds.width > 0 ? bounds.width : Self.minTableWidth
+        let newSize = TableBlockView.intrinsicSize(
+            for: subtree,
+            theme: theme,
+            proposedWidth: proposedWidth
+        )
+        let sizeChanged = abs(newSize.height - frame.height) > 0.5
+            || abs(newSize.width - frame.width) > 0.5
+        if sizeChanged {
+            // Setting the frame triggers `setFrameSize` / `frame.didSet`,
+            // which itself invalidates the caches and re-runs
+            // `layoutCells` — match the order of operations in the
+            // initial layout path.
+            #if canImport(AppKit) && os(macOS)
+            self.frame = CGRect(origin: frame.origin, size: newSize)
+            needsLayout = true
+            needsDisplay = true
+            #else
+            self.frame = CGRect(origin: frame.origin, size: newSize)
+            setNeedsLayout()
+            setNeedsDisplay()
+            #endif
+            layoutDidChange?()
+        } else {
+            // Width / total height unchanged but a row might have
+            // shifted — relayout in place.
+            layoutCells()
+            #if canImport(AppKit) && os(macOS)
+            needsDisplay = true
+            #else
+            setNeedsDisplay()
+            #endif
+        }
+    }
+
+    private func invalidateRow(_ row: Int) {
+        guard row >= 0, row < cachedRowHeights.count else { return }
+        cachedRowHeights[row] = nil
+    }
+
+    private func invalidateAllRows() {
+        cachedRowHeights = Array(
+            repeating: nil,
+            count: TableBlockView.dimensions(of: subtree).rows
+        )
+    }
+
+    private func invalidateColumnWidths() {
+        cachedColumnWidths = nil
+        // Column widths drive cell wrapping; row heights are stale too.
+        invalidateAllRows()
     }
 
     public static func intrinsicSize(
@@ -218,28 +309,97 @@ public final class TableBlockView: PlatformView {
         guard dims.cols > 0, dims.rows > 0 else {
             return CGSize(width: max(proposedWidth, minTableWidth), height: minRowHeight)
         }
-        // Must match the width `layoutCells` later wraps against.
-        let width = max(proposedWidth, 1)
-        let colWidth = width / CGFloat(dims.cols)
-        var totalHeight: CGFloat = 0
-        guard case .structural(_, let rows) = subtree else { return .zero }
-        for row in rows {
-            guard case .structural(_, let cells) = row else { continue }
-            var rowHeight = minRowHeight
-            for cell in cells {
-                let h = CellView.measureHeight(
-                    cell: cell,
-                    width: colWidth,
-                    theme: theme
-                )
-                rowHeight = max(rowHeight, h)
-            }
-            totalHeight += rowHeight + rowMeasurementSlack
-        }
+        // Must match the widths `layoutCells` later wraps against.
+        let widths = measureColumnWidths(
+            for: subtree,
+            theme: theme,
+            containerWidth: max(proposedWidth, 1)
+        )
+        let totalWidth = widths.reduce(0, +)
+        let heights = measureRowHeights(for: subtree, theme: theme, columnWidths: widths)
+        let totalHeight = heights.reduce(0, +)
         return CGSize(
-            width: width,
+            width: totalWidth,
             height: totalHeight + 2 * borderWidth + tableMeasurementSlack
         )
+    }
+
+    /// Compute per-column widths from cell content. Each column's
+    /// natural width is the max measured single-line width across its
+    /// cells (capped at `maxNaturalColumnWidth`, floored at
+    /// `minColumnWidth`). The result is then scaled to fit the
+    /// container — proportionally up if natural totals are narrower,
+    /// proportionally down with floor clamping if wider.
+    public static func measureColumnWidths(
+        for subtree: TreeNode,
+        theme: ProseTheme,
+        containerWidth: CGFloat
+    ) -> [CGFloat] {
+        let dims = dimensions(of: subtree)
+        guard dims.cols > 0 else { return [] }
+        guard case .structural(_, let rows) = subtree else { return [] }
+        var natural = [CGFloat](repeating: minColumnWidth, count: dims.cols)
+        for row in rows {
+            guard case .structural(_, let cells) = row else { continue }
+            for (col, cell) in cells.enumerated() where col < dims.cols {
+                let w = CellView.measureNaturalWidth(cell: cell, theme: theme)
+                natural[col] = max(natural[col], min(w, maxNaturalColumnWidth))
+            }
+        }
+        natural = natural.map { max($0, minColumnWidth) }
+        let target = max(containerWidth, minTableWidth)
+        let totalNatural = natural.reduce(0, +)
+        guard totalNatural > 0 else {
+            return Array(repeating: target / CGFloat(dims.cols), count: dims.cols)
+        }
+        if totalNatural <= target {
+            // Scale up proportionally so the table fills the container.
+            // Preserves the content-driven proportions.
+            let scale = target / totalNatural
+            return natural.map { $0 * scale }
+        }
+        // Total natural exceeds container — shrink columns above the
+        // floor proportionally until the total fits or every column is
+        // pinned to `minColumnWidth`. If everything is at the floor and
+        // we still overflow, accept the overflow rather than crushing
+        // legibility further.
+        var widths = natural
+        for _ in 0..<dims.cols {
+            let total = widths.reduce(0, +)
+            if total <= target { break }
+            let overshoot = total - target
+            var shrinkableTotal: CGFloat = 0
+            for w in widths where w > minColumnWidth { shrinkableTotal += w - minColumnWidth }
+            if shrinkableTotal <= 0 { break }
+            for idx in 0..<widths.count where widths[idx] > minColumnWidth {
+                let headroom = widths[idx] - minColumnWidth
+                let share = (headroom / shrinkableTotal) * overshoot
+                widths[idx] = max(minColumnWidth, widths[idx] - share)
+            }
+        }
+        return widths
+    }
+
+    /// Per-row heights using the supplied column widths. A row's
+    /// height is the tallest cell at that column's width, with a
+    /// floor of `minRowHeight` and a sub-pixel slack added per row.
+    public static func measureRowHeights(
+        for subtree: TreeNode,
+        theme: ProseTheme,
+        columnWidths: [CGFloat]
+    ) -> [CGFloat] {
+        guard case .structural(_, let rows) = subtree else { return [] }
+        return rows.map { row in
+            guard case .structural(_, let cells) = row else {
+                return minRowHeight + rowMeasurementSlack
+            }
+            var h = minRowHeight
+            for (idx, cell) in cells.enumerated() {
+                let w = idx < columnWidths.count ? columnWidths[idx] : minColumnWidth
+                h = max(h, CellView.measureHeight(cell: cell, width: w, theme: theme))
+            }
+            return h + rowMeasurementSlack
+        }
     }
 
     public static func dimensions(of subtree: TreeNode) -> (rows: Int, cols: Int) {
@@ -254,6 +414,12 @@ public final class TableBlockView: PlatformView {
     private func rebuild() {
         for row in cellViews { for cell in row { cell.removeFromSuperview() } }
         cellViews = []
+        // Reset the row-height cache to match the new structural shape.
+        cachedRowHeights = Array(
+            repeating: nil,
+            count: TableBlockView.dimensions(of: subtree).rows
+        )
+        cachedColumnWidths = nil
         guard case .structural(_, let rows) = subtree else { return }
         for (rowIdx, row) in rows.enumerated() {
             guard case .structural(let rowNode, let cells) = row else { continue }
@@ -298,22 +464,49 @@ public final class TableBlockView: PlatformView {
     private func columnWidths() -> [CGFloat] {
         let dims = TableBlockView.dimensions(of: subtree)
         guard dims.cols > 0, bounds.width > 0 else { return [] }
-        let w = bounds.width / CGFloat(dims.cols)
-        return Array(repeating: w, count: dims.cols)
+        if let cached = cachedColumnWidths,
+           abs(cached.containerWidth - bounds.width) < 0.5,
+           cached.widths.count == dims.cols {
+            return cached.widths
+        }
+        let widths = TableBlockView.measureColumnWidths(
+            for: subtree,
+            theme: theme,
+            containerWidth: bounds.width
+        )
+        cachedColumnWidths = (containerWidth: bounds.width, widths: widths)
+        return widths
     }
 
     private func rowHeights() -> [CGFloat] {
         guard case .structural(_, let rows) = subtree else { return [] }
         let widths = columnWidths()
-        return rows.map { row in
-            guard case .structural(_, let cells) = row else { return Self.minRowHeight + Self.rowMeasurementSlack }
+        if cachedRowHeights.count != rows.count {
+            cachedRowHeights = Array(repeating: nil, count: rows.count)
+        }
+        var result: [CGFloat] = []
+        result.reserveCapacity(rows.count)
+        for (rowIdx, row) in rows.enumerated() {
+            if let cached = cachedRowHeights[rowIdx] {
+                result.append(cached)
+                continue
+            }
+            guard case .structural(_, let cells) = row else {
+                let h = Self.minRowHeight + Self.rowMeasurementSlack
+                cachedRowHeights[rowIdx] = h
+                result.append(h)
+                continue
+            }
             var h = Self.minRowHeight
             for (idx, cell) in cells.enumerated() {
-                let w = idx < widths.count ? widths[idx] : 0
+                let w = idx < widths.count ? widths[idx] : Self.minColumnWidth
                 h = max(h, CellView.measureHeight(cell: cell, width: w, theme: theme))
             }
-            return h + Self.rowMeasurementSlack
+            let total = h + Self.rowMeasurementSlack
+            cachedRowHeights[rowIdx] = total
+            result.append(total)
         }
+        return result
     }
 
     private func layoutCells() {
@@ -340,7 +533,9 @@ public final class TableBlockView: PlatformView {
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = abs(newSize.width - frame.width) > 0.5
         super.setFrameSize(newSize)
+        if widthChanged { invalidateColumnWidths() }
         layoutCells()
         needsDisplay = true
     }
@@ -359,7 +554,13 @@ public final class TableBlockView: PlatformView {
     }
 
     public override var frame: CGRect {
-        didSet { layoutCells(); setNeedsDisplay() }
+        didSet {
+            if abs(frame.width - oldValue.width) > 0.5 {
+                invalidateColumnWidths()
+            }
+            layoutCells()
+            setNeedsDisplay()
+        }
     }
 
     public override func draw(_ rect: CGRect) {
@@ -595,6 +796,79 @@ public final class CellView: PlatformView {
         }()
         let usableWidth = max(1, width)
         return measureViaProbe(attributed: attributed, width: usableWidth)
+    }
+
+    /// Single-line natural width of `cell`'s content, measured at
+    /// unbounded width. Used by `TableBlockView.measureColumnWidths` to
+    /// derive content-aware column proportions before line wrapping
+    /// has been decided. Mirrors the pixel-exact configuration of the
+    /// live cell text view (padding, font, alignment) so the live
+    /// render matches the budget.
+    public static func measureNaturalWidth(
+        cell: TreeNode,
+        theme: ProseTheme
+    ) -> CGFloat {
+        let isHeader = cellIsHeader(cell)
+        let alignment = parseAlignment(cell)
+        let attributed = buildAttributedString(
+            cell: cell,
+            isHeader: isHeader,
+            alignment: alignment,
+            theme: theme
+        )
+        if attributed.length == 0 { return TableBlockView.minColumnWidth }
+        return measureNaturalWidthViaProbe(attributed: attributed)
+    }
+
+    private static func measureNaturalWidthViaProbe(
+        attributed: NSAttributedString
+    ) -> CGFloat {
+        #if canImport(AppKit) && os(macOS)
+        let probe = NSTextView(frame: .zero)
+        probe.isEditable = false
+        probe.isSelectable = false
+        probe.drawsBackground = false
+        probe.textContainer?.lineFragmentPadding = 0
+        probe.textContainer?.widthTracksTextView = false
+        probe.textContainerInset = NSSize(
+            width: TableBlockView.cellHorizontalPadding,
+            height: TableBlockView.cellVerticalPadding
+        )
+        probe.textContainer?.size = CGSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        probe.textStorage?.setAttributedString(attributed)
+        if let lm = probe.layoutManager, let tc = probe.textContainer {
+            lm.ensureLayout(for: tc)
+            let used = lm.usedRect(for: tc)
+            return ceil(used.width) + 2 * TableBlockView.cellHorizontalPadding
+        }
+        return TableBlockView.minColumnWidth
+        #else
+        let probe = UITextView(
+            frame: .zero,
+            textContainer: nil
+        )
+        probe.isEditable = false
+        probe.isSelectable = false
+        probe.backgroundColor = .clear
+        probe.textContainer.lineFragmentPadding = 0
+        probe.textContainerInset = UIEdgeInsets(
+            top: TableBlockView.cellVerticalPadding,
+            left: TableBlockView.cellHorizontalPadding,
+            bottom: TableBlockView.cellVerticalPadding,
+            right: TableBlockView.cellHorizontalPadding
+        )
+        probe.attributedText = attributed
+        let fitting = probe.sizeThatFits(
+            CGSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        )
+        return ceil(fitting.width)
+        #endif
     }
 
     private static func measureViaProbe(
