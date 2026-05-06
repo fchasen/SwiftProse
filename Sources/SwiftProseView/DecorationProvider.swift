@@ -80,7 +80,8 @@ public final class BlockSpecDecorationProvider: DecorationProvider {
         guard let leaf = path.leaf else { return }
         switch leaf.type {
         case "code_block":
-            let language = leaf.attrs["language"]?.stringValue
+            let params = leaf.attrs["params"]?.stringValue
+            let language = (params?.isEmpty == false) ? params : nil
             let position = runPosition(for: line, in: storage) { p in
                 p.leaf?.type == "code_block"
             }

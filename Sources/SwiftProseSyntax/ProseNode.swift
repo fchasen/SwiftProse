@@ -342,7 +342,7 @@ private func leafNode(for kind: BlockSpec.Kind) -> ProseNode {
         return ProseNode(
             type: "code_block",
             attrs: [
-                "language": language.map(ProseAttrValue.string) ?? .null,
+                "params": .string(language ?? ""),
                 "fenced": .bool(true)
             ]
         )
@@ -350,7 +350,7 @@ private func leafNode(for kind: BlockSpec.Kind) -> ProseNode {
         return ProseNode(
             type: "code_block",
             attrs: [
-                "language": .null,
+                "params": .string(""),
                 "fenced": .bool(false)
             ]
         )
@@ -410,7 +410,8 @@ public extension BlockSpec {
             return BlockSpec(kind: .heading(level: level), blockquoteDepth: depth)
         case "code_block":
             let isFenced = leaf.attrs["fenced"]?.boolValue ?? true
-            let language = leaf.attrs["language"]?.stringValue
+            let params = leaf.attrs["params"]?.stringValue
+            let language = (params?.isEmpty == false) ? params : nil
             if isFenced {
                 return BlockSpec(kind: .fencedCode(language: language), blockquoteDepth: depth)
             } else {

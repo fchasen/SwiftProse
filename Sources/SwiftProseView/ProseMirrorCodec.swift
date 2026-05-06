@@ -369,15 +369,16 @@ public struct ProseMirrorCodec {
                 }
                 return PMNode(type: "list_item", content: inner.orNilIfEmpty())
             case "code_block":
-                let language = pn.attrs["language"]?.stringValue ?? ""
+                let params = pn.attrs["params"]?.stringValue ?? ""
                 let body = kids.compactMap { kid -> String? in
                     if case .inline(let text, _) = kid { return text }
                     return nil
                 }.joined()
                 let inner: [PMNode]? = body.isEmpty ? nil : [PMNode(type: "text", text: body)]
+                let attrs: [String: PMValue]? = params.isEmpty ? nil : ["params": .string(params)]
                 return PMNode(
                     type: "code_block",
-                    attrs: ["params": .string(language)],
+                    attrs: attrs,
                     content: inner
                 )
             case "table":

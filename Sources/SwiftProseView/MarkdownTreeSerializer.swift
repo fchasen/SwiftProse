@@ -76,7 +76,8 @@ public struct MarkdownTreeSerializer {
             case "task_list": emitTaskList(kids, ctx: &ctx)
             case "list_item": emitListItem(node: pn, kids: kids, ctx: &ctx)
             case "code_block":
-                let language = pn.attrs["language"]?.stringValue
+                let params = pn.attrs["params"]?.stringValue
+                let language = (params?.isEmpty == false) ? params : nil
                 let fenced = pn.attrs["fenced"]?.boolValue ?? true
                 emitCodeBlock(kids: kids, language: language, fenced: fenced, ctx: &ctx)
             case "html_block": emitOpaque(kids: kids, ctx: &ctx)

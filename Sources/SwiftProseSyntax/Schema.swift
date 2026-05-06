@@ -313,7 +313,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
                 group: "block",
                 content: ContentExpression("text*", allowedNodes: ["text"]),
                 attrs: [
-                    AttrSpec("language", defaultValue: .null),
+                    AttrSpec("params", defaultValue: .string("")),
                     AttrSpec("fenced", defaultValue: .bool(true))
                 ],
                 allowsMarks: false
