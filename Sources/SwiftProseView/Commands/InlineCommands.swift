@@ -6,22 +6,39 @@ import AppKit
 import UIKit
 #endif
 
-/// Build a transaction that toggles `mark` and preserves the selection
-/// across the toggle (mark commands are chainable — bold then italic).
-private func toggleMarkTx(_ mark: InlineMark, range: NSRange, label: String) -> Transaction {
-    Transaction(
-        steps: [.toggleInlineMark(range: range, mark)],
-        label: label,
-        selection: range.length > 0 ? .textRange(range) : nil
-    )
+/// Generic toggle for an inline mark. Registered four times with the
+/// stable IDs `bold` / `italic` / `strikethrough` / `codeSpan` to match
+/// the existing EditorAction surface.
+public struct ToggleMarkCommand: Command {
+    public let id: String
+    public let mark: InlineMark
+    public let label: String
+
+    public init(id: String, mark: InlineMark, label: String) {
+        self.id = id
+        self.mark = mark
+        self.label = label
+    }
+
+    public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
+
+    public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
+        Transaction(
+            steps: [.toggleInlineMark(range: selection, mark)],
+            label: label,
+            selection: selection.length > 0 ? .textRange(selection) : nil
+        )
+    }
 }
 
+// Per-mark wrappers preserved for typed call sites.
 public struct ToggleBoldCommand: Command {
     public let id = "bold"
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        toggleMarkTx(.bold, range: selection, label: "Bold")
+        ToggleMarkCommand(id: id, mark: .bold, label: "Bold")
+            .transaction(storage: storage, selection: selection, env: env)
     }
 }
 
@@ -30,7 +47,8 @@ public struct ToggleItalicCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        toggleMarkTx(.italic, range: selection, label: "Italic")
+        ToggleMarkCommand(id: id, mark: .italic, label: "Italic")
+            .transaction(storage: storage, selection: selection, env: env)
     }
 }
 
@@ -39,7 +57,8 @@ public struct ToggleStrikethroughCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        toggleMarkTx(.strikethrough, range: selection, label: "Strikethrough")
+        ToggleMarkCommand(id: id, mark: .strikethrough, label: "Strikethrough")
+            .transaction(storage: storage, selection: selection, env: env)
     }
 }
 
@@ -48,6 +67,7 @@ public struct ToggleCodeSpanCommand: Command {
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        toggleMarkTx(.codeSpan, range: selection, label: "Code")
+        ToggleMarkCommand(id: id, mark: .codeSpan, label: "Code")
+            .transaction(storage: storage, selection: selection, env: env)
     }
 }

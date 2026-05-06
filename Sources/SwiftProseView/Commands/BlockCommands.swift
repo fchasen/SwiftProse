@@ -27,6 +27,29 @@ func transformParagraphs(
     return Transaction(steps: steps, label: label)
 }
 
+/// Generic block-type setter — replaces SetHeadingCommand. Picks an
+/// `id` and a target `BlockSpec.Kind` per call site; commands wrap this
+/// when they want a stable ID for registration.
+public struct SetBlockTypeCommand: Command {
+    public let id: String
+    public let label: String
+    public let kind: BlockSpec.Kind
+
+    public init(id: String, label: String, kind: BlockSpec.Kind) {
+        self.id = id
+        self.label = label
+        self.kind = kind
+    }
+
+    public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
+
+    public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
+        transformParagraphs(storage: storage, selection: selection, label: label) { current in
+            BlockSpec(kind: kind, blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
+        }
+    }
+}
+
 public struct SetHeadingCommand: Command {
     public let level: Int
     public var id: String { "heading:\(level)" }
