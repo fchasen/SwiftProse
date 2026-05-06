@@ -35,3 +35,31 @@ public final class CommandRegistry {
         command(for: action)?.canExecute(storage: storage, selection: selection) ?? false
     }
 }
+
+/// Run `commands` in order; first one that produces a non-nil transaction
+/// wins. Mirrors PM's `chainCommands`.
+public func chainCommands(_ commands: [Command]) -> Command {
+    ChainedCommand(commands: commands)
+}
+
+private struct ChainedCommand: Command {
+    let commands: [Command]
+    var id: String { "chain(" + commands.map(\.id).joined(separator: ",") + ")" }
+
+    func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool {
+        commands.contains { $0.canExecute(storage: storage, selection: selection) }
+    }
+
+    func transaction(
+        storage: NSTextStorage,
+        selection: NSRange,
+        env: StepEnvironment
+    ) -> Transaction? {
+        for command in commands {
+            if let tx = command.transaction(storage: storage, selection: selection, env: env) {
+                return tx
+            }
+        }
+        return nil
+    }
+}
