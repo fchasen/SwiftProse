@@ -34,7 +34,21 @@ public final class EditorController {
     private var cachedDocument: ProseDocument?
 
     public let undoManager: UndoManager = UndoManager()
-    public weak var hostTextView: AnyObject?
+    /// Set by the platform `UIViewRepresentable` / `NSViewRepresentable`
+    /// when the host text view is created. Hosts that need to configure the
+    /// underlying view (e.g. attach an iOS `inputAccessoryView`) observe
+    /// `onHostTextViewChange` rather than polling this property.
+    public weak var hostTextView: AnyObject? {
+        didSet {
+            guard hostTextView !== oldValue else { return }
+            onHostTextViewChange?(hostTextView)
+        }
+    }
+    /// Fires when `hostTextView` is set or cleared. Receives the new value
+    /// (a `UITextView` on iOS or `NSTextView` on macOS, or `nil` when the
+    /// view tears down). Use this in lieu of polling to react to platform
+    /// view availability.
+    public var onHostTextViewChange: ((AnyObject?) -> Void)?
     public var intrinsicSizeInvalidator: (() -> Void)?
     public var onDiagnostic: ((SpecDiagnostic) -> Void)?
     /// Fires for each `SchemaDiagnostic` produced after a transaction —
