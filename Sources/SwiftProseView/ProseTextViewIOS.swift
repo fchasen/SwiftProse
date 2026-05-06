@@ -20,7 +20,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         sizing: EditorSizing = .fitsContent,
         minHeight: CGFloat = 96,
         editMenuBuilder: EditMenuBuilder? = nil,
-        spellChecking: ProseSpellChecking = .off
+        spellChecking: ProseSpellChecking = .spelling
     ) {
         self.controller = controller
         self._text = text

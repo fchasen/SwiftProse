@@ -54,6 +54,7 @@ SwiftProseEditor(text: $text)
 - **Status bar** — `.words`, `.characters`, `.cursor` (line:column).
 - **Sizing** — `.fitsContent` (height tracks content, starting from `minHeight`) or `.fillContainer` (fixed-height, scrolls internally).
 - **Context menu** — append `ContextMenuItem`s to the platform's right-click / edit menu.
+- **Spell / grammar / autocorrect** — `spellChecking:` accepts `.off`, `.spelling` (default — continuous underlines), `.spellingAndGrammar`, or `.full` (adds autocorrect). On macOS, code blocks and inline code spans are excluded automatically via the spell-check delegate; on iOS the toggle applies to the whole text view.
 
 ## Theming
 
@@ -105,11 +106,14 @@ SwiftProseEditor(text: $text)
 Behind the rendered storage is a typed tree mirroring ProseMirror's data model:
 
 - **`Schema`** — the set of `NodeType`s and `MarkType`s, plus the top node. The default `Schema.defaultMarkdown` covers paragraph, heading, blockquote, lists (bullet / ordered / task), code blocks, horizontal rule, html block, link reference, table, and the marks `strong` / `em` / `code` / `link` / `strike`.
+- **`NodeType`** — declares content rules, attrs, and PM spec flags (`atomSpec`, `isCode`, `defining`, `definingForContent`, `definingAsContext`, `selectable`, `draggable`, `linebreakReplacement`, `allowedMarks: AllowedMarks`). Factories `create(attrs:)` / `createChecked(attrs:)` / `createAndFill(attrs:)` fill schema defaults.
+- **`MarkType`** — declares attrs, `excludes` set, `excludesAll` (PM `"_"`), `inclusive`. `MarkSet.adding(_:in:)` enforces excludes (e.g. adding `code` over `strong em` drops both). PM-style helpers: `mark.addToSet(_:in:)`, `mark.removeFromSet(_:)`, `mark.isInSet(_:)`.
+- **`ContentExpression`** — content rules parse to a `ContentMatch` automaton with `matchType`, `matchFragment`, `validEnd`, `defaultType`, `edgeCount` so multi-element rules (`paragraph block*`, `(table_cell | table_header)+`) validate correctly.
 - **`ProseNode`** — an instance of a `NodeType` with attrs and a stable `NodeID`.
-- **`ProseDocument`** — a tree whose nodes carry text and `MarkSet`s on inline runs.
-- **`MarkSet`** — ordered, deduplicated marks with stable schema-ranked sorting.
+- **`ProseDocument`** — a tree whose nodes carry text and `MarkSet`s on inline runs. `document.resolve(_:)` returns a `ResolvedPos` exposing `depth`, `parent(at:)`, `node(at:)`, `index(at:)`, `start(at:)` / `end(at:)` / `before(at:)` / `after(at:)`, `textOffset`, `marks()`, `marksAcross(_:)`, `blockRange(_:pred:)`. `NodeRange` represents a contiguous child range under one parent.
+- **`MarkSet`** — ordered, deduplicated marks with stable schema-ranked sorting. `TreeNode.leaf` carries marks alongside its `ProseNode` so an image inside a link span keeps the link mark across encode / decode.
 
-The compiler stamps the canonical `proseNodePath` and `proseMarks` attributes onto storage as it emits, and `ProseDocument.from(storage:schema:)` reverse-projects the tree on demand. `controller.document` returns the cached tree, invalidated by every storage edit.
+The compiler stamps the canonical `proseNodePath` and `proseMarks` attributes onto storage as it emits, and `ProseDocument.from(storage:schema:)` reverse-projects the tree on demand. `controller.document` returns the cached tree, invalidated by every storage edit. Headless callers can convert PM JSON without the View layer via `Schema.nodeFromJSON(_:)` / `Schema.markFromJSON(_:)` / `ProseAttrValue(pmValue:)` (`ProseAttrValue` and `PMValue` carry `.array` and `.object` cases for nested attrs).
 
 ## Editing primitives
 

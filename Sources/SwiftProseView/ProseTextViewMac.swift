@@ -18,7 +18,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
         sizing: EditorSizing = .fitsContent,
         minHeight: CGFloat = 96,
         contextMenuItems: [ProseContextMenuItem] = [],
-        spellChecking: ProseSpellChecking = .off
+        spellChecking: ProseSpellChecking = .spelling
     ) {
         self.controller = controller
         self._text = text

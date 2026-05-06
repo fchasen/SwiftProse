@@ -58,19 +58,26 @@ extension SwiftProseEditor {
         /// when empty, then grows as content gets taller. Has no effect in
         /// `.fillContainer` mode.
         public var minHeight: CGFloat
+        /// Native spelling / grammar / autocorrect behavior. Defaults to
+        /// `.spelling` (continuous underlines, no grammar, no autocorrect).
+        /// On macOS, code blocks and inline code spans are excluded
+        /// automatically.
+        public var spellChecking: ProseSpellChecking
 
         public init(
             toolbar: [ToolbarItem] = Configuration.defaultToolbar,
             statusItems: [StatusItem] = [],
             contextMenuItems: [ContextMenuItem] = [],
             sizing: EditorSizing = .fitsContent,
-            minHeight: CGFloat = 96
+            minHeight: CGFloat = 96,
+            spellChecking: ProseSpellChecking = .spelling
         ) {
             self.toolbar = toolbar
             self.statusItems = statusItems
             self.contextMenuItems = contextMenuItems
             self.sizing = sizing
             self.minHeight = minHeight
+            self.spellChecking = spellChecking
         }
 
         public static let defaultToolbar: [ToolbarItem] = [
