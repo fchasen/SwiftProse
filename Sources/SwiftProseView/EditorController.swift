@@ -61,6 +61,10 @@ public final class EditorController {
     /// Key spec → EditorAction bindings. Platform text views consult
     /// `keymap.action(forKey:)` before falling back to default behavior.
     public var keymap: Keymap = .mac
+    /// Registered plugins — order matters: filterTransaction / appendTransaction
+    /// run in registration order.
+    public private(set) var plugins: [EditorPlugin] = []
+    private var pluginStates: [AnyPluginKey: Any] = [:]
     /// Registry of `NodeViewProvider`s keyed by node-type name. Hosts
     /// register providers at startup to take over the rendering of an
     /// `isolating`-flagged node type (today: `table`). Empty by default —
@@ -518,6 +522,22 @@ public final class EditorController {
         return result
     }
 
+    /// Register a plugin. Plugins are consulted in registration order
+    /// for filterTransaction / appendTransaction / props hooks.
+    public func register(plugin: EditorPlugin) {
+        plugins.append(plugin)
+    }
+
+    /// Retrieve the typed state slot a plugin previously stored.
+    public func pluginState<State>(for key: PluginKey<State>) -> State? {
+        pluginStates[key.any] as? State
+    }
+
+    /// Store typed state for a plugin under `key`.
+    public func setPluginState<State>(_ state: State, for key: PluginKey<State>) {
+        pluginStates[key.any] = state
+    }
+
     public func makeStepEnvironment() -> StepEnvironment {
         StepEnvironment(
             compiler: compiler,
@@ -533,6 +553,10 @@ public final class EditorController {
     @discardableResult
     public func apply(_ transaction: Transaction) -> NSRange {
         guard !transaction.steps.isEmpty else { return currentSelection }
+        // Plugin filterTransaction veto — any plugin can drop the tx.
+        for plugin in plugins where !plugin.filterTransaction(transaction, controller: self) {
+            return currentSelection
+        }
         // meta["addToHistory"] == false skips undo registration.
         let recordHistory = (transaction.getMeta("addToHistory") as? Bool) != false
         let env = makeStepEnvironment()
@@ -578,6 +602,12 @@ public final class EditorController {
         refreshTypingAttributes(at: resultRange.location)
         if transaction.scrollIntoView {
             scrollSelectionIntoView()
+        }
+        // appendTransaction hook — plugins may follow up after apply.
+        for plugin in plugins {
+            if let follow = plugin.appendTransaction(after: transaction, controller: self) {
+                _ = apply(follow)
+            }
         }
         return resultRange
     }
