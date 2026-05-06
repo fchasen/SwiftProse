@@ -29,19 +29,85 @@ public struct StepMap: Sendable, Equatable {
         case before, after
     }
 
+    /// Result of mapping a position through this map. Mirrors PM's
+    /// `MapResult` — `pos` is the new position; the deletion flags
+    /// describe whether content around the original position was removed
+    /// (so callers can decide whether to select an adjacent boundary
+    /// rather than dropping into the gap).
+    public struct MapResult: Sendable, Equatable {
+        public let pos: Int
+        /// Some content the original position depended on was removed.
+        public let deleted: Bool
+        /// Specifically the content immediately before the position was
+        /// removed (e.g. the user mapped a cursor that sat just after a
+        /// deleted span).
+        public let deletedBefore: Bool
+        /// Same for content immediately after.
+        public let deletedAfter: Bool
+        /// The deletion straddled the position — content on both sides
+        /// was removed in the same range.
+        public let deletedAcross: Bool
+
+        public init(
+            pos: Int,
+            deleted: Bool = false,
+            deletedBefore: Bool = false,
+            deletedAfter: Bool = false,
+            deletedAcross: Bool = false
+        ) {
+            self.pos = pos
+            self.deleted = deleted
+            self.deletedBefore = deletedBefore
+            self.deletedAfter = deletedAfter
+            self.deletedAcross = deletedAcross
+        }
+    }
+
     public func map(_ pos: Int, bias: Bias = .after) -> Int {
+        mapResult(pos, bias: bias).pos
+    }
+
+    /// Map a position and report which sides of it (if any) had their
+    /// surrounding content removed. The boundary semantics match PM:
+    /// landing exactly on a deletion boundary doesn't count as deletion
+    /// when the bias keeps the position outside the gap; landing strictly
+    /// inside a deleted range collapses to the bias-anchored boundary.
+    public func mapResult(_ pos: Int, bias: Bias = .after) -> MapResult {
         var result = pos
+        var deleted = false
+        var deletedBefore = false
+        var deletedAfter = false
+        var deletedAcross = false
         for r in ranges {
             if result <= r.position { break }
             let delta = r.newSize - r.oldSize
             let changeEnd = r.position + r.oldSize
             if result >= changeEnd {
+                if r.oldSize > 0, result == changeEnd {
+                    // Right at the trailing boundary of a delete; some
+                    // content immediately *before* the position was removed.
+                    deletedBefore = deletedBefore || (r.oldSize > r.newSize)
+                }
                 result += delta
             } else {
+                // result strictly inside (changeStart, changeEnd) — the
+                // change deleted content on both sides.
+                deleted = true
+                let leadingDeleted = result > r.position
+                let trailingDeleted = result < changeEnd
+                deletedBefore = deletedBefore || leadingDeleted
+                deletedAfter = deletedAfter || trailingDeleted
+                deletedAcross = deletedAcross || (leadingDeleted && trailingDeleted)
                 result = bias == .before ? r.position : r.position + r.newSize
             }
         }
-        return result
+        return MapResult(
+            pos: result,
+            deleted: deleted,
+            deletedBefore: deletedBefore,
+            deletedAfter: deletedAfter,
+            deletedAcross: deletedAcross
+        )
     }
 
     public func mapRange(_ range: NSRange) -> NSRange {
