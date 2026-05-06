@@ -64,11 +64,11 @@ struct ProseDocumentTests {
 
     @Test
     func markSetSortsByRankWhenAddingThroughSchema() {
-        // strong is declared before em in the default schema; adding em
-        // first then strong should still leave [strong, em].
-        let s1 = MarkSet().adding(ProseMark(type: "em"), in: schema)
-        let s2 = s1.adding(ProseMark(type: "strong"), in: schema)
-        #expect(s2.marks.map(\.type) == ["strong", "em"])
+        // em is declared before strong in the default schema (PM-basic
+        // order); adding strong first then em should leave [em, strong].
+        let s1 = MarkSet().adding(ProseMark(type: "strong"), in: schema)
+        let s2 = s1.adding(ProseMark(type: "em"), in: schema)
+        #expect(s2.marks.map(\.type) == ["em", "strong"])
     }
 
     @Test

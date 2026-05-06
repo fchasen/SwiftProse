@@ -398,12 +398,6 @@ private func makeDefaultMarkdownSchema() -> Schema {
             )
         ],
         markTypes: [
-            MarkType(name: "strong"),
-            MarkType(name: "em"),
-            MarkType(
-                name: "code",
-                excludes: ["strong", "em", "link", "strike"]
-            ),
             MarkType(
                 name: "link",
                 attrs: [
@@ -411,6 +405,12 @@ private func makeDefaultMarkdownSchema() -> Schema {
                     AttrSpec("title", defaultValue: .string(""))
                 ],
                 inclusive: false
+            ),
+            MarkType(name: "em"),
+            MarkType(name: "strong"),
+            MarkType(
+                name: "code",
+                excludes: ["strong", "em", "link", "strike"]
             ),
             MarkType(name: "strike")
         ],
