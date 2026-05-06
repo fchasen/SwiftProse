@@ -578,6 +578,63 @@ public enum Step {
             .joined(separator: "\n")
     }
 
+    /// Reasons `Step.maybeApply` can refuse to mutate storage.
+    public enum LegalityError: Error, Equatable, Sendable {
+        case rangeOutOfBounds(NSRange, length: Int)
+        case nodePathNotFound(NodePath)
+        case unknownTableID(NodeID)
+        case incompatibleSpec(String)
+    }
+
+    /// Probe whether this step would succeed on `storage` *without*
+    /// mutating it. Mirrors PM's `Step.maybeApply` (sans the actual
+    /// application — `Transaction.apply` follows up with `apply` on a
+    /// successful probe). Returns `nil` when legal, or a `LegalityError`
+    /// describing the obstruction.
+    ///
+    /// The implementation favors cheap structural checks: range bounds,
+    /// node-path resolution, and table-id presence. Full content-rule
+    /// validation lives in `SchemaValidator`'s repair path; commands that
+    /// need pre-apply schema enforcement should pair this probe with a
+    /// `SchemaValidator.validate` over the projected document.
+    public func canApply(to storage: NSAttributedString) -> LegalityError? {
+        let len = storage.length
+        switch self {
+        case .replaceText(let range, _),
+             .setSpec(let range, _),
+             .toggleInlineMark(let range, _),
+             .addMark(let range, _),
+             .removeMark(let range, _):
+            if range.location < 0 || range.location + range.length > len {
+                return .rangeOutOfBounds(range, length: len)
+            }
+            return nil
+        case .replaceAround(let outer, _, _, _):
+            if outer.location < 0 || outer.location + outer.length > len {
+                return .rangeOutOfBounds(outer, length: len)
+            }
+            return nil
+        case .setNodeAttrs(let path, _),
+             .addNodeMark(let path, _),
+             .removeNodeMark(let path, _):
+            guard let leafID = path.leaf?.id else { return .nodePathNotFound(path) }
+            var found = false
+            storage.enumerateNodePaths { _, runPath in
+                if runPath.leaf?.id == leafID { found = true }
+            }
+            return found ? nil : .nodePathNotFound(path)
+        case .replaceCellInline(let tableID, _, _, _),
+             .setTableSubtree(let tableID, _):
+            var found = false
+            storage.enumerateNodePaths { _, path in
+                if path.leaf?.id == tableID, path.leaf?.type == "table" { found = true }
+            }
+            return found ? nil : .unknownTableID(tableID)
+        case .setDocAttr:
+            return nil
+        }
+    }
+
     public func mapped(through mapping: Mapping) -> Step {
         guard !mapping.maps.isEmpty else { return self }
         switch self {
@@ -906,6 +963,13 @@ public struct Transaction {
         var mappedRange: NSRange = NSRange(location: 0, length: 0)
         for step in steps {
             let mapped = step.mapped(through: mapping)
+            // Probe legality first — bail out cleanly if the step can't
+            // land. `apply` is otherwise allowed to commit partial state
+            // (e.g. some addAttribute calls) before the failure mode is
+            // detected, which leaves storage half-edited.
+            if mapped.canApply(to: storage) != nil {
+                continue
+            }
             let applied = mapped.apply(to: storage, env: env)
             inverses.insert(applied.inverse, at: 0)
             mapping.append(applied.stepMap)
