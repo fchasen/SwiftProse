@@ -13,6 +13,11 @@ public struct Schema: Sendable, Equatable {
     /// the set sorted by rank so the same set always serializes the same
     /// way (e.g. `[strong, em]` rather than `[em, strong]`).
     public let markTypeOrder: [MarkType.Name]
+    /// Node-type names in declaration order. Mirrors `markTypeOrder` so
+    /// callers that walk every node type for codegen / serialization /
+    /// debug output get a stable iteration order independent of dictionary
+    /// hashing.
+    public let nodeTypeOrder: [NodeType.Name]
 
     public init(
         nodeTypes: [NodeType],
@@ -26,7 +31,14 @@ public struct Schema: Sendable, Equatable {
         self.nodeTypesByName = nodes
         self.markTypesByName = marks
         self.markTypeOrder = markTypes.map(\.name)
+        self.nodeTypeOrder = nodeTypes.map(\.name)
         self.topNodeName = topNode
+    }
+
+    /// Rank for a node type — its index in `nodeTypeOrder`. `Int.max`
+    /// for unknown names so they sort to the end.
+    public func rank(ofNode name: NodeType.Name) -> Int {
+        nodeTypeOrder.firstIndex(of: name) ?? Int.max
     }
 
     public var topNode: NodeType { nodeTypesByName[topNodeName]! }
