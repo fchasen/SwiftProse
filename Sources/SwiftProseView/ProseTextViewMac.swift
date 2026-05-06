@@ -94,6 +94,9 @@ public struct ProseTextViewMac: NSViewRepresentable {
         if textView.textContainerInset != inset {
             textView.textContainerInset = inset
         }
+        if let mtv = textView as? ProseNSTextView {
+            mtv.updateCodeBlockBgLayerFill()
+        }
         applySpellChecking(spellChecking, to: textView)
         coordinator.applyExternalText(text, to: textView)
     }
@@ -431,11 +434,20 @@ final class ProseNSTextView: NSTextView {
         guard !codeBlockBgLayerInstalled else { return }
         wantsLayer = true
         if let layer {
-            codeBlockBgLayer.fillColor = PlatformColor.codeBlockDefaultFill.cgColor
+            let fill = proseController?.theme.codeBlock.fillColor ?? .codeBlockDefaultFill
+            codeBlockBgLayer.fillColor = fill.cgColor
             codeBlockBgLayer.frame = layer.bounds
             layer.insertSublayer(codeBlockBgLayer, at: 0)
             codeBlockBgLayerInstalled = true
         }
+    }
+
+    /// Refresh the code-block band fill color from the controller's
+    /// theme. Called from `updateNSView` so theme swaps re-tint
+    /// without remaking the layer.
+    func updateCodeBlockBgLayerFill() {
+        guard let controller = proseController else { return }
+        codeBlockBgLayer.fillColor = controller.theme.codeBlock.fillColor.cgColor
     }
 
     private var bgUpdateScheduled = false

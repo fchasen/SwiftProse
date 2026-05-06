@@ -69,6 +69,9 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         if uiView.textContainerInset != desired {
             uiView.textContainerInset = desired
         }
+        if let mtv = uiView as? ProseUITextView {
+            mtv.updateCodeBlockBgLayerFill()
+        }
         applySpellChecking(spellChecking, to: uiView)
         coordinator.applyExternalText(text, to: uiView)
     }
@@ -247,10 +250,19 @@ final class ProseUITextView: UITextView {
 
     private func ensureCodeBlockBgLayer() {
         guard !codeBlockBgLayerInstalled else { return }
-        codeBlockBgLayer.fillColor = PlatformColor.codeBlockDefaultFill.cgColor
+        let fill = proseController?.theme.codeBlock.fillColor ?? .codeBlockDefaultFill
+        codeBlockBgLayer.fillColor = fill.cgColor
         codeBlockBgLayer.frame = layer.bounds
         layer.insertSublayer(codeBlockBgLayer, at: 0)
         codeBlockBgLayerInstalled = true
+    }
+
+    /// Refresh the code-block band fill color from the controller's
+    /// theme. Called from `updateUIView` so theme swaps re-tint
+    /// without remaking the layer.
+    func updateCodeBlockBgLayerFill() {
+        guard let controller = proseController else { return }
+        codeBlockBgLayer.fillColor = controller.theme.codeBlock.fillColor.cgColor
     }
 
     private var bgUpdateScheduled = false
