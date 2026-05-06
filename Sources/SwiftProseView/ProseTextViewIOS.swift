@@ -45,6 +45,12 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         )
         textView.adjustsFontForContentSizeCategory = true
         textView.isScrollEnabled = (sizing == .fillContainer)
+        // UITextView is itself a UIScrollView. `.always` makes it pad its
+        // content by the enclosing safe-area insets (status bar / nav
+        // bar), so when the host SwiftUI view ignores the top safe area
+        // the first line still sits below the bar at rest while content
+        // scrolls under it.
+        textView.contentInsetAdjustmentBehavior = .always
         if #available(iOS 16.0, *) {
             textView.isFindInteractionEnabled = (sizing == .fillContainer)
         }
