@@ -142,6 +142,24 @@ public final class EditorController {
     /// run in registration order.
     public private(set) var plugins: [EditorPlugin] = []
     private var pluginStates: [AnyPluginKey: Any] = [:]
+    /// Undo / redo configuration. Setting applies depth to the
+    /// undoManager; newGroupDelay is consulted by `closeHistoryGroup`.
+    public var historyConfig: HistoryConfig = .default {
+        didSet {
+            if let depth = historyConfig.depth {
+                undoManager.levelsOfUndo = depth
+            }
+        }
+    }
+
+    /// Force the next transaction into a fresh undo group. Mirrors PM's
+    /// `closeHistory(tr)`.
+    public func closeHistoryGroup() {
+        if undoManager.groupingLevel > 0 {
+            undoManager.endUndoGrouping()
+            undoManager.beginUndoGrouping()
+        }
+    }
     /// Registry of `NodeViewProvider`s keyed by node-type name. Hosts
     /// register providers at startup to take over the rendering of an
     /// `isolating`-flagged node type (today: `table`). Empty by default —
@@ -632,6 +650,10 @@ public final class EditorController {
         // Plugin filterTransaction veto — any plugin can drop the tx.
         for plugin in plugins where !plugin.filterTransaction(transaction, controller: self) {
             return currentSelection
+        }
+        // meta["closeHistory"] == true forces a new undo group.
+        if (transaction.getMeta("closeHistory") as? Bool) == true {
+            closeHistoryGroup()
         }
         // meta["addToHistory"] == false skips undo registration.
         let recordHistory = (transaction.getMeta("addToHistory") as? Bool) != false
