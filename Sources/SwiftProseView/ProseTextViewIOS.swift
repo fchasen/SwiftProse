@@ -246,7 +246,11 @@ final class ProseUITextView: UITextView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        codeBlockBgLayer.frame = bounds
+        // UITextView IS a UIScrollView, so `bounds.origin` shifts with the
+        // current scroll offset. Pinning the layer's origin to (0, 0)
+        // anchors it at the content origin instead of the viewport, so the
+        // bands scroll naturally with the text.
+        codeBlockBgLayer.frame = CGRect(origin: .zero, size: bounds.size)
         scheduleCodeBlockBgUpdate()
     }
 
@@ -258,7 +262,7 @@ final class ProseUITextView: UITextView {
         guard !codeBlockBgLayerInstalled else { return }
         let fill = proseController?.theme.codeBlock.fillColor ?? .codeBlockDefaultFill
         codeBlockBgLayer.fillColor = fill.cgColor
-        codeBlockBgLayer.frame = layer.bounds
+        codeBlockBgLayer.frame = CGRect(origin: .zero, size: layer.bounds.size)
         layer.insertSublayer(codeBlockBgLayer, at: 0)
         codeBlockBgLayerInstalled = true
     }
