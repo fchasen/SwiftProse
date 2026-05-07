@@ -1062,31 +1062,25 @@ public final class CellView: PlatformView {
             onFocus: { [weak self] in
                 self?.markActive()
             },
-            onCommand: { [weak self] selector in
-                self?.handleCellCommand(selector) ?? false
+            onCommand: { [weak self] command in
+                self?.handleCellCommand(command) ?? false
             }
         )
         self.delegateProxy = proxy
-        #if canImport(AppKit) && os(macOS)
         textView.delegate = proxy
-        #else
-        textView.delegate = proxy
-        #endif
     }
 
-    fileprivate func handleCellCommand(_ selector: Selector) -> Bool {
+    fileprivate func handleCellCommand(_ command: CellCommand) -> Bool {
         guard let table = tableParent() else { return false }
-        if selector == #selector(NSResponder.insertTab(_:)) {
+        switch command {
+        case .advanceForward:
             return table.advanceCellFocus(forward: true)
-        }
-        if selector == #selector(NSResponder.insertBacktab(_:)) {
+        case .advanceBackward:
             return table.advanceCellFocus(forward: false)
-        }
-        if selector == #selector(NSResponder.cancelOperation(_:)) {
+        case .cancel:
             table.resignActiveCell()
             return true
         }
-        return false
     }
 
     /// Make this cell's text view the first responder. Used by Tab /
@@ -1128,18 +1122,20 @@ public final class CellView: PlatformView {
     private var delegateProxy: CellEditDelegate?
 }
 
-/// Bridges the text view's edit notification across platforms into a
-/// single callback. Held strongly by `CellView` so the delegate doesn't
-/// dangle. Also routes selector-based commands (Tab / Shift-Tab /
-/// Escape) so the parent `TableBlockView` can handle navigation.
+fileprivate enum CellCommand {
+    case advanceForward
+    case advanceBackward
+    case cancel
+}
+
 private final class CellEditDelegate: NSObject {
     private let onChange: () -> Void
     private let onFocus: () -> Void
-    private let onCommand: (Selector) -> Bool
+    private let onCommand: (CellCommand) -> Bool
     init(
         onChange: @escaping () -> Void,
         onFocus: @escaping () -> Void,
-        onCommand: @escaping (Selector) -> Bool
+        onCommand: @escaping (CellCommand) -> Bool
     ) {
         self.onChange = onChange
         self.onFocus = onFocus
@@ -1159,7 +1155,16 @@ private final class CellEditDelegate: NSObject {
 #if canImport(AppKit) && os(macOS)
 extension CellEditDelegate: NSTextViewDelegate {
     @objc func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        return onCommand(commandSelector)
+        if commandSelector == #selector(NSResponder.insertTab(_:)) {
+            return onCommand(.advanceForward)
+        }
+        if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+            return onCommand(.advanceBackward)
+        }
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            return onCommand(.cancel)
+        }
+        return false
     }
 }
 #elseif canImport(UIKit)
@@ -1175,9 +1180,8 @@ extension CellEditDelegate: UITextViewDelegate {
         shouldChangeTextIn range: NSRange,
         replacementText text: String
     ) -> Bool {
-        // Tab on iOS arrives as "\t". Shift-Tab not exposed; advance only.
         if text == "\t" {
-            _ = onCommand(#selector(NSObject.cut))
+            _ = onCommand(.advanceForward)
             return false
         }
         return true
