@@ -43,6 +43,9 @@ public struct SwiftProseEditor: View {
                             },
                             canPerform: { action in
                                 hosting.controller?.canPerform(action) ?? true
+                            },
+                            isActive: { action in
+                                hosting.activeActionIDs.contains(action.stableID)
                             }
                         )
                     }
@@ -258,9 +261,13 @@ private struct SizingFrame: ViewModifier {
     }
 }
 
-final class ProseHosting: ObservableObject {
-    @Published var controller: EditorController?
-    @Published var selection: NSRange = NSRange(location: 0, length: 0)
+public final class ProseHosting: ObservableObject {
+    @Published public internal(set) var controller: EditorController?
+    @Published public internal(set) var selection: NSRange = NSRange(location: 0, length: 0)
+    @Published public internal(set) var activeActionIDs: Set<String> = []
+    private var documentObserver: EditorController.ObserverToken?
+
+    public init() {}
 
     func ensureController(
         initialText: String,
@@ -276,12 +283,22 @@ final class ProseHosting: ObservableObject {
         }
     }
 
-    /// Wire the controller's selection callback to keep `selection` in
-    /// sync with the host text view. Idempotent — safe to re-bind across
-    /// onAppear cycles.
+    /// Wire the controller's selection + document callbacks so `selection`
+    /// and `activeActionIDs` stay in sync with the host text view.
+    /// Idempotent — safe to re-bind across onAppear cycles.
     func bindSelection(from controller: EditorController) {
-        controller.onSelectionChanged = { [weak self] range in
-            self?.selection = range
+        controller.onSelectionChanged = { [weak self, weak controller] range in
+            guard let self, let controller else { return }
+            self.selection = range
+            self.activeActionIDs = controller.activeActionIDs()
         }
+        if documentObserver == nil {
+            documentObserver = controller.addOnDocumentChange { [weak self, weak controller] _, _ in
+                guard let self, let controller else { return }
+                self.activeActionIDs = controller.activeActionIDs()
+            }
+        }
+        // Seed the published value from the controller's current state.
+        activeActionIDs = controller.activeActionIDs()
     }
 }

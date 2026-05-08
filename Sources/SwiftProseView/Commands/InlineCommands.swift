@@ -29,6 +29,14 @@ public struct ToggleMarkCommand: Command {
             selection: selection.length > 0 ? .textRange(selection) : nil
         )
     }
+
+    public func isActive(
+        storage: NSAttributedString,
+        selection: NSRange,
+        controller: EditorController
+    ) -> Bool {
+        controller.inlineMarkIsActive(mark, selection: selection)
+    }
 }
 
 // Per-mark wrappers preserved for typed call sites.
@@ -40,6 +48,9 @@ public struct ToggleBoldCommand: Command {
         ToggleMarkCommand(id: id, mark: .bold, label: "Bold")
             .transaction(storage: storage, selection: selection, env: env)
     }
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        controller.inlineMarkIsActive(.bold, selection: selection)
+    }
 }
 
 public struct ToggleItalicCommand: Command {
@@ -49,6 +60,9 @@ public struct ToggleItalicCommand: Command {
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
         ToggleMarkCommand(id: id, mark: .italic, label: "Italic")
             .transaction(storage: storage, selection: selection, env: env)
+    }
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        controller.inlineMarkIsActive(.italic, selection: selection)
     }
 }
 
@@ -60,6 +74,9 @@ public struct ToggleStrikethroughCommand: Command {
         ToggleMarkCommand(id: id, mark: .strikethrough, label: "Strikethrough")
             .transaction(storage: storage, selection: selection, env: env)
     }
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        controller.inlineMarkIsActive(.strikethrough, selection: selection)
+    }
 }
 
 public struct ToggleCodeSpanCommand: Command {
@@ -69,5 +86,8 @@ public struct ToggleCodeSpanCommand: Command {
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
         ToggleMarkCommand(id: id, mark: .codeSpan, label: "Code")
             .transaction(storage: storage, selection: selection, env: env)
+    }
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        controller.inlineMarkIsActive(.codeSpan, selection: selection)
     }
 }

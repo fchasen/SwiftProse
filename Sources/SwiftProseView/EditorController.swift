@@ -212,7 +212,7 @@ public final class EditorController {
     /// Anchored to the cursor location at the time of the toggle so a click
     /// elsewhere drops them; a typed character consumes them.
     private(set) var storedInlineMarks: Set<InlineMark> = []
-    private var storedMarksAnchor: Int? = nil
+    private(set) var storedMarksAnchor: Int? = nil
 
     /// Single-flight flag for the keystroke-path `resegment()` deferral. We
     /// rebuild `blocks` on every typed character; coalescing rapid bursts to
@@ -816,6 +816,28 @@ public final class EditorController {
 
     public func canPerform(_ action: EditorAction) -> Bool {
         commands.canExecute(action, storage: textStorage, selection: currentSelection)
+    }
+
+    /// True when the action's effect is currently in force at the
+    /// selection — bold mark covers the range, heading kind matches the
+    /// cursor's block. Drives toolbar "pressed" state.
+    public func isActionActive(_ action: EditorAction) -> Bool {
+        commands.isActive(action, storage: textStorage, selection: currentSelection, controller: self)
+    }
+
+    /// Stable IDs of every registered action whose `isActive` returns
+    /// true. Recomputed on demand from the SwiftUI layer; cheap because
+    /// each command only inspects the cursor neighbourhood.
+    public func activeActionIDs() -> Set<String> {
+        var ids: Set<String> = []
+        let storage = textStorage
+        let selection = currentSelection
+        for command in commands.registeredCommands {
+            if command.isActive(storage: storage, selection: selection, controller: self) {
+                ids.insert(command.id)
+            }
+        }
+        return ids
     }
 
     @discardableResult

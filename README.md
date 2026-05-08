@@ -236,6 +236,42 @@ controller.historyConfig = HistoryConfig(depth: 200, newGroupDelay: 0.5)
 
 `controller.undoDepth` / `redoDepth` are read-only counters. `controller.closeHistoryGroup()` opens a fresh undo group, matched by `meta["closeHistory"] = true` on transactions.
 
+## UI integrations
+
+Three optional surfaces hosts plug into for UX features ProseMirror editors take for granted: active toolbar state, a long-press hook for editing links inline, and inline completion suggestions.
+
+### Active toolbar state
+
+Toolbar buttons in the bundled `SwiftProseEditor` light up automatically — Bold appears pressed when the cursor is inside a strong span, the H1 button reads as active when the cursor's paragraph is an H1, and so on. Block-toggle commands (lists, blockquote, code block) follow the same rule.
+
+If you build a custom toolbar, observe the same state from the controller:
+
+```swift
+@State private var controller: EditorController?
+@State private var activeIDs: Set<String> = []
+
+var body: some View {
+    HStack {
+        Button("Bold") { controller?.perform(.bold) }
+            .tint(activeIDs.contains(EditorAction.bold.stableID) ? .accentColor : .primary)
+        Button("H1") { controller?.perform(.heading(level: 1)) }
+            .tint(activeIDs.contains(EditorAction.heading(level: 1).stableID) ? .accentColor : .primary)
+    }
+    SwiftProseEditor(text: $text)
+        .onProseControllerReady { ctrl in
+            controller = ctrl
+            _ = ctrl.addOnSelectionChanged { _ in
+                activeIDs = ctrl.activeActionIDs()
+            }
+            _ = ctrl.addOnDocumentChange { _, _ in
+                activeIDs = ctrl.activeActionIDs()
+            }
+        }
+}
+```
+
+API: `EditorController.isActionActive(_:)`, `EditorController.activeActionIDs()`. PM semantics — a mark is active when every character in the selection has it (or, on an empty selection, when the cursor sits at a stored mark or right after one).
+
 ## Selection
 
 `controller.currentTypedSelection` returns a typed `Selection`:

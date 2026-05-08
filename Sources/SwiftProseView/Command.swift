@@ -16,6 +16,23 @@ public protocol Command {
         selection: NSRange,
         env: StepEnvironment
     ) -> Transaction?
+
+    /// True when the command's effect is currently in force at the
+    /// selection — bold mark covers the whole range, heading kind matches
+    /// the cursor's block, etc. Drives toolbar "pressed" state.
+    func isActive(
+        storage: NSAttributedString,
+        selection: NSRange,
+        controller: EditorController
+    ) -> Bool
+}
+
+public extension Command {
+    func isActive(
+        storage: NSAttributedString,
+        selection: NSRange,
+        controller: EditorController
+    ) -> Bool { false }
 }
 
 public final class CommandRegistry {
@@ -34,6 +51,19 @@ public final class CommandRegistry {
     public func canExecute(_ action: EditorAction, storage: NSAttributedString, selection: NSRange) -> Bool {
         command(for: action)?.canExecute(storage: storage, selection: selection) ?? false
     }
+
+    public func isActive(
+        _ action: EditorAction,
+        storage: NSAttributedString,
+        selection: NSRange,
+        controller: EditorController
+    ) -> Bool {
+        command(for: action)?.isActive(storage: storage, selection: selection, controller: controller) ?? false
+    }
+
+    /// All registered commands keyed by their stable ID. Used by
+    /// `EditorController.activeActionIDs()` to fan out the active probe.
+    public var registeredCommands: [Command] { Array(commands.values) }
 }
 
 /// Run `commands` in order; first one that produces a non-nil transaction

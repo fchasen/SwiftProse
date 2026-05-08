@@ -48,6 +48,30 @@ public struct SetBlockTypeCommand: Command {
             BlockSpec(kind: kind, blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
         }
     }
+
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        allParagraphsMatch(storage: storage, selection: selection) { $0.kind == kind }
+    }
+}
+
+/// True iff every paragraph touched by `selection` satisfies `predicate`.
+/// Empty selection probes the cursor's line; empty document is considered
+/// not-matching.
+func allParagraphsMatch(
+    storage: NSAttributedString,
+    selection: NSRange,
+    predicate: (BlockSpec) -> Bool
+) -> Bool {
+    let lineRanges = Operations.paragraphRanges(in: storage, covering: selection)
+    if lineRanges.isEmpty {
+        return predicate(.paragraph)
+    }
+    for lineRange in lineRanges {
+        let probe = max(0, min(lineRange.location, storage.length - 1))
+        let spec = storage.blockSpec(at: probe) ?? .paragraph
+        if !predicate(spec) { return false }
+    }
+    return true
 }
 
 public struct SetHeadingCommand: Command {
@@ -65,6 +89,17 @@ public struct SetHeadingCommand: Command {
             return BlockSpec(kind: .heading(level: level), blockquoteDepth: current.blockquoteDepth)
         }
     }
+
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        allParagraphsMatch(storage: storage, selection: selection) { spec in
+            if level == 0 {
+                if case .paragraph = spec.kind { return true }
+                return false
+            }
+            if case .heading(let l) = spec.kind { return l == level }
+            return false
+        }
+    }
 }
 
 public struct ToggleUnorderedListCommand: Command {
@@ -77,6 +112,12 @@ public struct ToggleUnorderedListCommand: Command {
                 return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
             return BlockSpec(kind: .unorderedListItem, blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
+        }
+    }
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        allParagraphsMatch(storage: storage, selection: selection) { spec in
+            if case .unorderedListItem = spec.kind { return true }
+            return false
         }
     }
 }
@@ -93,6 +134,12 @@ public struct ToggleOrderedListCommand: Command {
             return BlockSpec(kind: .orderedListItem(index: 1), blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
         }
     }
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        allParagraphsMatch(storage: storage, selection: selection) { spec in
+            if case .orderedListItem = spec.kind { return true }
+            return false
+        }
+    }
 }
 
 public struct ToggleTaskListCommand: Command {
@@ -105,6 +152,12 @@ public struct ToggleTaskListCommand: Command {
                 return BlockSpec(kind: .paragraph, blockquoteDepth: current.blockquoteDepth)
             }
             return BlockSpec(kind: .taskListItem(checked: false), blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel)
+        }
+    }
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        allParagraphsMatch(storage: storage, selection: selection) { spec in
+            if case .taskListItem = spec.kind { return true }
+            return false
         }
     }
 }
@@ -172,12 +225,20 @@ public struct ToggleBlockquoteCommand: Command {
             return BlockSpec(kind: current.kind, blockquoteDepth: nextDepth, listLevel: current.listLevel)
         }
     }
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        allParagraphsMatch(storage: storage, selection: selection) { $0.blockquoteDepth > 0 }
+    }
 }
 
 public struct ToggleCodeBlockCommand: Command {
     public let id = "codeBlock"
     public init() {}
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
+    public func isActive(storage: NSAttributedString, selection: NSRange, controller: EditorController) -> Bool {
+        guard storage.length > 0 else { return false }
+        let probe = max(0, min(selection.location, storage.length - 1))
+        return storage.blockSpec(at: probe)?.isCodeBlock == true
+    }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
         // When the cursor sits inside an existing code block, toggle the
         // whole block off in one step — toggling line-by-line would split

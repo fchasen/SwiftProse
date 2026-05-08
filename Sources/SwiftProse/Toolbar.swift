@@ -7,6 +7,7 @@ struct ProseToolbar: View {
     let items: [SwiftProseEditor.ToolbarItem]
     let perform: (SwiftProseEditor.Action) -> Void
     var canPerform: (SwiftProseEditor.Action) -> Bool = { _ in true }
+    var isActive: (SwiftProseEditor.Action) -> Bool = { _ in false }
 
     var body: some View {
         let groups = makeGroups(from: items)
@@ -51,6 +52,7 @@ struct ProseToolbar: View {
                 label: "H\(level)",
                 help: help(for: .heading(level: level)),
                 shortcut: nil,
+                isActive: isActive(.heading(level: level)),
                 action: { perform(.heading(level: level)) }
             )
             .disabled(!canPerform(.heading(level: level)))
@@ -59,6 +61,7 @@ struct ProseToolbar: View {
                 systemImage: label(for: action),
                 help: help(for: action),
                 shortcut: nil,
+                isActive: isActive(action),
                 action: { perform(action) }
             )
             .disabled(!canPerform(action))
@@ -67,6 +70,7 @@ struct ProseToolbar: View {
                 systemImage: symbol,
                 help: label,
                 shortcut: shortcut,
+                isActive: false,
                 action: customPerform
             )
         case .divider, .spacer:
@@ -175,12 +179,14 @@ private struct ToolbarActionButton: View {
     let systemImage: String
     let help: String
     let shortcut: KeyboardShortcut?
+    var isActive: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .frame(width: ToolbarButtonMetrics.width, height: ToolbarButtonMetrics.height)
+                .modifier(ActiveStateBackground(isActive: isActive))
         }
         .help(help)
         .modifier(OptionalShortcut(shortcut: shortcut))
@@ -191,6 +197,7 @@ private struct ToolbarLabelButton: View {
     let label: String
     let help: String
     let shortcut: KeyboardShortcut?
+    var isActive: Bool = false
     let action: () -> Void
 
     @ScaledMetric(relativeTo: .body) private var labelSize: CGFloat = 13
@@ -200,9 +207,23 @@ private struct ToolbarLabelButton: View {
             Text(label)
                 .font(.system(size: labelSize, weight: .semibold))
                 .frame(width: ToolbarButtonMetrics.width, height: ToolbarButtonMetrics.height)
+                .modifier(ActiveStateBackground(isActive: isActive))
         }
         .help(help)
         .modifier(OptionalShortcut(shortcut: shortcut))
+    }
+}
+
+private struct ActiveStateBackground: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.accentColor.opacity(isActive ? 0.22 : 0))
+            )
+            .foregroundStyle(isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
     }
 }
 
