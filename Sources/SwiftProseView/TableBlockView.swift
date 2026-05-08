@@ -669,8 +669,9 @@ public final class TableBlockView: PlatformView {
     private func drawChrome() {
         let widths = columnWidths()
         let heights = rowHeights()
-        let separatorColor = TableBlockView.borderColor
-        let headerBg = TableBlockView.headerBackgroundColor
+        let separatorColor = resolvedCGColor(TableBlockView.borderColor)
+        let headerBg = resolvedCGColor(TableBlockView.headerBackgroundColor)
+        let tableBg = resolvedCGColor(TableBlockView.backgroundColor)
 
         #if canImport(AppKit) && os(macOS)
         guard let context = NSGraphicsContext.current?.cgContext else { return }
@@ -679,9 +680,16 @@ public final class TableBlockView: PlatformView {
         #endif
         context.saveGState()
 
+        // Fill the full table area with the resolved background. Layer-
+        // level backgroundColor isn't reliable for dynamic system colors
+        // when an attachment view loads off-window (iOS resolves
+        // systemBackground to dark before the trait collection settles).
+        context.setFillColor(tableBg)
+        context.fill(bounds)
+
         // Header row background.
         if let firstHeight = heights.first, isFirstRowHeader() {
-            context.setFillColor(headerBg.cgColor)
+            context.setFillColor(headerBg)
             context.fill(CGRect(
                 x: 0,
                 y: TableBlockView.borderWidth,
@@ -690,7 +698,7 @@ public final class TableBlockView: PlatformView {
             ))
         }
 
-        context.setStrokeColor(separatorColor.cgColor)
+        context.setStrokeColor(separatorColor)
         context.setLineWidth(TableBlockView.borderWidth)
 
         // Outer border.
@@ -735,6 +743,23 @@ public final class TableBlockView: PlatformView {
         return NSColor.tertiaryLabelColor.withAlphaComponent(0.12)
         #else
         return UIColor.tertiaryLabel.withAlphaComponent(0.12)
+        #endif
+    }
+
+    /// Resolve a (possibly dynamic) platform color to a `CGColor` against
+    /// the view's current appearance / trait collection. Caching the
+    /// `cgColor` directly captures whatever was current when the
+    /// attachment view first loaded, which on iOS can be the wrong
+    /// userInterfaceStyle when the view hasn't joined a window yet.
+    fileprivate func resolvedCGColor(_ color: PlatformColor) -> CGColor {
+        #if canImport(AppKit) && os(macOS)
+        var resolved = color.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolved = color.cgColor
+        }
+        return resolved
+        #else
+        return color.resolvedColor(with: traitCollection).cgColor
         #endif
     }
 }
@@ -794,6 +819,11 @@ public final class CellView: PlatformView {
         // cell's frame grows — `.redraw` instead invalidates the layer
         // contents on bounds change so the next paint draws fresh.
         contentMode = .redraw
+        // Default `isOpaque = true` + `backgroundColor = nil` clears the
+        // backing store to opaque black before draw; the table's own
+        // background paint must show through.
+        isOpaque = false
+        backgroundColor = .clear
         #endif
         applyAttributedContent()
     }
