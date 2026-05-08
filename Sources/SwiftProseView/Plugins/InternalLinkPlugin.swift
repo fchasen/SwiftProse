@@ -6,14 +6,33 @@ import AppKit
 import UIKit
 #endif
 
+/// Path + fragment parsed out of a relative link href. Either piece may be
+/// absent — pure-fragment hrefs (`#foo`) are handled locally by the plugin
+/// and never produce a `LinkTarget`.
+public struct LinkTarget: Sendable, Equatable {
+    /// Path portion of the href, percent-decoded when possible. Examples:
+    /// `"./other.md"`, `"subdir/foo.md"`, `"../bar.md"`, `"foo bar.md"`.
+    public let path: String
+    /// Fragment after `#`, percent-decoded when possible. Nil if absent.
+    public let fragment: String?
+
+    public init(path: String, fragment: String?) {
+        self.path = path
+        self.fragment = fragment
+    }
+}
+
 /// Resolves clicks on `[text](#anchor)` links to a position in the same
 /// document. ProseMirror leaves anchor handling to the browser; in a native
 /// text editor the OS would just hand `#anchor` to NSWorkspace / UIApplication
 /// (no-op or error). This plugin intercepts the click before the OS sees it,
 /// matches the fragment against a heading slug, and scrolls / selects.
 ///
-/// External hrefs (`http://`, `mailto:`, etc.) and unresolved fragments fall
-/// through to default OS handling.
+/// Hosts that want to follow relative path links (`./other.md`,
+/// `subdir/foo.md#section`) can pass `handleRelativeLink` to opt into
+/// cross-document navigation — the host gets a `LinkTarget` and decides
+/// whether to consume the click. External hrefs (`http://`, `mailto:`, etc.)
+/// and unresolved fragments fall through to default OS handling.
 public final class InternalLinkPlugin: EditorPlugin {
     public let key = AnyPluginKey(name: "internalLink")
 
@@ -26,9 +45,14 @@ public final class InternalLinkPlugin: EditorPlugin {
     }
 
     private let slugStyle: SlugStyle
+    private let handleRelativeLink: ((LinkTarget) -> Bool)?
 
-    public init(slugStyle: SlugStyle = .github) {
+    public init(
+        slugStyle: SlugStyle = .github,
+        handleRelativeLink: ((LinkTarget) -> Bool)? = nil
+    ) {
         self.slugStyle = slugStyle
+        self.handleRelativeLink = handleRelativeLink
     }
 
     public var props: PluginProps {
@@ -39,13 +63,22 @@ public final class InternalLinkPlugin: EditorPlugin {
 
     private func handleClick(controller: EditorController, at charIndex: Int) -> Bool {
         guard let href = linkHref(at: charIndex, in: controller.textStorage),
-              let fragment = fragmentTarget(in: href)
+              !href.isEmpty,
+              !isExternalScheme(href)
         else { return false }
-        guard let target = resolveFragment(fragment, in: controller.textStorage) else {
-            return false
+
+        // Pure same-document fragment: `#anchor`.
+        if href.hasPrefix("#") {
+            return navigateToFragment(String(href.dropFirst()), controller: controller)
         }
-        navigate(controller: controller, to: target)
-        return true
+
+        // Relative reference (with optional `#fragment`). Hand off to the
+        // host — it owns filesystem / library context. If the host doesn't
+        // claim the click, fall through so the OS gets its usual shot.
+        guard let target = parseRelativeLink(href),
+              let handler = handleRelativeLink
+        else { return false }
+        return handler(target)
     }
 
     private func linkHref(at charIndex: Int, in storage: NSAttributedString) -> String? {
@@ -63,14 +96,39 @@ public final class InternalLinkPlugin: EditorPlugin {
         return nil
     }
 
-    /// Returns the fragment portion if `href` is a same-document anchor
-    /// (`#foo`, or `./page.md#foo` with no scheme). External URLs return nil
-    /// so the OS still gets a shot at opening them.
-    private func fragmentTarget(in href: String) -> String? {
-        guard let hash = href.firstIndex(of: "#") else { return nil }
-        if href[..<hash].contains("://") { return nil }
-        let frag = href[href.index(after: hash)...]
-        return frag.isEmpty ? nil : String(frag)
+    /// True iff `href` starts with a well-formed URI scheme (e.g. `http`,
+    /// `mailto`, `file`). Anything else — pure fragments, bare filenames,
+    /// `./x`, `../x`, even `/abs/path` — is treated as host-resolvable.
+    /// Matches RFC 3986 scheme grammar: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) ":".
+    internal func isExternalScheme(_ href: String) -> Bool {
+        guard let colon = href.firstIndex(of: ":") else { return false }
+        let scheme = href[..<colon]
+        guard let first = scheme.first, first.isLetter else { return false }
+        return scheme.allSatisfy {
+            $0.isLetter || $0.isNumber || $0 == "+" || $0 == "-" || $0 == "."
+        }
+    }
+
+    /// Splits a relative href into path + fragment, percent-decoding both
+    /// so hosts can compare against filesystem paths directly. Returns nil
+    /// for pure-fragment hrefs (those are handled locally upstream).
+    internal func parseRelativeLink(_ href: String) -> LinkTarget? {
+        let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        let rawPath = parts.first.map(String.init) ?? ""
+        guard !rawPath.isEmpty else { return nil }
+        let rawFrag: String? = parts.count > 1 ? String(parts[1]) : nil
+        return LinkTarget(
+            path: rawPath.removingPercentEncoding ?? rawPath,
+            fragment: rawFrag.map { $0.removingPercentEncoding ?? $0 }
+        )
+    }
+
+    private func navigateToFragment(_ fragment: String, controller: EditorController) -> Bool {
+        guard !fragment.isEmpty,
+              let target = resolveFragment(fragment, in: controller.textStorage)
+        else { return false }
+        navigate(controller: controller, to: target)
+        return true
     }
 
     /// Walk `proseNodePath` runs whose deepest node is a heading; slugify the
