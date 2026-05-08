@@ -92,14 +92,12 @@ extension PlatformFont {
     }
 
     /// Return a font in this font's family at `size` with the requested
-    /// weight. System fonts use `systemFont(ofSize:weight:)` so the exact
-    /// weight slot is honored. Named families are looked up via the font
-    /// descriptor's weight trait — if no matching face exists, falls back
-    /// to the bold trait (for `>= .semibold`) or a plain rescale.
+    /// weight. The source descriptor is used so non-default system designs
+    /// (.serif, .rounded, .monospaced) survive — `systemFont(ofSize:weight:)`
+    /// would discard them. Named families are looked up via the descriptor's
+    /// weight trait; if no matching face exists, falls back to the bold trait
+    /// (for `>= .semibold`) or a plain rescale.
     public func withWeight(_ weight: Weight, size: CGFloat) -> PlatformFont {
-        if isSystemFont {
-            return PlatformFont.systemFont(ofSize: size, weight: weight)
-        }
         #if canImport(AppKit) && os(macOS)
         let descriptor = fontDescriptor.addingAttributes([
             .traits: [NSFontDescriptor.TraitKey.weight: weight.rawValue]
@@ -107,13 +105,21 @@ extension PlatformFont {
         if let font = NSFont(descriptor: descriptor, size: size) {
             return font
         }
+        if isSystemFont {
+            return NSFont.systemFont(ofSize: size, weight: weight)
+        }
         #else
         let descriptor = fontDescriptor.addingAttributes([
             .traits: [UIFontDescriptor.TraitKey.weight: weight.rawValue]
         ])
         let candidate = UIFont(descriptor: descriptor, size: size)
-        // Only use the candidate if the family actually returned a face
-        // distinct from the original at the requested weight.
+        if isSystemFont {
+            // System-font descriptors carry design info, so the resolved
+            // candidate is the correct face at the requested weight.
+            return candidate
+        }
+        // Named families: only use the candidate if the family actually
+        // returned a face distinct from the original at this weight.
         if candidate.fontName != fontName || candidate.fontDescriptor != fontDescriptor {
             return candidate
         }
