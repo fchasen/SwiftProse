@@ -255,6 +255,21 @@ public struct ProseTextViewMac: NSViewRepresentable {
         }
 
         public func textView(_ textView: NSTextView,
+                             shouldChangeTextIn affectedCharRange: NSRange,
+                             replacementString: String?) -> Bool {
+            // Plugins get first crack at every text-input event.
+            let controller = parent.controller
+            guard let text = replacementString,
+                  !controller.plugins.isEmpty else { return true }
+            for plugin in controller.plugins {
+                if plugin.props.handleTextInput?(controller, affectedCharRange, text) == true {
+                    return false
+                }
+            }
+            return true
+        }
+
+        public func textView(_ textView: NSTextView,
                              doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 if parent.controller.handleNewline() { return true }
@@ -390,6 +405,14 @@ final class ProseNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // Plugins get first crack — return true from handleKeyDown to consume.
+        if let controller = proseController,
+           !controller.plugins.isEmpty,
+           let key = pluginKeyName(for: event) {
+            for plugin in controller.plugins {
+                if plugin.props.handleKeyDown?(controller, key) == true { return }
+            }
+        }
         if event.modifierFlags.contains(.command),
            !event.modifierFlags.contains(.control),
            event.keyCode == 36,
@@ -405,6 +428,23 @@ final class ProseNSTextView: NSTextView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    /// Stable name string for plugin `handleKeyDown` dispatch. Covers
+    /// the navigation / control keys plugins typically intercept (arrows,
+    /// Enter, Escape, Tab); regular character input flows through
+    /// `handleTextInput` instead.
+    private func pluginKeyName(for event: NSEvent) -> String? {
+        switch Int(event.keyCode) {
+        case 53: return "Escape"
+        case 36, 76: return "Enter"
+        case 48: return "Tab"
+        case 126: return "ArrowUp"
+        case 125: return "ArrowDown"
+        case 123: return "ArrowLeft"
+        case 124: return "ArrowRight"
+        default: return nil
+        }
     }
 
     private func shortcutAction(forCommandKey key: String, shift: Bool) -> EditorAction? {

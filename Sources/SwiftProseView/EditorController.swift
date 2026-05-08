@@ -666,6 +666,12 @@ public final class EditorController {
         pluginStates[key.any] = state
     }
 
+    /// Drop the state slot for `key`. Used by plugins on session close
+    /// (e.g. completion menu dismissed) to free observers.
+    public func clearPluginState<State>(for key: PluginKey<State>) {
+        pluginStates.removeValue(forKey: key.any)
+    }
+
     public func makeStepEnvironment() -> StepEnvironment {
         StepEnvironment(
             compiler: compiler,
@@ -817,6 +823,43 @@ public final class EditorController {
 
     public func canPerform(_ action: EditorAction) -> Bool {
         commands.canExecute(action, storage: textStorage, selection: currentSelection)
+    }
+
+    /// Bounding rect of the caret in the host text view's coordinate
+    /// space. Returns nil when no host view is attached or layout isn't
+    /// ready. Used by completion popups, ghost-text overlays, and
+    /// anything else that needs to track the cursor on screen.
+    public func caretRect() -> CGRect? {
+        let cursor = currentSelection.location
+        let total = textStorage.length
+        guard cursor >= 0, cursor <= total else { return nil }
+        let docStart = contentStorage.documentRange.location
+        guard let location = contentStorage.location(docStart, offsetBy: cursor) else { return nil }
+        let textRange = NSTextRange(location: location)
+        var rect: CGRect?
+        layoutManager.enumerateTextSegments(
+            in: textRange,
+            type: .standard,
+            options: [.upstreamAffinity, .rangeNotRequired]
+        ) { _, frame, _, _ in
+            rect = frame
+            return false
+        }
+        guard var caretRect = rect else { return nil }
+        // Translate from layout-fragment coords to text-view coords by
+        // adding the host's textContainerInset.
+        #if canImport(AppKit) && os(macOS)
+        if let tv = hostTextView as? NSTextView {
+            caretRect.origin.x += tv.textContainerInset.width
+            caretRect.origin.y += tv.textContainerInset.height
+        }
+        #elseif canImport(UIKit)
+        if let tv = hostTextView as? UITextView {
+            caretRect.origin.x += tv.textContainerInset.left
+            caretRect.origin.y += tv.textContainerInset.top
+        }
+        #endif
+        return caretRect
     }
 
     /// True when the action's effect is currently in force at the

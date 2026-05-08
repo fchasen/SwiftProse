@@ -299,6 +299,55 @@ controller.apply(controller.removeLink(in: range))
 
 API: `PluginProps.handleLongPress`, `EditorController.linkMark(at:)`, `EditorController.updateLink(in:href:title:)`, `EditorController.removeLink(in:)`. The transaction is undoable as one unit; the `.setMarkAttrs` step stamps new attrs in place without disturbing surrounding marks.
 
+### Inline completions / mentions
+
+Configure triggers, fetch items, render rows, commit on select. The popup positions itself against the caret rect; arrow keys, Enter / Tab, and Escape are wired automatically.
+
+```swift
+struct MentionItem: Identifiable {
+    let id: String
+    let name: String
+}
+
+let people: [MentionItem] = [
+    .init(id: "fc", name: "Fred Chasen"),
+    .init(id: "alice", name: "Alice"),
+    .init(id: "bob", name: "Bob"),
+]
+
+SwiftProseEditor(text: $markdown)
+    .proseCompletions(
+        ProseCompletionConfiguration(
+            triggers: [CompletionTrigger(id: "mention", prefix: "@")],
+            fetch: { ctx in
+                people.filter { $0.name.lowercased().contains(ctx.query.lowercased()) }
+            },
+            row: { item, isHighlighted in
+                AnyView(
+                    HStack {
+                        Text("@\(item.id)").bold()
+                        Text(item.name).foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 8)
+                    .background(isHighlighted ? Color.accentColor.opacity(0.18) : .clear)
+                )
+            },
+            onSelect: { controller, range, item in
+                let mention = NSAttributedString(string: "@\(item.id) ")
+                controller.apply(Transaction(steps: [
+                    .replaceText(range: range, with: mention)
+                ]))
+            }
+        )
+    )
+```
+
+API: `CompletionTrigger`, `CompletionContext`, `CompletionSession`, `ProseCompletionConfiguration`, `EditorController.caretRect()`. Triggers can be multiple (`@`, `#`, `/`); the host owns both data and row design; `onSelect` is free to insert plain text, a mark, a structured node — whatever fits the schema.
+
+If you'd rather drive the popup yourself, register a `CompletionPlugin` directly, call `plugin.attach(to: controller)`, and observe `plugin.onSessionChanged`. The plugin handles trigger detection, query updates on typing, arrow / Enter / Escape, and close-on-whitespace; you decide how to render.
+
 ## Selection
 
 `controller.currentTypedSelection` returns a typed `Selection`:

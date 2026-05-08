@@ -240,6 +240,17 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         public func textView(_ textView: UITextView,
                              shouldChangeTextIn range: NSRange,
                              replacementText text: String) -> Bool {
+            // Plugins get first crack at every text-input event. Returning
+            // true from `handleTextInput` consumes the input.
+            let controller = parent.controller
+            if !controller.plugins.isEmpty {
+                for plugin in controller.plugins {
+                    if plugin.props.handleTextInput?(controller, range, text) == true {
+                        pushTextNow()
+                        return false
+                    }
+                }
+            }
             if text == "\n" {
                 if parent.controller.handleNewline() {
                     pushTextNow()
@@ -304,6 +315,35 @@ final class ProseUITextView: UITextView {
         super.deleteBackward()
     }
 
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        // Plugins get first crack at navigation/control keys (arrows,
+        // Enter, Escape, Tab). Regular text input flows through
+        // `textView(_:shouldChangeTextIn:replacementText:)`.
+        if let controller = proseController, !controller.plugins.isEmpty {
+            for press in presses {
+                guard let key = press.key,
+                      let name = pluginKeyName(for: key) else { continue }
+                for plugin in controller.plugins {
+                    if plugin.props.handleKeyDown?(controller, name) == true { return }
+                }
+            }
+        }
+        super.pressesBegan(presses, with: event)
+    }
+
+    private func pluginKeyName(for key: UIKey) -> String? {
+        switch key.keyCode {
+        case .keyboardEscape: return "Escape"
+        case .keyboardReturnOrEnter, .keypadEnter: return "Enter"
+        case .keyboardTab: return "Tab"
+        case .keyboardUpArrow: return "ArrowUp"
+        case .keyboardDownArrow: return "ArrowDown"
+        case .keyboardLeftArrow: return "ArrowLeft"
+        case .keyboardRightArrow: return "ArrowRight"
+        default: return nil
+        }
+    }
+
     /// Sublayer that paints code-block BG bands behind text. Per-fragment
     /// drawing under TextKit 2 elides zero-width paragraph fragments (empty
     /// lines inside a multi-line block), leaving visual gaps; a layer drawn
@@ -341,7 +381,7 @@ final class ProseUITextView: UITextView {
     private func ensureCodeBlockBgLayer() {
         guard !codeBlockBgLayerInstalled else { return }
         let fill = proseController?.theme.codeBlock.fillColor ?? .codeBlockDefaultFill
-        codeBlockBgLayer.fillColor = fill.cgColor
+        codeBlockBgLayer.fillColor = resolvedFillCGColor(fill)
         codeBlockBgLayer.frame = CGRect(origin: .zero, size: layer.bounds.size)
         layer.insertSublayer(codeBlockBgLayer, at: 0)
         codeBlockBgLayerInstalled = true
@@ -352,7 +392,23 @@ final class ProseUITextView: UITextView {
     /// without remaking the layer.
     func updateCodeBlockBgLayerFill() {
         guard let controller = proseController else { return }
-        codeBlockBgLayer.fillColor = controller.theme.codeBlock.fillColor.cgColor
+        codeBlockBgLayer.fillColor = resolvedFillCGColor(controller.theme.codeBlock.fillColor)
+    }
+
+    /// `UIColor.cgColor` on a dynamic color resolved with `withAlphaComponent`
+    /// can flatten to opaque (alpha=1) when accessed outside a trait-current
+    /// scope — observed on iOS where the band rendered as solid black.
+    /// Resolving against the view's own trait collection produces a static
+    /// UIColor that preserves the alpha, then bridges cleanly to CGColor.
+    private func resolvedFillCGColor(_ color: UIColor) -> CGColor {
+        color.resolvedColor(with: traitCollection).cgColor
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
+            updateCodeBlockBgLayerFill()
+        }
     }
 
     private var bgUpdateScheduled = false
