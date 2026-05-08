@@ -234,15 +234,10 @@ import UIKit
     }
 
     private func cellTextOf(_ cell: CellView) -> String {
-        #if canImport(AppKit) && os(macOS)
-        return cell.subviews
-            .compactMap { ($0 as? NSTextView)?.string }
-            .first ?? ""
-        #else
-        return cell.subviews
-            .compactMap { ($0 as? UITextView)?.text }
-            .first ?? ""
-        #endif
+        // CellView paints text via `draw(_:)` from `renderedString` until
+        // it's promoted to a live text view, so the test reads the
+        // rendered attributed string directly.
+        return cell.renderedString.string
     }
 
     @Test func textKit2InstantiatesViewProviderForTable() throws {
@@ -253,7 +248,7 @@ import UIKit
         controller.layoutManager.ensureLayout(for: controller.contentStorage.documentRange)
 
         var sawTableProvider = false
-        var viewIsTableBlockView = false
+        var viewIsScrollContainer = false
         var viewHasNonZeroSize = false
         var blockViewHasCells = false
         controller.layoutManager.enumerateTextLayoutFragments(
@@ -263,8 +258,8 @@ import UIKit
             for provider in fragment.textAttachmentViewProviders {
                 guard let tableProvider = provider as? TableAttachmentViewProvider else { continue }
                 sawTableProvider = true
-                if let blockView = tableProvider.view as? TableBlockView {
-                    viewIsTableBlockView = true
+                viewIsScrollContainer = tableProvider.view is TableScrollContainer
+                if let blockView = tableProvider.tableBlockView {
                     let dims = TableBlockView.dimensions(of: blockView.subtree)
                     blockViewHasCells = dims.cols > 0 && dims.rows > 0
                     viewHasNonZeroSize = blockView.frame.width > 0 || (provider.view?.bounds.width ?? 0) > 0
@@ -273,10 +268,8 @@ import UIKit
             return true
         }
         #expect(sawTableProvider)
-        #expect(viewIsTableBlockView)
+        #expect(viewIsScrollContainer)
         #expect(blockViewHasCells)
-        // The view's frame may not be set until laid out in a window;
-        // fall back to checking the dimensions are correct.
         _ = viewHasNonZeroSize
     }
 

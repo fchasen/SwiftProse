@@ -194,8 +194,37 @@ public final class TableBlockView: PlatformView {
         layer?.backgroundColor = TableBlockView.backgroundColor.cgColor
         #else
         backgroundColor = TableBlockView.backgroundColor
+        // Without `.redraw`, UIView's default `.scaleToFill` content
+        // mode bilinearly stretches the layer's cached drawing
+        // (chrome + cell text) when the frame grows after the first
+        // paint — which is what made cells look stretched on iOS.
+        contentMode = .redraw
+        isOpaque = false
         #endif
         rebuild()
+    }
+
+    /// Re-resolve appearance-dependent colors and request a full
+    /// repaint. Called by the host scroll container when system
+    /// appearance changes — the layer's `backgroundColor` was
+    /// captured as a CGColor at init / last appearance switch and
+    /// won't auto-update on its own; cell text was rendered into an
+    /// `NSAttributedString` whose colors must be regenerated under
+    /// the new trait/appearance state.
+    func refreshAppearance() {
+        #if canImport(AppKit) && os(macOS)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            self.layer?.backgroundColor =
+                TableBlockView.backgroundColor.cgColor
+        }
+        needsDisplay = true
+        #else
+        backgroundColor = TableBlockView.backgroundColor
+        setNeedsDisplay()
+        #endif
+        for row in cellViews {
+            for cell in row { cell.refreshAppearance() }
+        }
     }
 
     static var backgroundColor: PlatformColor {
@@ -384,9 +413,12 @@ public final class TableBlockView: PlatformView {
     /// Compute per-column widths from cell content. Each column's
     /// natural width is the max measured single-line width across its
     /// cells (capped at `maxNaturalColumnWidth`, floored at
-    /// `minColumnWidth`). The result is then scaled to fit the
-    /// container — proportionally up if natural totals are narrower,
-    /// proportionally down with floor clamping if wider.
+    /// `minColumnWidth`). When the column natural total fits in the
+    /// container, columns are scaled up proportionally to fill it.
+    /// When the natural total exceeds the container, columns keep
+    /// their natural widths so each cell renders its single-line
+    /// content without crammed wrapping — the host wraps the table in
+    /// a horizontal scroll container so the overflow is reachable.
     public static func measureColumnWidths(
         for subtree: TreeNode,
         theme: ProseTheme,
@@ -410,31 +442,16 @@ public final class TableBlockView: PlatformView {
             return Array(repeating: target / CGFloat(dims.cols), count: dims.cols)
         }
         if totalNatural <= target {
-            // Scale up proportionally so the table fills the container.
+            // Natural fits — scale up proportionally to fill the container.
             // Preserves the content-driven proportions.
             let scale = target / totalNatural
             return natural.map { $0 * scale }
         }
-        // Total natural exceeds container — shrink columns above the
-        // floor proportionally until the total fits or every column is
-        // pinned to `minColumnWidth`. If everything is at the floor and
-        // we still overflow, accept the overflow rather than crushing
-        // legibility further.
-        var widths = natural
-        for _ in 0..<dims.cols {
-            let total = widths.reduce(0, +)
-            if total <= target { break }
-            let overshoot = total - target
-            var shrinkableTotal: CGFloat = 0
-            for w in widths where w > minColumnWidth { shrinkableTotal += w - minColumnWidth }
-            if shrinkableTotal <= 0 { break }
-            for idx in 0..<widths.count where widths[idx] > minColumnWidth {
-                let headroom = widths[idx] - minColumnWidth
-                let share = (headroom / shrinkableTotal) * overshoot
-                widths[idx] = max(minColumnWidth, widths[idx] - share)
-            }
-        }
-        return widths
+        // Natural exceeds container — keep natural widths so each cell
+        // renders its single-line content. The total exceeds the
+        // container; the surrounding scroll container handles the
+        // overflow by scrolling horizontally.
+        return natural
     }
 
     /// Per-row heights using the supplied column widths. A row's
@@ -624,6 +641,19 @@ public final class TableBlockView: PlatformView {
         super.draw(rect)
         drawChrome()
     }
+
+    /// `setNeedsDisplay()` calls during `loadView` happen before the
+    /// view is in a window, and on iOS the system honors them only
+    /// when there's a layer to render into. Call again now so the
+    /// chrome paints on first appearance — without this, tables added
+    /// fresh sometimes paint cell text but no border / header bg
+    /// until something else (typing, resize) re-dirties the layer.
+    public override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        layoutCells()
+        setNeedsDisplay()
+    }
     #endif
 
     private func drawChrome() {
@@ -699,18 +729,27 @@ public final class TableBlockView: PlatformView {
     }
 }
 
-/// One cell in a `TableBlockView`. Wraps a platform text input that
-/// renders the cell's inline-run subtree. `setEditable(true)` enables
-/// typing; the wrapped text view emits `Transaction`s via the
-/// `onEdit` closure.
+/// One cell in a `TableBlockView`. Renders inert via `draw(_:)` until
+/// activated, then promotes to a real `NSTextView` / `UITextView` for
+/// editing. Demotes back to inert rendering when focus leaves. Holds at
+/// most one live text view per cell — instantiating six hundred for a
+/// table-heavy document was the original overhead this avoids.
 public final class CellView: PlatformView {
     public let row: Int
     public let column: Int
     public let isHeader: Bool
     public let theme: ProseTheme
     public private(set) var cellNode: TreeNode
-    private let textView: PlatformTextView
+    private var textView: PlatformTextView?
     private let alignment: PipeTableAlignment
+    /// Latest attributed content for the cell. Source of truth when
+    /// `textView == nil` (inert mode); rebuilt from `cellNode` on every
+    /// `applyAttributedContent` call.
+    public private(set) var renderedString: NSAttributedString = NSAttributedString()
+    /// Whether typing should be allowed when the cell is promoted. Stored
+    /// so a `setEditable(_:)` call before promotion is honored when the
+    /// text view is created.
+    private var allowsEditing: Bool = false
     /// Closure called with the cell's new inline-run list whenever the
     /// embedded text view's content changes.
     public var onEdit: (([TreeNode]) -> Void)?
@@ -732,53 +771,46 @@ public final class CellView: PlatformView {
         self.alignment = CellView.parseAlignment(cell)
         self.onEdit = onEdit
 
-        #if canImport(AppKit) && os(macOS)
-        let tv = NSTextView()
-        tv.isEditable = false
-        tv.isSelectable = true
-        tv.drawsBackground = false
-        tv.textContainer?.lineFragmentPadding = 0
-        tv.textContainer?.widthTracksTextView = true
-        tv.textContainer?.heightTracksTextView = false
-        tv.textContainerInset = NSSize(
-            width: TableBlockView.cellHorizontalPadding,
-            height: TableBlockView.cellVerticalPadding
-        )
-        tv.isHorizontallyResizable = false
-        tv.isVerticallyResizable = false
-        tv.allowsUndo = false
-        self.textView = tv
-        #else
-        let tv = UITextView()
-        tv.isEditable = false
-        tv.isSelectable = true
-        tv.backgroundColor = .clear
-        tv.textContainer.lineFragmentPadding = 0
-        tv.textContainerInset = UIEdgeInsets(
-            top: TableBlockView.cellVerticalPadding,
-            left: TableBlockView.cellHorizontalPadding,
-            bottom: TableBlockView.cellVerticalPadding,
-            right: TableBlockView.cellHorizontalPadding
-        )
-        self.textView = tv
-        #endif
-
         super.init(frame: .zero)
         #if canImport(AppKit) && os(macOS)
         wantsLayer = true
+        setAccessibilityRole(.textField)
+        setAccessibilityElement(true)
+        #else
+        isAccessibilityElement = true
+        accessibilityTraits = isHeader ? [.staticText, .header] : .staticText
+        // UIView's default `.scaleToFill` caches the cell text rendered
+        // at the first paint and bilinearly stretches it whenever the
+        // cell's frame grows — `.redraw` instead invalidates the layer
+        // contents on bounds change so the next paint draws fresh.
+        contentMode = .redraw
         #endif
-        addSubview(textView)
         applyAttributedContent()
-        wireDelegate()
     }
 
     public required init?(coder: NSCoder) { fatalError("not supported") }
 
     public func setEditable(_ editable: Bool) {
+        allowsEditing = editable
         #if canImport(AppKit) && os(macOS)
-        textView.isEditable = editable
+        textView?.isEditable = editable
         #else
-        textView.isEditable = editable
+        textView?.isEditable = editable
+        #endif
+    }
+
+    /// Re-render the cell's `renderedString` so any theme-derived
+    /// dynamic colors are resolved under the current appearance.
+    /// Called by the table view when the host scroll container
+    /// observes a system appearance switch.
+    func refreshAppearance() {
+        suppressOnEdit = true
+        applyAttributedContent()
+        suppressOnEdit = false
+        #if canImport(AppKit) && os(macOS)
+        needsDisplay = true
+        #else
+        setNeedsDisplay()
         #endif
     }
 
@@ -804,21 +836,39 @@ public final class CellView: PlatformView {
             alignment: alignment,
             theme: theme
         )
+        renderedString = attributed
         #if canImport(AppKit) && os(macOS)
-        // Skip the rewrite when the rendered text matches what's already
-        // shown — the typing path round-trips through here and resetting
-        // the storage would jump the cursor home on every keystroke.
-        if textView.textStorage?.string == attributed.string { return }
-        let priorSelection = textView.selectedRange()
-        textView.textStorage?.setAttributedString(attributed)
-        let clampedLoc = min(priorSelection.location, attributed.length)
-        textView.setSelectedRange(NSRange(location: clampedLoc, length: 0))
+        setAccessibilityLabel(attributed.string)
         #else
-        if textView.text == attributed.string { return }
-        let priorSelection = textView.selectedRange
-        textView.attributedText = attributed
-        let clampedLoc = min(priorSelection.location, attributed.length)
-        textView.selectedRange = NSRange(location: clampedLoc, length: 0)
+        accessibilityLabel = attributed.string
+        #endif
+        #if canImport(AppKit) && os(macOS)
+        if let tv = textView {
+            // Skip the rewrite when the rendered text matches what's already
+            // shown — the typing path round-trips through here and resetting
+            // the storage would jump the cursor home on every keystroke.
+            if tv.textStorage?.string == attributed.string {
+                setNeedsDisplay(bounds)
+                return
+            }
+            let priorSelection = tv.selectedRange()
+            tv.textStorage?.setAttributedString(attributed)
+            let clampedLoc = min(priorSelection.location, attributed.length)
+            tv.setSelectedRange(NSRange(location: clampedLoc, length: 0))
+        }
+        setNeedsDisplay(bounds)
+        #else
+        if let tv = textView {
+            if tv.text == attributed.string {
+                setNeedsDisplay()
+                return
+            }
+            let priorSelection = tv.selectedRange
+            tv.attributedText = attributed
+            let clampedLoc = min(priorSelection.location, attributed.length)
+            tv.selectedRange = NSRange(location: clampedLoc, length: 0)
+        }
+        setNeedsDisplay()
         #endif
     }
 
@@ -1060,11 +1110,12 @@ public final class CellView: PlatformView {
     /// via `NodePathSynthesizer` so font traits map back to canonical
     /// `proseMarks` before reporting to `onEdit`.
     fileprivate func currentInlineRuns() -> [TreeNode] {
+        guard let tv = textView else { return [] }
         let attributed: NSAttributedString
         #if canImport(AppKit) && os(macOS)
-        attributed = textView.attributedString()
+        attributed = tv.attributedString()
         #else
-        attributed = textView.attributedText ?? NSAttributedString()
+        attributed = tv.attributedText ?? NSAttributedString()
         #endif
         let mutable = NSMutableAttributedString(attributedString: attributed)
         guard mutable.length > 0 else { return [] }
@@ -1090,27 +1141,195 @@ public final class CellView: PlatformView {
     #if canImport(AppKit) && os(macOS)
     public override func layout() {
         super.layout()
-        textView.frame = bounds
+        textView?.frame = bounds
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        textView.frame = bounds
+        textView?.frame = bounds
     }
 
     public override var isFlipped: Bool { true }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard textView == nil, renderedString.length > 0 else { return }
+        let drawRect = inertDrawRect()
+        renderedString.draw(in: drawRect)
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil, textView != nil { seedTextViewStorage() }
+    }
+
+    public override func mouseDown(with event: NSEvent) {
+        if textView == nil, allowsEditing {
+            promoteToTextView()
+            if let tv = textView {
+                tv.window?.makeFirstResponder(tv)
+                // Forward the original mouseDown so the text view places
+                // the caret at the click point on the same gesture event.
+                tv.mouseDown(with: event)
+                return
+            }
+        }
+        super.mouseDown(with: event)
+    }
     #else
     public override func layoutSubviews() {
         super.layoutSubviews()
-        textView.frame = bounds
+        textView?.frame = bounds
     }
 
     public override var frame: CGRect {
-        didSet { textView.frame = bounds }
+        didSet {
+            textView?.frame = bounds
+            // The frame.didSet inherited from UIView doesn't trigger
+            // `draw(_:)` on bounds change unless we explicitly mark
+            // the layer needs display. Without this, cell text drawn
+            // at the previous bounds gets bilinearly stretched into
+            // the new bounds via `contentMode`'s default cache.
+            if abs(frame.size.width - oldValue.size.width) > 0.5
+                || abs(frame.size.height - oldValue.size.height) > 0.5 {
+                setNeedsDisplay()
+            }
+        }
+    }
+
+    public override func draw(_ rect: CGRect) {
+        super.draw(rect)
+        guard textView == nil, renderedString.length > 0 else { return }
+        let drawRect = inertDrawRect()
+        renderedString.draw(in: drawRect)
+    }
+
+    public override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil, textView != nil { seedTextViewStorage() }
+        if window != nil { setNeedsDisplay() }
+    }
+
+    public override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if textView == nil, allowsEditing {
+            promoteToTextView()
+            if let tv = textView {
+                tv.becomeFirstResponder()
+                if let touch = touches.first {
+                    let loc = touch.location(in: tv)
+                    if let pos = tv.closestPosition(to: loc) {
+                        let off = tv.offset(from: tv.beginningOfDocument, to: pos)
+                        tv.selectedRange = NSRange(location: off, length: 0)
+                    }
+                }
+                return
+            }
+        }
+        super.touchesBegan(touches, with: event)
     }
     #endif
 
+    private func inertDrawRect() -> CGRect {
+        return CGRect(
+            x: TableBlockView.cellHorizontalPadding,
+            y: TableBlockView.cellVerticalPadding,
+            width: max(0, bounds.width - 2 * TableBlockView.cellHorizontalPadding),
+            height: max(0, bounds.height - 2 * TableBlockView.cellVerticalPadding)
+        )
+    }
+
+    private func makeTextView() -> PlatformTextView {
+        #if canImport(AppKit) && os(macOS)
+        let tv = NSTextView()
+        tv.isEditable = allowsEditing
+        tv.isSelectable = true
+        tv.drawsBackground = false
+        tv.textContainer?.lineFragmentPadding = 0
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.heightTracksTextView = false
+        tv.textContainerInset = NSSize(
+            width: TableBlockView.cellHorizontalPadding,
+            height: TableBlockView.cellVerticalPadding
+        )
+        tv.isHorizontallyResizable = false
+        tv.isVerticallyResizable = false
+        tv.allowsUndo = false
+        return tv
+        #else
+        let tv = UITextView()
+        tv.isEditable = allowsEditing
+        tv.isSelectable = true
+        tv.backgroundColor = .clear
+        tv.textContainer.lineFragmentPadding = 0
+        tv.textContainerInset = UIEdgeInsets(
+            top: TableBlockView.cellVerticalPadding,
+            left: TableBlockView.cellHorizontalPadding,
+            bottom: TableBlockView.cellVerticalPadding,
+            right: TableBlockView.cellHorizontalPadding
+        )
+        return tv
+        #endif
+    }
+
+    private func promoteToTextView() {
+        guard textView == nil else { return }
+        let tv = makeTextView()
+        tv.frame = bounds
+        textView = tv
+        wireDelegate()
+        addSubview(tv)
+        seedTextViewStorage()
+        #if canImport(AppKit) && os(macOS)
+        setNeedsDisplay(bounds)
+        #else
+        setNeedsDisplay()
+        #endif
+    }
+
+    /// Copy `renderedString` into the live text view's storage. Only
+    /// runs once the text view is attached to a window — setting storage
+    /// on an unattached `NSTextView` triggers `_fixSelectionAfterChange…`
+    /// which lazy-instantiates the system cursor UI singleton, and that
+    /// must happen on the main thread. In headless tests where the cell
+    /// never reaches a window, the text view stays empty (which is
+    /// fine — there's no rendering surface to show it on).
+    private func seedTextViewStorage() {
+        guard let tv = textView else { return }
+        guard tv.window != nil else { return }
+        suppressOnEdit = true
+        #if canImport(AppKit) && os(macOS)
+        tv.textStorage?.setAttributedString(renderedString)
+        #else
+        tv.attributedText = renderedString
+        #endif
+        suppressOnEdit = false
+    }
+
+    fileprivate func demoteFromTextView() {
+        guard let tv = textView else { return }
+        // Capture latest content so the inert paint shows what the user
+        // typed even before the controller round-trip finishes.
+        let attributed: NSAttributedString
+        #if canImport(AppKit) && os(macOS)
+        attributed = tv.attributedString()
+        #else
+        attributed = tv.attributedText ?? NSAttributedString()
+        #endif
+        if attributed.length > 0 {
+            renderedString = attributed
+        }
+        tv.removeFromSuperview()
+        textView = nil
+        delegateProxy = nil
+        #if canImport(AppKit) && os(macOS)
+        setNeedsDisplay(bounds)
+        #else
+        setNeedsDisplay()
+        #endif
+    }
+
     private func wireDelegate() {
+        guard let tv = textView else { return }
         let proxy = CellEditDelegate(
             onChange: { [weak self] in
                 guard let self, !self.suppressOnEdit else { return }
@@ -1118,6 +1337,9 @@ public final class CellView: PlatformView {
             },
             onFocus: { [weak self] in
                 self?.markActive()
+            },
+            onEndEdit: { [weak self] in
+                self?.demoteFromTextView()
             },
             onTab: { [weak self] forward in
                 self?.tableParent()?.advanceCellFocus(forward: forward) ?? false
@@ -1129,25 +1351,30 @@ public final class CellView: PlatformView {
             }
         )
         self.delegateProxy = proxy
-        textView.delegate = proxy
+        tv.delegate = proxy
     }
 
     /// Make this cell's text view the first responder. Used by Tab /
-    /// click navigation.
+    /// click navigation. Promotes to a live text view if none exists.
     @discardableResult
     public func becomeCellFirstResponder() -> Bool {
+        if textView == nil {
+            promoteToTextView()
+        }
+        guard let tv = textView else { return false }
         #if canImport(AppKit) && os(macOS)
-        return textView.window?.makeFirstResponder(textView) == true
+        return tv.window?.makeFirstResponder(tv) == true
         #else
-        return textView.becomeFirstResponder()
+        return tv.becomeFirstResponder()
         #endif
     }
 
     public func resignCellFirstResponder() {
+        guard let tv = textView else { return }
         #if canImport(AppKit) && os(macOS)
-        textView.window?.makeFirstResponder(nil)
+        tv.window?.makeFirstResponder(nil)
         #else
-        textView.resignFirstResponder()
+        tv.resignFirstResponder()
         #endif
     }
 
@@ -1174,16 +1401,19 @@ public final class CellView: PlatformView {
 private final class CellEditDelegate: NSObject {
     fileprivate let onChange: () -> Void
     fileprivate let onFocus: () -> Void
+    fileprivate let onEndEdit: () -> Void
     fileprivate let onTab: (Bool) -> Bool
     fileprivate let onEscape: () -> Bool
     init(
         onChange: @escaping () -> Void,
         onFocus: @escaping () -> Void,
+        onEndEdit: @escaping () -> Void,
         onTab: @escaping (Bool) -> Bool,
         onEscape: @escaping () -> Bool
     ) {
         self.onChange = onChange
         self.onFocus = onFocus
+        self.onEndEdit = onEndEdit
         self.onTab = onTab
         self.onEscape = onEscape
     }
@@ -1194,6 +1424,9 @@ private final class CellEditDelegate: NSObject {
     }
     @objc fileprivate func textDidBeginEditing(_ notification: Notification) {
         onFocus()
+    }
+    @objc fileprivate func textDidEndEditing(_ notification: Notification) {
+        onEndEdit()
     }
     #endif
 }
@@ -1220,6 +1453,9 @@ extension CellEditDelegate: UITextViewDelegate {
     }
     func textViewDidBeginEditing(_ textView: UITextView) {
         onFocus()
+    }
+    func textViewDidEndEditing(_ textView: UITextView) {
+        onEndEdit()
     }
     func textView(
         _ textView: UITextView,

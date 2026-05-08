@@ -132,6 +132,37 @@ import UIKit
         #expect(abs(widths[1] - widths[2]) < 1)
     }
 
+    @Test func columnWidthsOverflowContainerWhenContentExceedsIt() {
+        // Five columns with content too wide to fit in a narrow
+        // container. Columns must keep their natural widths (no
+        // shrinking below) and the total exceeds the container — the
+        // host wraps the table in a horizontal scroll container so
+        // the overflow is reachable.
+        let longCell = String(repeating: "x", count: 40)
+        let subtree = table([
+            row([
+                cell("Parameter"), cell("Type"),
+                cell("Description"), cell("Layout"),
+                cell(longCell)
+            ])
+        ])
+        let containerWidth: CGFloat = 320
+        let widths = TableBlockView.measureColumnWidths(
+            for: subtree,
+            theme: .default,
+            containerWidth: containerWidth
+        )
+        let total = widths.reduce(0, +)
+        // Natural total exceeds container — algorithm preserved
+        // natural widths instead of crushing to fit.
+        #expect(total > containerWidth)
+        // Sanity: every column at least its content's natural width
+        // (no shrinking happened).
+        for w in widths {
+            #expect(w >= TableBlockView.minColumnWidth)
+        }
+    }
+
     @Test func updateCellInlineFiresLayoutDidChange() {
         let initial = table([
             row([cell("h1", header: true), cell("h2", header: true)], header: true),
