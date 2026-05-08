@@ -54,6 +54,14 @@ public struct ProseTextViewMac: NSViewRepresentable {
         controller.hostTextView = textView
         textView.proseController = controller
 
+        let press = NSPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handlePluginLongPress(_:))
+        )
+        press.minimumPressDuration = 0.5
+        press.delegate = context.coordinator
+        textView.addGestureRecognizer(press)
+
         switch sizing {
         case .fitsContent:
             textView.autoresizingMask = [.width]
@@ -137,11 +145,30 @@ public struct ProseTextViewMac: NSViewRepresentable {
         return nil
     }
 
-    public final class Coordinator: NSObject, NSTextViewDelegate {
+    public final class Coordinator: NSObject, NSTextViewDelegate, NSGestureRecognizerDelegate {
         var parent: ProseTextViewMac
         weak var textView: NSTextView?
         var lastAppliedMarkdown: String
         var pendingTextPush: DispatchWorkItem?
+
+        @objc func handlePluginLongPress(_ gr: NSPressGestureRecognizer) {
+            guard gr.state == .began,
+                  let textView = textView as? ProseNSTextView,
+                  let controller = textView.proseController,
+                  !controller.plugins.isEmpty else { return }
+            let point = gr.location(in: textView)
+            let charIndex = textView.characterIndexForInsertion(at: point)
+            for plugin in controller.plugins {
+                if plugin.props.handleLongPress?(controller, charIndex) == true { return }
+            }
+        }
+
+        /// Let the press recognizer run alongside the text view's own
+        /// drag/selection gestures so it doesn't suppress text editing.
+        public func gestureRecognizer(
+            _ gestureRecognizer: NSGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: NSGestureRecognizer
+        ) -> Bool { true }
 
         /// Coalescing window for `parent.text = controller.markdown()` writes
         /// triggered by `textDidChange`. Serializing the whole storage on

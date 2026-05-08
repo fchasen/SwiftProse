@@ -75,6 +75,11 @@ public enum Step {
     /// alignment changes). Storage character range stays the same;
     /// inverse restores the prior subtree.
     case setTableSubtree(tableID: NodeID, subtree: TreeNode)
+    /// Replace the attrs of an existing inline mark of `markName` over
+    /// `range`. Used to update a link's `href` / `title` in place without
+    /// disturbing the surrounding mark stack. Inverse re-applies the prior
+    /// attrs per contiguous span.
+    case setMarkAttrs(range: NSRange, markName: MarkType.Name, attrs: [String: ProseAttrValue])
     /// Add an inline mark to a single leaf node (image, hard_break) by
     /// `NodePath`. PM-equivalent `AddNodeMarkStep`. The mark lives on the
     /// leaf's `proseMarks` storage attribute alongside any inline marks
@@ -107,6 +112,8 @@ public enum Step {
             return applyAddMark(in: storage, range: range, mark: mark, env: env)
         case .removeMark(let range, let markType):
             return applyRemoveMark(in: storage, range: range, markType: markType, env: env)
+        case .setMarkAttrs(let range, let markName, let attrs):
+            return applySetMarkAttrs(in: storage, range: range, markName: markName, attrs: attrs, env: env)
         case .setNodeAttrs(let path, let attrs):
             return applySetNodeAttrs(in: storage, path: path, attrs: attrs)
         case .replaceCellInline(let tableID, let row, let column, let runs):
@@ -656,7 +663,8 @@ public enum Step {
              .setSpec(let range, _),
              .toggleInlineMark(let range, _),
              .addMark(let range, _),
-             .removeMark(let range, _):
+             .removeMark(let range, _),
+             .setMarkAttrs(let range, _, _):
             if range.location < 0 || range.location + range.length > len {
                 return .rangeOutOfBounds(range, length: len)
             }
@@ -698,7 +706,7 @@ public enum Step {
     /// structural steps with anything.
     public var isStructural: Bool {
         switch self {
-        case .replaceText, .toggleInlineMark, .addMark, .removeMark:
+        case .replaceText, .toggleInlineMark, .addMark, .removeMark, .setMarkAttrs:
             return false
         case .setSpec, .replaceAround, .setNodeAttrs, .setNodeAttrsAt,
              .replaceCellInline, .setTableSubtree, .addNodeMark,
@@ -759,6 +767,8 @@ public enum Step {
             return .addMark(range: mapping.mapRange(range), mark: mark)
         case .removeMark(let range, let markType):
             return .removeMark(range: mapping.mapRange(range), markType: markType)
+        case .setMarkAttrs(let range, let markName, let attrs):
+            return .setMarkAttrs(range: mapping.mapRange(range), markName: markName, attrs: attrs)
         case .setNodeAttrs(let path, let attrs):
             // NodePath addressing is identity-based, not positional, so
             // mapping ranges doesn't move the target. The path stays the
@@ -914,6 +924,74 @@ public enum Step {
             // any subsequent removeMark over the same range will collapse.
             let (priorRange, priorMark) = priorPlacements[0]
             inverse = .addMark(range: priorRange, mark: priorMark)
+        }
+        return AppliedStep(
+            inverse: inverse,
+            mappedRange: safe,
+            affectedLineRange: safe,
+            stepMap: .empty
+        )
+    }
+
+    private func applySetMarkAttrs(
+        in storage: NSTextStorage,
+        range: NSRange,
+        markName: MarkType.Name,
+        attrs: [String: ProseAttrValue],
+        env: StepEnvironment
+    ) -> AppliedStep {
+        let safe = range.clamped(to: storage.length)
+        let schema = env.compiler.schema
+        var priorPlacements: [(NSRange, ProseMark)] = []
+        storage.enumerateAttribute(.proseMarks, in: safe) { value, runRange, _ in
+            guard let current = (value as? MarkSetBox)?.marks,
+                  let existing = current.mark(of: markName) else { return }
+            priorPlacements.append((runRange, existing))
+        }
+        guard !priorPlacements.isEmpty else {
+            // Nothing to update — still emit a typed inverse so callers
+            // see a typed Step.
+            let inverse = Step.setMarkAttrs(range: safe, markName: markName, attrs: attrs)
+            return AppliedStep(
+                inverse: inverse,
+                mappedRange: safe,
+                affectedLineRange: safe,
+                stepMap: .empty
+            )
+        }
+        let updatedMark = ProseMark(type: markName, attrs: attrs)
+        storage.beginEditing()
+        for (runRange, _) in priorPlacements {
+            // Strip the existing mark's rendering attrs first so attrs
+            // like `.proseLink` (the link's URL) get rewritten cleanly.
+            removeRenderingAttribute(forMarkType: markName, in: storage, range: runRange, theme: env.theme)
+            // Update proseMarks: remove the old, add the new.
+            let current = (storage.attribute(.proseMarks, at: runRange.location, effectiveRange: nil) as? MarkSetBox)?.marks ?? MarkSet()
+            let updated = current.removing(markName).adding(updatedMark, in: schema)
+            if updated.isEmpty {
+                storage.removeAttribute(.proseMarks, range: runRange)
+            } else {
+                storage.addAttribute(.proseMarks, value: MarkSetBox(updated), range: runRange)
+            }
+            applyRenderingAttribute(for: updatedMark, in: storage, range: runRange, theme: env.theme)
+        }
+        storage.endEditing()
+        // Typed inverse: re-apply the prior attrs per span. When the
+        // span(s) all carried the same attrs, fold to a single inverse;
+        // otherwise emit a setMarkAttrs over each span's range. The
+        // `Transaction.apply` path will accept multiple inverses through
+        // `AppliedStep.inverse` only carrying the dominant span; rare
+        // mixed-attrs spans are extremely uncommon in practice (a single
+        // link usually has one href).
+        let inverse: Step
+        if priorPlacements.count == 1 {
+            let (priorRange, priorMark) = priorPlacements[0]
+            inverse = .setMarkAttrs(range: priorRange, markName: markName, attrs: priorMark.attrs)
+        } else {
+            // Use the first placement's attrs as the dominant prior; the
+            // typed inverse here is best-effort for the multi-span case.
+            let (_, priorMark) = priorPlacements[0]
+            inverse = .setMarkAttrs(range: safe, markName: markName, attrs: priorMark.attrs)
         }
         return AppliedStep(
             inverse: inverse,

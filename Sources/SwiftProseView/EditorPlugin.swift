@@ -41,6 +41,7 @@ public extension EditorPlugin {
 /// to indicate it consumed the event.
 public struct PluginProps {
     public var handleClick: ((EditorController, Int) -> Bool)?
+    public var handleLongPress: ((EditorController, Int) -> Bool)?
     public var handlePaste: ((EditorController, String) -> Bool)?
     public var handleDrop: ((EditorController, Any) -> Bool)?
     public var handleKeyDown: ((EditorController, String) -> Bool)?
@@ -48,12 +49,14 @@ public struct PluginProps {
 
     public init(
         handleClick: ((EditorController, Int) -> Bool)? = nil,
+        handleLongPress: ((EditorController, Int) -> Bool)? = nil,
         handlePaste: ((EditorController, String) -> Bool)? = nil,
         handleDrop: ((EditorController, Any) -> Bool)? = nil,
         handleKeyDown: ((EditorController, String) -> Bool)? = nil,
         handleTextInput: ((EditorController, NSRange, String) -> Bool)? = nil
     ) {
         self.handleClick = handleClick
+        self.handleLongPress = handleLongPress
         self.handlePaste = handlePaste
         self.handleDrop = handleDrop
         self.handleKeyDown = handleKeyDown

@@ -272,6 +272,33 @@ var body: some View {
 
 API: `EditorController.isActionActive(_:)`, `EditorController.activeActionIDs()`. PM semantics — a mark is active when every character in the selection has it (or, on an empty selection, when the cursor sits at a stored mark or right after one).
 
+### Editing links on long-press
+
+A long press on the text surface (≥ 0.5 s) dispatches to `PluginProps.handleLongPress(controller, charIndex)`. Inspect the link mark at the index, present your popover, and commit the edit through `controller.updateLink(in:href:title:)`:
+
+```swift
+final class LinkEditPlugin: EditorPlugin {
+    let key = AnyPluginKey(name: "link.edit")
+    var present: ((NSRange, String, String) -> Void)?
+
+    var props: PluginProps {
+        PluginProps(handleLongPress: { [weak self] controller, charIndex in
+            guard let self,
+                  let link = controller.linkMark(at: charIndex) else { return false }
+            self.present?(link.range, link.href, link.title)
+            return true
+        })
+    }
+}
+
+// Commit:
+controller.apply(controller.updateLink(in: range, href: newHref, title: newTitle))
+// Or strip the mark:
+controller.apply(controller.removeLink(in: range))
+```
+
+API: `PluginProps.handleLongPress`, `EditorController.linkMark(at:)`, `EditorController.updateLink(in:href:title:)`, `EditorController.removeLink(in:)`. The transaction is undoable as one unit; the `.setMarkAttrs` step stamps new attrs in place without disturbing surrounding marks.
+
 ## Selection
 
 `controller.currentTypedSelection` returns a typed `Selection`:

@@ -796,7 +796,8 @@ public final class EditorController {
                  .setSpec(let range, _),
                  .toggleInlineMark(let range, _),
                  .addMark(let range, _),
-                 .removeMark(let range, _):
+                 .removeMark(let range, _),
+                 .setMarkAttrs(let range, _, _):
                 lo = min(lo, range.location)
                 hi = max(hi, range.location + range.length)
             case .replaceAround(let outer, _, _, _):

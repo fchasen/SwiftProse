@@ -196,6 +196,11 @@ public struct ProseTextViewIOS: UIViewRepresentable {
             tap.cancelsTouchesInView = false
             tap.delegate = self
             textView.addGestureRecognizer(tap)
+            let press = UILongPressGestureRecognizer(target: self, action: #selector(handlePluginLongPress(_:)))
+            press.minimumPressDuration = 0.5
+            press.cancelsTouchesInView = false
+            press.delegate = self
+            textView.addGestureRecognizer(press)
         }
 
         public func gestureRecognizer(
@@ -216,6 +221,19 @@ public struct ProseTextViewIOS: UIViewRepresentable {
                 for plugin in controller.plugins {
                     if plugin.props.handleClick?(controller, charIndex) == true { return }
                 }
+            }
+        }
+
+        @objc private func handlePluginLongPress(_ gr: UILongPressGestureRecognizer) {
+            guard gr.state == .began,
+                  let textView = textView,
+                  !parent.controller.plugins.isEmpty else { return }
+            let point = gr.location(in: textView)
+            guard let pos = textView.closestPosition(to: point) else { return }
+            let charIndex = textView.offset(from: textView.beginningOfDocument, to: pos)
+            let controller = parent.controller
+            for plugin in controller.plugins {
+                if plugin.props.handleLongPress?(controller, charIndex) == true { return }
             }
         }
 
