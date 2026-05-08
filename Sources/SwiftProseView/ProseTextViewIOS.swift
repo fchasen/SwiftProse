@@ -61,6 +61,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
                 textView?.invalidateIntrinsicContentSize()
             }
         }
+        context.coordinator.installPluginClickRecognizer(on: textView)
         return textView
     }
 
@@ -111,7 +112,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
 
     public func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    public final class Coordinator: NSObject, UITextViewDelegate {
+    public final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: ProseTextViewIOS
         weak var textView: UITextView?
         var lastAppliedMarkdown: String
@@ -155,6 +156,40 @@ public struct ProseTextViewIOS: UIViewRepresentable {
                              editMenuForTextIn range: NSRange,
                              suggestedActions: [UIMenuElement]) -> UIMenu? {
             parent.editMenuBuilder?(range, suggestedActions)
+        }
+
+        // MARK: Plugin click forwarding
+
+        /// UITextView's own tap recognizer fires for caret placement; this
+        /// runs alongside it (simultaneously) so plugins can intercept link
+        /// taps without breaking editing. Plugin work is dispatched async so
+        /// our `setSelection` lands *after* UITextView's caret placement.
+        func installPluginClickRecognizer(on textView: UITextView) {
+            let tap = UITapGestureRecognizer(target: self, action: #selector(handlePluginTap(_:)))
+            tap.cancelsTouchesInView = false
+            tap.delegate = self
+            textView.addGestureRecognizer(tap)
+        }
+
+        public func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool { true }
+
+        @objc private func handlePluginTap(_ gr: UITapGestureRecognizer) {
+            guard let textView = textView,
+                  !parent.controller.plugins.isEmpty else { return }
+            let point = gr.location(in: textView)
+            // closestPosition gives the gap between glyphs at `point`.
+            // Convert to a character index relative to the document start.
+            guard let pos = textView.closestPosition(to: point) else { return }
+            let charIndex = textView.offset(from: textView.beginningOfDocument, to: pos)
+            let controller = parent.controller
+            DispatchQueue.main.async {
+                for plugin in controller.plugins {
+                    if plugin.props.handleClick?(controller, charIndex) == true { return }
+                }
+            }
         }
 
         public func textView(_ textView: UITextView,
