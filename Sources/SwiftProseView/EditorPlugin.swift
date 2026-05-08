@@ -26,6 +26,11 @@ public protocol EditorPlugin: AnyObject {
         controller: EditorController
     ) -> Transaction?
 
+    func appendTransaction(
+        after transactions: [Transaction],
+        controller: EditorController
+    ) -> Transaction?
+
     /// Input-event hooks. Default implementations return false (don't
     /// consume the event).
     var props: PluginProps { get }
@@ -34,6 +39,10 @@ public protocol EditorPlugin: AnyObject {
 public extension EditorPlugin {
     func filterTransaction(_ transaction: Transaction, controller: EditorController) -> Bool { true }
     func appendTransaction(after transaction: Transaction, controller: EditorController) -> Transaction? { nil }
+    func appendTransaction(after transactions: [Transaction], controller: EditorController) -> Transaction? {
+        guard let transaction = transactions.last else { return nil }
+        return appendTransaction(after: transaction, controller: controller)
+    }
     var props: PluginProps { PluginProps() }
 }
 

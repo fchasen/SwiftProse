@@ -213,8 +213,7 @@ controller.keymap.unbind("Mod-e")
 final class WordCountPlugin: EditorPlugin {
     let key = AnyPluginKey(name: "wordCount")
 
-    func appendTransaction(after tr: Transaction, controller: EditorController) -> Transaction? {
-        // Recompute, log, post a notification, etc.
+    func appendTransaction(after transactions: [Transaction], controller: EditorController) -> Transaction? {
         return nil
     }
 }
@@ -222,7 +221,7 @@ final class WordCountPlugin: EditorPlugin {
 controller.register(plugin: WordCountPlugin())
 ```
 
-`filterTransaction` vetoes a transaction; `appendTransaction` follows up. The `props: PluginProps` bag exposes `handleClick`, `handlePaste`, `handleDrop`, `handleKeyDown`, `handleTextInput` so a plugin can intercept input events. Per-plugin state lives behind `PluginKey<State>` via `controller.setPluginState(_:for:)` / `controller.pluginState(for:)`.
+`filterTransaction` vetoes a transaction; `appendTransaction` follows up with the ProseMirror-style batch of transactions the plugin has not seen yet. Raw text edits are surfaced as synthetic `replaceText` transactions, so appenders see typing and paste changes as well as explicit `controller.apply(...)` calls. The `props: PluginProps` bag exposes `handleClick`, `handlePaste`, `handleDrop`, `handleKeyDown`, `handleTextInput` so a plugin can intercept input events. Per-plugin state lives behind `PluginKey<State>` via `controller.setPluginState(_:for:)` / `controller.pluginState(for:)`.
 
 ### Decorations
 
@@ -238,7 +237,7 @@ controller.historyConfig = HistoryConfig(depth: 200, newGroupDelay: 0.5)
 
 ## UI integrations
 
-Three optional surfaces hosts plug into for UX features ProseMirror editors take for granted: active toolbar state, a long-press hook for editing links inline, and inline completion suggestions.
+Four optional surfaces hosts plug into for UX features ProseMirror editors take for granted: active toolbar state, a long-press hook for editing links inline, autolinking, and inline completion suggestions.
 
 ### Active toolbar state
 
@@ -298,6 +297,30 @@ controller.apply(controller.removeLink(in: range))
 ```
 
 API: `PluginProps.handleLongPress`, `EditorController.linkMark(at:)`, `EditorController.updateLink(in:href:title:)`, `EditorController.removeLink(in:)`. The transaction is undoable as one unit; the `.setMarkAttrs` step stamps new attrs in place without disturbing surrounding marks.
+
+### Autolinks
+
+Register an `AutoLinkPlugin` with one or more `AutoLinkRule`s. The regex is host-owned; `linkCapture` selects the capture group that receives the link mark, and `href` resolves that match into a URL string.
+
+```swift
+let plugin = AutoLinkPlugin(rules: [
+    AutoLinkRule(
+        id: "issue",
+        pattern: "(?i)(?:^|\\s)(Issue\\s+(\\d+))(\\s)$",
+        href: { match in
+            guard let id = match.capture(2) else { return nil }
+            return "https://issues.example/\(id)"
+        }
+    )
+])
+
+SwiftProseEditor(text: $markdown)
+    .onProseControllerReady { controller in
+        controller.register(plugin: plugin)
+    }
+```
+
+API: `AutoLinkPlugin`, `AutoLinkRule`, `AutoLinkMatch`. Autolinks run through `appendTransaction`, skip code blocks, inline code, and existing links, and produce normal `link` marks that serialize as Markdown links.
 
 ### Inline completions / mentions
 

@@ -156,6 +156,7 @@ public final class EditorController {
     /// run in registration order.
     public private(set) var plugins: [EditorPlugin] = []
     private var pluginStates: [AnyPluginKey: Any] = [:]
+    private var runningAppendTransactions = false
     /// Undo / redo configuration. Setting applies depth to the
     /// undoManager; newGroupDelay is consulted by `closeHistoryGroup`.
     public var historyConfig: HistoryConfig = .default {
@@ -314,8 +315,10 @@ public final class EditorController {
                     changeInLength: self.textStorage.changeInLength
                 )
             }
+            var derivedTransaction: Transaction?
             if self.textStorage.editedMask.contains(.editedCharacters) {
                 let derived = self.deriveReplaceTextStep()
+                derivedTransaction = Transaction(steps: [derived])
                 self.fanoutDocumentChange(self.document, derived)
             }
             guard !self.applyingMarkdown else { return }
@@ -353,14 +356,20 @@ public final class EditorController {
                 // ("Range {10,1} out of bounds; string length 9"). With no
                 // host (unit tests, headless use), run synchronously —
                 // there's no run loop to defer onto.
-                if changeInLength == 1, !self.isComposingIME {
-                    if self.hostTextView != nil {
-                        DispatchQueue.main.async { [weak self] in
-                            self?.evaluateInputRules()
-                        }
-                    } else {
-                        self.evaluateInputRules()
+                let runInputRulesAndAppend = { [weak self] in
+                    guard let self else { return }
+                    var inputRuleFired = false
+                    if changeInLength == 1, !self.isComposingIME {
+                        inputRuleFired = self.evaluateInputRules()
                     }
+                    if !inputRuleFired, let derivedTransaction {
+                        self.runAppendTransactions(after: [derivedTransaction])
+                    }
+                }
+                if self.hostTextView != nil {
+                    DispatchQueue.main.async(execute: runInputRulesAndAppend)
+                } else {
+                    runInputRulesAndAppend()
                 }
             }
         }
@@ -686,16 +695,22 @@ public final class EditorController {
     /// (the host text view's selection lands there).
     @discardableResult
     public func apply(_ transaction: Transaction) -> NSRange {
-        guard !transaction.steps.isEmpty else { return currentSelection }
-        // Plugin filterTransaction veto — any plugin can drop the tx.
-        for plugin in plugins where !plugin.filterTransaction(transaction, controller: self) {
-            return currentSelection
+        guard let resultRange = applyCore(transaction) else { return currentSelection }
+        runAppendTransactions(after: [transaction])
+        return resultRange
+    }
+
+    @discardableResult
+    private func applyCore(_ transaction: Transaction, ignoringFilterPluginAt ignoredPluginIndex: Int? = nil) -> NSRange? {
+        guard !transaction.steps.isEmpty else { return nil }
+        for (index, plugin) in plugins.enumerated()
+        where ignoredPluginIndex.map({ $0 == index }) != true
+            && !plugin.filterTransaction(transaction, controller: self) {
+            return nil
         }
-        // meta["closeHistory"] == true forces a new undo group.
         if (transaction.getMeta("closeHistory") as? Bool) == true {
             closeHistoryGroup()
         }
-        // meta["addToHistory"] == false skips undo registration.
         let recordHistory = (transaction.getMeta("addToHistory") as? Bool) != false
         let env = makeStepEnvironment()
         var lastRange = currentSelection
@@ -741,13 +756,42 @@ public final class EditorController {
         if transaction.scrollIntoView {
             scrollSelectionIntoView()
         }
-        // appendTransaction hook — plugins may follow up after apply.
-        for plugin in plugins {
-            if let follow = plugin.appendTransaction(after: transaction, controller: self) {
-                _ = apply(follow)
-            }
-        }
         return resultRange
+    }
+
+    private func runAppendTransactions(after rootTransactions: [Transaction]) {
+        guard !runningAppendTransactions, !rootTransactions.isEmpty, !plugins.isEmpty else { return }
+        runningAppendTransactions = true
+        defer { runningAppendTransactions = false }
+
+        var transactions = rootTransactions
+        var seen: [Int]?
+
+        while true {
+            var haveNew = false
+            for index in plugins.indices {
+                let start = seen?[index] ?? 0
+                guard start < transactions.count else {
+                    if seen != nil { seen![index] = transactions.count }
+                    continue
+                }
+                let newTransactions = Array(transactions[start..<transactions.count])
+                if var follow = plugins[index].appendTransaction(after: newTransactions, controller: self) {
+                    follow.setMeta("appendedTransaction", true)
+                    if applyCore(follow, ignoringFilterPluginAt: index) != nil {
+                        if seen == nil {
+                            seen = plugins.indices.map { $0 < index ? transactions.count : 0 }
+                        }
+                        transactions.append(follow)
+                        haveNew = true
+                    }
+                }
+                if seen != nil {
+                    seen![index] = transactions.count
+                }
+            }
+            if !haveNew { return }
+        }
     }
 
     /// Scroll the host text view so the current selection is visible.
@@ -1000,7 +1044,8 @@ public final class EditorController {
         return false
     }
 
-    func evaluateInputRules() {
+    @discardableResult
+    func evaluateInputRules() -> Bool {
         let cursor = currentSelection.location
         var didFire = false
         _ = inputRules.evaluate(
@@ -1024,6 +1069,7 @@ public final class EditorController {
             applyTypingAttributes(theme.plainParagraphAttributes())
             clearStoredInlineMarks()
         }
+        return didFire
     }
 
     private func performLink(url: String?, label: String?) -> NSRange {
@@ -1910,4 +1956,3 @@ public final class EditorController {
     /// No-op kept for ABI stability.
     public func compactExpandedTableRanges() {}
 }
-
