@@ -275,14 +275,14 @@ public final class TableBlockView: PlatformView {
         // — i.e. when it's about to wrap. `columnRedistributionSlack`
         // gives the column a bit of headroom so it grows just before
         // overflow rather than at it.
-        let cellNeedsMoreRoom: Bool = {
+        let cellNeedsMoreRoom: Bool = autoreleasepool {
             guard let cached = cachedColumnWidths,
                   colIdx < cached.widths.count else { return true }
             let editedCell: TreeNode = .structural(cellNode, cellKids)
             let natural = CellView.measureNaturalWidth(cell: editedCell, theme: theme)
             let cappedNatural = min(natural, Self.maxNaturalColumnWidth)
             return cappedNatural + Self.columnRedistributionSlack > cached.widths[colIdx]
-        }()
+        }
         if cellNeedsMoreRoom {
             invalidateColumnWidths()
         }
@@ -431,8 +431,14 @@ public final class TableBlockView: PlatformView {
         for row in rows {
             guard case .structural(_, let cells) = row else { continue }
             for (col, cell) in cells.enumerated() where col < dims.cols {
-                let w = CellView.measureNaturalWidth(cell: cell, theme: theme)
-                natural[col] = max(natural[col], min(w, maxNaturalColumnWidth))
+                // Once a column has hit the cap, further cells in that
+                // column can't increase its natural width — skip the
+                // probe to avoid spawning a throwaway text view per cell.
+                if natural[col] >= maxNaturalColumnWidth { continue }
+                autoreleasepool {
+                    let w = CellView.measureNaturalWidth(cell: cell, theme: theme)
+                    natural[col] = max(natural[col], min(w, maxNaturalColumnWidth))
+                }
             }
         }
         natural = natural.map { max($0, minColumnWidth) }
@@ -464,15 +470,20 @@ public final class TableBlockView: PlatformView {
     ) -> [CGFloat] {
         guard case .structural(_, let rows) = subtree else { return [] }
         return rows.map { row in
-            guard case .structural(_, let cells) = row else {
-                return minRowHeight + rowMeasurementSlack
+            // Drain per row so probe text views and the transient
+            // attributed strings they hold don't accumulate across the
+            // whole table on a tight measurement pass.
+            autoreleasepool {
+                guard case .structural(_, let cells) = row else {
+                    return minRowHeight + rowMeasurementSlack
+                }
+                var h = minRowHeight
+                for (idx, cell) in cells.enumerated() {
+                    let w = idx < columnWidths.count ? columnWidths[idx] : minColumnWidth
+                    h = max(h, CellView.measureHeight(cell: cell, width: w, theme: theme))
+                }
+                return h + rowMeasurementSlack
             }
-            var h = minRowHeight
-            for (idx, cell) in cells.enumerated() {
-                let w = idx < columnWidths.count ? columnWidths[idx] : minColumnWidth
-                h = max(h, CellView.measureHeight(cell: cell, width: w, theme: theme))
-            }
-            return h + rowMeasurementSlack
         }
     }
 
@@ -565,18 +576,17 @@ public final class TableBlockView: PlatformView {
                 result.append(cached)
                 continue
             }
-            guard case .structural(_, let cells) = row else {
-                let h = Self.minRowHeight + Self.rowMeasurementSlack
-                cachedRowHeights[rowIdx] = h
-                result.append(h)
-                continue
+            let total: CGFloat = autoreleasepool {
+                guard case .structural(_, let cells) = row else {
+                    return Self.minRowHeight + Self.rowMeasurementSlack
+                }
+                var h = Self.minRowHeight
+                for (idx, cell) in cells.enumerated() {
+                    let w = idx < widths.count ? widths[idx] : Self.minColumnWidth
+                    h = max(h, CellView.measureHeight(cell: cell, width: w, theme: theme))
+                }
+                return h + Self.rowMeasurementSlack
             }
-            var h = Self.minRowHeight
-            for (idx, cell) in cells.enumerated() {
-                let w = idx < widths.count ? widths[idx] : Self.minColumnWidth
-                h = max(h, CellView.measureHeight(cell: cell, width: w, theme: theme))
-            }
-            let total = h + Self.rowMeasurementSlack
             cachedRowHeights[rowIdx] = total
             result.append(total)
         }
@@ -930,102 +940,115 @@ public final class CellView: PlatformView {
     private static func measureNaturalWidthViaProbe(
         attributed: NSAttributedString
     ) -> CGFloat {
-        #if canImport(AppKit) && os(macOS)
-        let probe = NSTextView(frame: .zero)
-        probe.isEditable = false
-        probe.isSelectable = false
-        probe.drawsBackground = false
-        probe.textContainer?.lineFragmentPadding = 0
-        probe.textContainer?.widthTracksTextView = false
-        probe.textContainerInset = NSSize(
-            width: TableBlockView.cellHorizontalPadding,
-            height: TableBlockView.cellVerticalPadding
-        )
-        probe.textContainer?.size = CGSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        probe.textStorage?.setAttributedString(attributed)
-        if let lm = probe.layoutManager, let tc = probe.textContainer {
-            lm.ensureLayout(for: tc)
-            let used = lm.usedRect(for: tc)
-            return ceil(used.width) + 2 * TableBlockView.cellHorizontalPadding
-        }
-        return TableBlockView.minColumnWidth
-        #else
-        let probe = UITextView(
-            frame: .zero,
-            textContainer: nil
-        )
-        probe.isEditable = false
-        probe.isSelectable = false
-        probe.backgroundColor = .clear
-        probe.textContainer.lineFragmentPadding = 0
-        probe.textContainerInset = UIEdgeInsets(
-            top: TableBlockView.cellVerticalPadding,
-            left: TableBlockView.cellHorizontalPadding,
-            bottom: TableBlockView.cellVerticalPadding,
-            right: TableBlockView.cellHorizontalPadding
-        )
-        probe.attributedText = attributed
-        let fitting = probe.sizeThatFits(
-            CGSize(
+        // The probe view is heavy (NSTextView/UITextView pull in a
+        // layout manager + text container + storage). Without a local
+        // pool, the autoreleased internals — and any objects the
+        // layout pass autoreleases — pile up in the run-loop pool
+        // until the run loop drains, which is too late on tight
+        // measurement passes.
+        return autoreleasepool {
+            #if canImport(AppKit) && os(macOS)
+            let probe = NSTextView(frame: .zero)
+            probe.isEditable = false
+            probe.isSelectable = false
+            probe.drawsBackground = false
+            probe.textContainer?.lineFragmentPadding = 0
+            probe.textContainer?.widthTracksTextView = false
+            probe.textContainerInset = NSSize(
+                width: TableBlockView.cellHorizontalPadding,
+                height: TableBlockView.cellVerticalPadding
+            )
+            probe.textContainer?.size = CGSize(
                 width: CGFloat.greatestFiniteMagnitude,
                 height: CGFloat.greatestFiniteMagnitude
             )
-        )
-        return ceil(fitting.width)
-        #endif
+            probe.textStorage?.setAttributedString(attributed)
+            if let lm = probe.layoutManager, let tc = probe.textContainer {
+                lm.ensureLayout(for: tc)
+                let used = lm.usedRect(for: tc)
+                return ceil(used.width) + 2 * TableBlockView.cellHorizontalPadding
+            }
+            return TableBlockView.minColumnWidth
+            #else
+            let probe = UITextView(
+                frame: .zero,
+                textContainer: nil
+            )
+            probe.isEditable = false
+            probe.isSelectable = false
+            probe.backgroundColor = .clear
+            probe.textContainer.lineFragmentPadding = 0
+            probe.textContainerInset = UIEdgeInsets(
+                top: TableBlockView.cellVerticalPadding,
+                left: TableBlockView.cellHorizontalPadding,
+                bottom: TableBlockView.cellVerticalPadding,
+                right: TableBlockView.cellHorizontalPadding
+            )
+            probe.attributedText = attributed
+            let fitting = probe.sizeThatFits(
+                CGSize(
+                    width: CGFloat.greatestFiniteMagnitude,
+                    height: CGFloat.greatestFiniteMagnitude
+                )
+            )
+            return ceil(fitting.width)
+            #endif
+        }
     }
 
     private static func measureViaProbe(
         attributed: NSAttributedString,
         width: CGFloat
     ) -> CGFloat {
-        #if canImport(AppKit) && os(macOS)
-        let probe = NSTextView(frame: CGRect(x: 0, y: 0, width: width, height: 1))
-        probe.isEditable = false
-        probe.isSelectable = false
-        probe.drawsBackground = false
-        probe.textContainer?.lineFragmentPadding = 0
-        probe.textContainer?.widthTracksTextView = true
-        probe.textContainerInset = NSSize(
-            width: TableBlockView.cellHorizontalPadding,
-            height: TableBlockView.cellVerticalPadding
-        )
-        probe.frame.size.width = width
-        probe.textContainer?.size = CGSize(
-            width: max(1, width - 2 * TableBlockView.cellHorizontalPadding),
-            height: .greatestFiniteMagnitude
-        )
-        probe.textStorage?.setAttributedString(attributed)
-        if let lm = probe.layoutManager, let tc = probe.textContainer {
-            lm.ensureLayout(for: tc)
-            let used = lm.usedRect(for: tc)
-            return ceil(used.height) + 2 * TableBlockView.cellVerticalPadding
+        // See `measureNaturalWidthViaProbe` for why this needs a local
+        // autorelease pool — same reasoning, this path is hotter
+        // because every cell of every row goes through it.
+        return autoreleasepool {
+            #if canImport(AppKit) && os(macOS)
+            let probe = NSTextView(frame: CGRect(x: 0, y: 0, width: width, height: 1))
+            probe.isEditable = false
+            probe.isSelectable = false
+            probe.drawsBackground = false
+            probe.textContainer?.lineFragmentPadding = 0
+            probe.textContainer?.widthTracksTextView = true
+            probe.textContainerInset = NSSize(
+                width: TableBlockView.cellHorizontalPadding,
+                height: TableBlockView.cellVerticalPadding
+            )
+            probe.frame.size.width = width
+            probe.textContainer?.size = CGSize(
+                width: max(1, width - 2 * TableBlockView.cellHorizontalPadding),
+                height: .greatestFiniteMagnitude
+            )
+            probe.textStorage?.setAttributedString(attributed)
+            if let lm = probe.layoutManager, let tc = probe.textContainer {
+                lm.ensureLayout(for: tc)
+                let used = lm.usedRect(for: tc)
+                return ceil(used.height) + 2 * TableBlockView.cellVerticalPadding
+            }
+            return TableBlockView.minRowHeight
+            #else
+            let probe = UITextView(
+                frame: CGRect(x: 0, y: 0, width: width, height: 1),
+                textContainer: nil
+            )
+            probe.isEditable = false
+            probe.isSelectable = false
+            probe.backgroundColor = .clear
+            probe.textContainer.lineFragmentPadding = 0
+            probe.textContainerInset = UIEdgeInsets(
+                top: TableBlockView.cellVerticalPadding,
+                left: TableBlockView.cellHorizontalPadding,
+                bottom: TableBlockView.cellVerticalPadding,
+                right: TableBlockView.cellHorizontalPadding
+            )
+            probe.attributedText = attributed
+            let fitting = probe.sizeThatFits(
+                CGSize(width: width, height: .greatestFiniteMagnitude)
+            )
+            return ceil(fitting.height)
+            #endif
         }
-        return TableBlockView.minRowHeight
-        #else
-        let probe = UITextView(
-            frame: CGRect(x: 0, y: 0, width: width, height: 1),
-            textContainer: nil
-        )
-        probe.isEditable = false
-        probe.isSelectable = false
-        probe.backgroundColor = .clear
-        probe.textContainer.lineFragmentPadding = 0
-        probe.textContainerInset = UIEdgeInsets(
-            top: TableBlockView.cellVerticalPadding,
-            left: TableBlockView.cellHorizontalPadding,
-            bottom: TableBlockView.cellVerticalPadding,
-            right: TableBlockView.cellHorizontalPadding
-        )
-        probe.attributedText = attributed
-        let fitting = probe.sizeThatFits(
-            CGSize(width: width, height: .greatestFiniteMagnitude)
-        )
-        return ceil(fitting.height)
-        #endif
     }
 
     private static func cellIsHeader(_ cell: TreeNode) -> Bool {
