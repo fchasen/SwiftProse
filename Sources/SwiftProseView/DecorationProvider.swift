@@ -87,6 +87,14 @@ public final class BlockSpecDecorationProvider: DecorationProvider {
     /// without a cache.
     private var cache: [NSRange: [Decoration]] = [:]
 
+    /// Hard cap on cache entries. `invalidate(editedRange:)` only drops
+    /// ranges at or past the edit point, so without a cap the cache grows
+    /// linearly with the number of distinct paragraph ranges queried
+    /// during scrolling on long documents. Picked at "a few screens of
+    /// paragraphs"; we wipe wholesale when exceeded since the next
+    /// scroll pass re-warms the visible window quickly.
+    private static let maxCacheEntries = 256
+
     public init() {}
 
     public func decorations(
@@ -106,6 +114,9 @@ public final class BlockSpecDecorationProvider: DecorationProvider {
             if next == cursor { break }
             cursor = next
             if cursor >= end && range.length > 0 { break }
+        }
+        if cache.count >= Self.maxCacheEntries {
+            cache.removeAll(keepingCapacity: true)
         }
         cache[range] = out
         return out
