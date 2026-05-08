@@ -9,8 +9,10 @@ import SwiftProseSyntax
 /// range using the canonical `proseNodePath` / `proseMarks` attributes.
 ///
 /// On iOS, `UITextView` only exposes whole-view toggles
-/// (`spellCheckingType`, `autocorrectionType`); per-range exclusion isn't
-/// available, so fenced code may receive false positives when checking is on.
+/// (`spellCheckingType`, `autocorrectionType`). The coordinator suspends
+/// both whenever the caret sits inside an inline-code span or a code
+/// block, then restores them on exit — best-effort caret-aware
+/// suppression in lieu of a per-range API.
 public enum ProseSpellChecking: Sendable, Equatable {
     /// No spell-check, no grammar-check, no autocorrect.
     case off

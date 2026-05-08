@@ -309,6 +309,10 @@ public final class EditorController {
             // re-derives from the new content.
             if !self.textStorage.editedMask.isEmpty {
                 self.cachedDocument = nil
+                self.layoutDelegate.decorationProvider.invalidate(
+                    editedRange: self.textStorage.editedRange,
+                    changeInLength: self.textStorage.changeInLength
+                )
             }
             if self.textStorage.editedMask.contains(.editedCharacters) {
                 let derived = self.deriveReplaceTextStep()

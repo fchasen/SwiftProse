@@ -45,7 +45,6 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                 fragment.isFirstInRun = position == .start || position == .single
                 fragment.isLastInRun = position == .end || position == .single
                 fragment.barColor = controller.theme.blockquote.barColor
-                fragment.inlineCodeFillColor = controller.theme.codeBlock.fillColor
                 return fragment
             }
         }
@@ -92,30 +91,10 @@ public final class LayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate 
                 }
             }
         }
-        if rangeContainsCodeSpan(controller.textStorage, range: lineRange) {
-            let fragment = InlineCodePainterLayoutFragment(textElement: textElement, range: textElement.elementRange)
-            fragment.fillColor = controller.theme.codeBlock.fillColor
-            return fragment
-        }
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }
 
     private func textContainer(_ controller: EditorController) -> NSTextContainer {
         controller.textContainer
-    }
-
-    /// Cheap scan: returns `true` if any character in `range` carries
-    /// `.proseInline = .codeSpan`. Used to decide whether to upgrade the
-    /// default fragment to one that paints rounded code-span backdrops.
-    private func rangeContainsCodeSpan(_ storage: NSAttributedString, range: NSRange) -> Bool {
-        guard range.length > 0, range.location + range.length <= storage.length else { return false }
-        var found = false
-        storage.enumerateAttribute(.proseInline, in: range) { value, _, stop in
-            if let tag = value as? InlineTag, tag == .codeSpan {
-                found = true
-                stop.pointee = true
-            }
-        }
-        return found
     }
 }

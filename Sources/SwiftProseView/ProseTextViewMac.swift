@@ -476,13 +476,15 @@ final class ProseNSTextView: NSTextView {
         let path = CGMutablePath()
         var runStart: Int?
         var runEnd: Int = 0
-        let total = storage.length
-        var i = 0
-        while i < total {
-            let isCode = storage.blockSpec(at: i)?.isCodeBlock == true
+        let scanRange = NSRange(location: 0, length: storage.length)
+        storage.enumerateAttribute(.proseNodePath, in: scanRange) { value, subRange, _ in
+            let isCode: Bool = {
+                guard let path = (value as? NodePathBox)?.path else { return false }
+                return BlockSpec.fromNodePath(path)?.isCodeBlock == true
+            }()
             if isCode {
-                if runStart == nil { runStart = i }
-                runEnd = i + 1
+                if runStart == nil { runStart = subRange.location }
+                runEnd = subRange.location + subRange.length
             } else if let s = runStart {
                 addCodeBlockBand(
                     to: path,
@@ -493,7 +495,6 @@ final class ProseNSTextView: NSTextView {
                 )
                 runStart = nil
             }
-            i += 1
         }
         if let s = runStart {
             addCodeBlockBand(

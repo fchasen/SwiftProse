@@ -80,10 +80,11 @@ public struct ProseTextViewIOS: UIViewRepresentable {
             mtv.updateCodeBlockBgLayerFill()
         }
         applySpellChecking(spellChecking, to: uiView)
+        coordinator.refreshSpellCheckingForCaret(uiView)
         coordinator.applyExternalText(text, to: uiView)
     }
 
-    private func applySpellChecking(_ mode: ProseSpellChecking, to textView: UITextView) {
+    fileprivate func applySpellChecking(_ mode: ProseSpellChecking, to textView: UITextView) {
         let spelling: UITextSpellCheckingType = mode.spellingEnabled ? .yes : .no
         if textView.spellCheckingType != spelling {
             textView.spellCheckingType = spelling
@@ -150,6 +151,32 @@ public struct ProseTextViewIOS: UIViewRepresentable {
 
         public func textViewDidChangeSelection(_ textView: UITextView) {
             parent.controller.fanoutSelectionChanged(textView.selectedRange)
+            refreshSpellCheckingForCaret(textView)
+        }
+
+        /// UITextView lacks a per-range spell-check exclusion. As a
+        /// best-effort, suspend view-wide spell-check + autocorrect
+        /// whenever the caret sits inside an inline-code span or a code
+        /// block; restore on exit. Matches the semantics of macOS's
+        /// `firstCheckableRange` for the typing path.
+        func refreshSpellCheckingForCaret(_ textView: UITextView) {
+            let storage = parent.controller.textStorage
+            let total = storage.length
+            let caret = textView.selectedRange.location
+            let inCode: Bool = {
+                guard total > 0 else { return false }
+                let probe = max(0, min(caret, total - 1))
+                if storage.blockSpec(at: probe)?.isCodeBlock == true { return true }
+                // Inline code: extend only when both sides of the caret
+                // carry the code mark — same gate as
+                // `EditorController.refreshTypingAttributes`.
+                guard caret > 0, caret < total else { return false }
+                let prev = storage.markSet(at: caret - 1)?.contains(type: "code") == true
+                let next = storage.markSet(at: caret)?.contains(type: "code") == true
+                return prev && next
+            }()
+            let effective: ProseSpellChecking = inCode ? .off : parent.spellChecking
+            parent.applySpellChecking(effective, to: textView)
         }
 
         public func textView(_ textView: UITextView,
@@ -333,13 +360,15 @@ final class ProseUITextView: UITextView {
         let path = CGMutablePath()
         var runStart: Int?
         var runEnd: Int = 0
-        let total = storage.length
-        var i = 0
-        while i < total {
-            let isCode = storage.blockSpec(at: i)?.isCodeBlock == true
+        let scanRange = NSRange(location: 0, length: storage.length)
+        storage.enumerateAttribute(.proseNodePath, in: scanRange) { value, subRange, _ in
+            let isCode: Bool = {
+                guard let nodePath = (value as? NodePathBox)?.path else { return false }
+                return BlockSpec.fromNodePath(nodePath)?.isCodeBlock == true
+            }()
             if isCode {
-                if runStart == nil { runStart = i }
-                runEnd = i + 1
+                if runStart == nil { runStart = subRange.location }
+                runEnd = subRange.location + subRange.length
             } else if let s = runStart {
                 addCodeBlockBand(
                     to: path,
@@ -350,7 +379,6 @@ final class ProseUITextView: UITextView {
                 )
                 runStart = nil
             }
-            i += 1
         }
         if let s = runStart {
             addCodeBlockBand(

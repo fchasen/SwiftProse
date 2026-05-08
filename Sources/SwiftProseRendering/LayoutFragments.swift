@@ -19,9 +19,6 @@ public final class BlockquoteLayoutFragment: NSTextLayoutFragment {
     public var barInset: CGFloat = 1
     public var isFirstInRun: Bool = true
     public var isLastInRun: Bool = true
-    /// Fill color for any inline code-span pills painted on top of the
-    /// bar. Set by the layout-manager delegate from the active theme.
-    public var inlineCodeFillColor: PlatformColor = .codeBlockDefaultFill
 
     public override func draw(at point: CGPoint, in context: CGContext) {
         let lines = textLineFragments
@@ -51,9 +48,23 @@ public final class BlockquoteLayoutFragment: NSTextLayoutFragment {
         context.fill(barRect)
         context.restoreGState()
 
-        // Inline code pills layer above the blockquote bar but below glyphs.
-        InlineCodePainter.paint(fragment: self, at: point, in: context, fillColor: inlineCodeFillColor)
         super.draw(at: point, in: context)
+    }
+
+    public override var renderingSurfaceBounds: CGRect {
+        // The bar is painted to the *left* of `layoutFragmentFrame`
+        // (`barX = barInset - bounds.origin.x`). Without extending the
+        // surface bounds, TextKit's redraw invalidation may clip the bar
+        // or treat the fragment as un-dirty when the bar still needs
+        // repainting.
+        let typographic = super.renderingSurfaceBounds
+        let leftOverhang = max(0, layoutFragmentFrame.origin.x - barInset)
+        return CGRect(
+            x: typographic.minX - leftOverhang,
+            y: typographic.minY,
+            width: typographic.width + leftOverhang,
+            height: typographic.height
+        )
     }
 }
 
@@ -139,204 +150,12 @@ public final class FencedCodeBlockLayoutFragment: CodeBlockLayoutFragment {
 
 public final class IndentedCodeBlockLayoutFragment: CodeBlockLayoutFragment {}
 
-/// Default paragraph fragment that paints a padded rounded "pill" backdrop
-/// behind any inline run carrying `.proseInline = .codeSpan`. The
-/// attributed-string `.backgroundColor` attribute paints flush against the
-/// glyphs which reads as a tight box; we want a chip-style rect with
-/// horizontal padding extending past the first and last glyph. Drawn before
-/// `super.draw` so glyphs render on top of the fill.
-public final class InlineCodePainterLayoutFragment: NSTextLayoutFragment {
-    /// Fill color for the rounded code-span pill. Set by the
-    /// layout-manager delegate from the active theme.
-    public var fillColor: PlatformColor = .codeBlockDefaultFill
-
-    public override func draw(at point: CGPoint, in context: CGContext) {
-        InlineCodePainter.paint(fragment: self, at: point, in: context, fillColor: fillColor)
-        super.draw(at: point, in: context)
-    }
-}
-
-/// Shared inline-code-pill painter used by `InlineCodePainterLayoutFragment`
-/// and `BlockquoteLayoutFragment` (so inline `` `code` `` inside a quote
-/// keeps its rounded backdrop too). All routines are stateless; a fragment
-/// just hands itself in.
-public enum InlineCodePainter {
-    /// Fallback fill color used when a fragment doesn't supply its own.
-    /// Per-editor theming flows through the fragment's instance
-    /// `fillColor`; this static is the global default.
-    public static var fillColor: PlatformColor = .codeBlockDefaultFill
-    public static var cornerRadius: CGFloat = 3
-    public static var horizontalPadding: CGFloat = 1
-
-    public static func paint(
-        fragment: NSTextLayoutFragment,
-        at point: CGPoint,
-        in context: CGContext,
-        fillColor overrideFillColor: PlatformColor? = nil
-    ) {
-        guard let cs = fragment.textLayoutManager?.textContentManager as? NSTextContentStorage,
-              let storage = cs.textStorage else { return }
-        let elementStart = cs.offset(from: cs.documentRange.location, to: fragment.rangeInElement.location)
-        guard elementStart >= 0, elementStart < storage.length else { return }
-        // Headings already use a heading-sized monospace font for code spans;
-        // a backdrop pill makes them look noisy, so skip pill paint there.
-        if let path = storage.nodePath(at: elementStart),
-           path.nodes.contains(where: { $0.type == "heading" }) {
-            return
-        }
-        let lineFragments = fragment.textLineFragments
-        guard !lineFragments.isEmpty else { return }
-        let resolvedFill = overrideFillColor ?? Self.fillColor
-        context.saveGState()
-        context.translateBy(x: point.x, y: point.y)
-        context.setFillColor(resolvedFill.cgColor)
-        for line in lineFragments {
-            paintCodeRanges(in: line, storage: storage, elementStart: elementStart, context: context)
-        }
-        context.restoreGState()
-    }
-
-    /// Walk codeSpan runs inside `line` and draw a rounded backdrop behind
-    /// each. `line.characterRange` is local to the layout fragment, so add
-    /// `elementStart` to land at the right offset in `storage`.
-    private static func paintCodeRanges(
-        in line: NSTextLineFragment,
-        storage: NSTextStorage,
-        elementStart: Int,
-        context: CGContext
-    ) {
-        let lineLocal = line.characterRange
-        guard lineLocal.length > 0 else { return }
-        let storageStart = elementStart + lineLocal.location
-        let storageEnd = min(storage.length, storageStart + lineLocal.length)
-        guard storageStart < storageEnd else { return }
-        var cursor = storageStart
-        while cursor < storageEnd {
-            var runRange = NSRange(location: cursor, length: 0)
-            let value = storage.attribute(
-                .proseInline,
-                at: cursor,
-                longestEffectiveRange: &runRange,
-                in: NSRange(location: cursor, length: storageEnd - cursor)
-            )
-            let runEnd = runRange.location + runRange.length
-            if let tag = value as? InlineTag, tag == .codeSpan, runRange.length > 0 {
-                let lineRunStart = max(runRange.location, storageStart) - elementStart
-                let lineRunEnd = min(runEnd, storageEnd) - elementStart
-                let runInLine = NSRange(location: lineRunStart, length: lineRunEnd - lineRunStart)
-                drawPill(line: line, runInLine: runInLine, context: context)
-            }
-            cursor = max(runEnd, cursor + 1)
-        }
-    }
-
-    private static func drawPill(
-        line: NSTextLineFragment,
-        runInLine: NSRange,
-        context: CGContext
-    ) {
-        // `runInLine` is layout-fragment-local — the same coordinate space
-        // `locationForCharacter` expects (its `attributedString` is the
-        // entire layout fragment's text, not the line's slice). Don't
-        // subtract `line.characterRange.location` here: that worked for
-        // line 0 (where it's zero) but produced (0, baseline) for every
-        // wrapped continuation line, painting 8pt-wide phantom pills at
-        // the line's left edge.
-        let absStart = runInLine.location
-        let absEnd = absStart + runInLine.length
-        guard absStart >= 0,
-              absEnd <= line.attributedString.length,
-              absStart < absEnd else { return }
-        let startPoint = line.locationForCharacter(at: absStart)
-        let endPoint = line.locationForCharacter(at: absEnd)
-        let bounds = line.typographicBounds
-        // Size the pill to the run's font (ascender + |descender|) anchored
-        // on the baseline, so it tracks glyph height rather than the line
-        // fragment's typographic height (which inflates with line spacing).
-        let runFont = (line.attributedString.attribute(.font, at: absStart, effectiveRange: nil) as? PlatformFont)
-            ?? PlatformFont.systemFont(ofSize: PlatformFont.systemFontSize)
-        let textHeight = runFont.ascender - runFont.descender
-        let textTop = startPoint.y - runFont.ascender
-        let xMin = min(startPoint.x, endPoint.x) - horizontalPadding
-        let xMax = max(startPoint.x, endPoint.x) + horizontalPadding
-        let pill = CGRect(
-            x: bounds.origin.x + xMin,
-            y: bounds.origin.y + textTop,
-            width: max(0, xMax - xMin),
-            height: textHeight
-        )
-        let path = roundedPath(
-            rect: pill,
-            topLeft: cornerRadius,
-            topRight: cornerRadius,
-            bottomLeft: cornerRadius,
-            bottomRight: cornerRadius
-        )
-        context.addPath(path)
-        context.fillPath()
-    }
-
-}
-
 private func codeBlockTagFont() -> PlatformFont {
     #if canImport(AppKit) && os(macOS)
     return NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
     #else
     return UIFont.monospacedSystemFont(ofSize: 10, weight: .regular)
     #endif
-}
-
-private func roundedPath(
-    rect: CGRect,
-    topLeft: CGFloat,
-    topRight: CGFloat,
-    bottomLeft: CGFloat,
-    bottomRight: CGFloat
-) -> CGPath {
-    let path = CGMutablePath()
-    path.move(to: CGPoint(x: rect.minX + topLeft, y: rect.minY))
-    path.addLine(to: CGPoint(x: rect.maxX - topRight, y: rect.minY))
-    if topRight > 0 {
-        path.addArc(
-            center: CGPoint(x: rect.maxX - topRight, y: rect.minY + topRight),
-            radius: topRight,
-            startAngle: -.pi / 2,
-            endAngle: 0,
-            clockwise: false
-        )
-    }
-    path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - bottomRight))
-    if bottomRight > 0 {
-        path.addArc(
-            center: CGPoint(x: rect.maxX - bottomRight, y: rect.maxY - bottomRight),
-            radius: bottomRight,
-            startAngle: 0,
-            endAngle: .pi / 2,
-            clockwise: false
-        )
-    }
-    path.addLine(to: CGPoint(x: rect.minX + bottomLeft, y: rect.maxY))
-    if bottomLeft > 0 {
-        path.addArc(
-            center: CGPoint(x: rect.minX + bottomLeft, y: rect.maxY - bottomLeft),
-            radius: bottomLeft,
-            startAngle: .pi / 2,
-            endAngle: .pi,
-            clockwise: false
-        )
-    }
-    path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + topLeft))
-    if topLeft > 0 {
-        path.addArc(
-            center: CGPoint(x: rect.minX + topLeft, y: rect.minY + topLeft),
-            radius: topLeft,
-            startAngle: .pi,
-            endAngle: 3 * .pi / 2,
-            clockwise: false
-        )
-    }
-    path.closeSubpath()
-    return path
 }
 
 extension PlatformColor {

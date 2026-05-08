@@ -33,6 +33,14 @@ public enum RunPosition: Equatable, Sendable {
 
 public protocol DecorationProvider: AnyObject {
     func decorations(in range: NSRange, storage: NSAttributedString) -> [Decoration]
+    /// Invalidate any internal caching for ranges that intersect or follow
+    /// `editedRange`. Default implementation is a no-op for stateless
+    /// providers.
+    func invalidate(editedRange: NSRange, changeInLength: Int)
+}
+
+public extension DecorationProvider {
+    func invalidate(editedRange: NSRange, changeInLength: Int) {}
 }
 
 /// Aggregates multiple `DecorationProvider`s into one. Decorations from
@@ -60,12 +68,24 @@ public final class DecorationSet: DecorationProvider {
         }
         return out
     }
+
+    public func invalidate(editedRange: NSRange, changeInLength: Int) {
+        for provider in providers {
+            provider.invalidate(editedRange: editedRange, changeInLength: changeInLength)
+        }
+    }
 }
 
 /// Decoration provider that reads `proseNodePath` to derive structural
 /// chrome (blockquote bars, code backgrounds, hr lines). Walks paragraph
 /// by paragraph; for each, inspects the path's ancestors and leaf type.
 public final class BlockSpecDecorationProvider: DecorationProvider {
+
+    /// Cache keyed by the *query* range supplied to `decorations(in:storage:)`.
+    /// The fragment delegate calls one paragraph at a time, so the same
+    /// paragraph's decorations are recomputed on every fragment recreation
+    /// without a cache.
+    private var cache: [NSRange: [Decoration]] = [:]
 
     public init() {}
 
@@ -74,6 +94,7 @@ public final class BlockSpecDecorationProvider: DecorationProvider {
         storage: NSAttributedString
     ) -> [Decoration] {
         guard storage.length > 0 else { return [] }
+        if let hit = cache[range] { return hit }
         let ns = storage.string as NSString
         var out: [Decoration] = []
         var cursor = range.location
@@ -86,7 +107,19 @@ public final class BlockSpecDecorationProvider: DecorationProvider {
             cursor = next
             if cursor >= end && range.length > 0 { break }
         }
+        cache[range] = out
         return out
+    }
+
+    public func invalidate(editedRange: NSRange, changeInLength: Int) {
+        // Anything ending at or after the edit point is potentially stale —
+        // its content may have changed and any range past the edit point has
+        // shifted offsets when changeInLength != 0.
+        let cutoff = editedRange.location
+        cache = cache.filter { entry in
+            let upper = entry.key.location + entry.key.length
+            return upper <= cutoff
+        }
     }
 
     private func decorate(
@@ -118,13 +151,20 @@ public final class BlockSpecDecorationProvider: DecorationProvider {
     }
 
     private func paragraphPath(in storage: NSAttributedString, lineRange: NSRange) -> NodePath? {
-        var i = lineRange.location
-        let end = lineRange.location + lineRange.length
-        while i < end {
-            if let path = storage.nodePath(at: i) { return path }
-            i += 1
+        guard lineRange.length > 0 else { return nil }
+        // Common case: the leading character carries the path. Skip the
+        // run-walk entirely so this is O(1) for healthy paragraphs.
+        if let path = storage.nodePath(at: lineRange.location) { return path }
+        // Fallback for the rare case where the leading character lost its
+        // path mid-edit. Walk attribute *runs*, not characters.
+        var found: NodePath?
+        storage.enumerateAttribute(.proseNodePath, in: lineRange) { value, _, stop in
+            if let box = value as? NodePathBox {
+                found = box.path
+                stop.pointee = true
+            }
         }
-        return nil
+        return found
     }
 
     private func blockquoteDepth(in path: NodePath) -> Int {

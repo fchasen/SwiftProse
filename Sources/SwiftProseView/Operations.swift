@@ -532,9 +532,8 @@ public enum Operations {
             storage.addAttribute(.proseInline, value: InlineTag.codeSpan, range: safe)
             storage.addAttribute(.font, value: theme.monospaceFont, range: safe)
         }
-        // The codeSpan backdrop is painted by `InlineCodePainterLayoutFragment`,
-        // not via `.backgroundColor` — keep the legacy attribute clean either
-        // way so a flip-from-old-storage still drops the tight glyph fill.
+        // Strip any legacy `.backgroundColor` so flipping over storage that
+        // previously carried the tight-glyph fill still renders cleanly.
         storage.removeAttribute(.backgroundColor, range: safe)
         storage.endEditing()
         return safe
