@@ -361,6 +361,9 @@ public final class EditorController {
                     var inputRuleFired = false
                     if changeInLength == 1, !self.isComposingIME {
                         inputRuleFired = self.evaluateInputRules()
+                    } else {
+                        self.lastInputRule = nil
+                        self.inputRules.clearLastFiredRule()
                     }
                     if !inputRuleFired, let derivedTransaction {
                         self.runAppendTransactions(after: [derivedTransaction])
@@ -695,6 +698,7 @@ public final class EditorController {
     /// (the host text view's selection lands there).
     @discardableResult
     public func apply(_ transaction: Transaction) -> NSRange {
+        lastInputRule = nil
         guard let resultRange = applyCore(transaction) else { return currentSelection }
         runAppendTransactions(after: [transaction])
         return resultRange
@@ -1059,6 +1063,9 @@ public final class EditorController {
         )
         if didFire, let fired = inputRules.lastFiredRule {
             lastInputRule = fired
+        } else {
+            lastInputRule = nil
+            inputRules.clearLastFiredRule()
         }
         if didFire {
             // Inline rules (bold, italic, code-span, etc.) conclude a
