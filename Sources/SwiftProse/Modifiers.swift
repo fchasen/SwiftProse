@@ -86,4 +86,13 @@ extension View {
     ) -> some View {
         environment(\.proseCodeBlockHighlighter, highlighter)
     }
+
+    /// Toggle read-only mode without replacing the whole `Configuration`.
+    /// Typing is blocked, the toolbar greys out, and checkbox taps stop
+    /// mutating; selection and copy stay enabled.
+    public func editable(_ isEditable: Bool = true) -> some View {
+        transformEnvironment(\.proseConfiguration) { config in
+            config.isEditable = isEditable
+        }
+    }
 }

@@ -63,6 +63,17 @@ extension SwiftProseEditor {
         /// automatic spelling correction. On macOS, code blocks and inline
         /// code spans are excluded automatically.
         public var spellChecking: ProseSpellChecking
+        /// When `false`, the text view blocks typing and the controller
+        /// short-circuits `perform(_:)` / `canPerform(_:)` / checkbox taps
+        /// so the toolbar / keymap / context menu can't mutate the
+        /// document. Selection and copy remain enabled. The SwiftUI
+        /// surface also hides the built-in toolbar slot. Defaults to `true`.
+        public var isEditable: Bool
+        /// Opt-in escape hatch for read-only documents that should still
+        /// let the reader tick task-list checkboxes. Has no effect when
+        /// `isEditable == true` (checkboxes already toggle). Defaults to
+        /// `false`.
+        public var allowsCheckboxToggle: Bool
 
         public init(
             toolbar: [ToolbarItem] = Configuration.defaultToolbar,
@@ -70,7 +81,9 @@ extension SwiftProseEditor {
             contextMenuItems: [ContextMenuItem] = [],
             sizing: EditorSizing = .fitsContent,
             minHeight: CGFloat = 96,
-            spellChecking: ProseSpellChecking = .full
+            spellChecking: ProseSpellChecking = .full,
+            isEditable: Bool = true,
+            allowsCheckboxToggle: Bool = false
         ) {
             self.toolbar = toolbar
             self.statusItems = statusItems
@@ -78,6 +91,8 @@ extension SwiftProseEditor {
             self.sizing = sizing
             self.minHeight = minHeight
             self.spellChecking = spellChecking
+            self.isEditable = isEditable
+            self.allowsCheckboxToggle = allowsCheckboxToggle
         }
 
         public static let defaultToolbar: [ToolbarItem] = [

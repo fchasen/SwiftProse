@@ -134,6 +134,18 @@ public final class EditorController {
     /// Key spec → EditorAction bindings. Platform text views consult
     /// `keymap.action(forKey:)` before falling back to default behavior.
     public var keymap: Keymap = .mac
+    /// When `false`, `perform(_:)` / `canPerform(_:)` / `toggleCheckbox(_:)`
+    /// short-circuit so toolbar buttons, keymap dispatch, and checkbox
+    /// taps can't mutate the document. The platform text view's own
+    /// `isEditable` gates typing. Programmatic mutations (`apply(_:)`,
+    /// `setMarkdown(_:)`, `insert(text:)`, …) stay available so hosts can
+    /// still drive content. Kept in sync by the SwiftUI surface from
+    /// `Configuration.isEditable`; direct callers set it themselves.
+    public var isEditable: Bool = true
+    /// Escape hatch for `toggleCheckbox(at:)` while `isEditable == false`.
+    /// Lets read-only documents keep interactive task-list checkboxes.
+    /// No effect when `isEditable == true`.
+    public var allowsCheckboxToggle: Bool = false
     /// Last input rule that fired and the line range it touched. Backspace
     /// consults this; if the cursor hasn't moved since the rule fired,
     /// Backspace undoes the rule rather than deleting a character.
@@ -876,7 +888,8 @@ public final class EditorController {
     }
 
     public func canPerform(_ action: EditorAction) -> Bool {
-        commands.canExecute(action, storage: textStorage, selection: currentSelection)
+        guard isEditable else { return false }
+        return commands.canExecute(action, storage: textStorage, selection: currentSelection)
     }
 
     /// Bounding rect of the caret in the host text view's coordinate
@@ -940,6 +953,7 @@ public final class EditorController {
 
     @discardableResult
     public func perform(_ action: EditorAction) -> NSRange {
+        guard isEditable else { return currentSelection }
         defer { refreshTypingAttributes(at: currentSelection.location) }
         if case .link(let url, let label) = action {
             return performLink(url: url, label: label)
@@ -1290,6 +1304,7 @@ public final class EditorController {
 
     @discardableResult
     public func toggleCheckbox(at location: Int) -> Bool {
+        guard isEditable || allowsCheckboxToggle else { return false }
         let total = textStorage.length
         guard location >= 0, location < total else { return false }
         guard let existing = textStorage.safeAttribute(.attachment, at: location) as? CheckboxAttachment,

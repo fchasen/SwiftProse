@@ -11,6 +11,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
     public let minHeight: CGFloat
     public let contextMenuItems: [ProseContextMenuItem]
     public let spellChecking: ProseSpellChecking
+    public let isEditable: Bool
 
     public init(
         controller: EditorController,
@@ -18,7 +19,8 @@ public struct ProseTextViewMac: NSViewRepresentable {
         sizing: EditorSizing = .fitsContent,
         minHeight: CGFloat = 96,
         contextMenuItems: [ProseContextMenuItem] = [],
-        spellChecking: ProseSpellChecking = .full
+        spellChecking: ProseSpellChecking = .full,
+        isEditable: Bool = true
     ) {
         self.controller = controller
         self._text = text
@@ -26,6 +28,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
         self.minHeight = minHeight
         self.contextMenuItems = contextMenuItems
         self.spellChecking = spellChecking
+        self.isEditable = isEditable
     }
 
     public func makeNSView(context: Context) -> NSView {
@@ -35,9 +38,10 @@ public struct ProseTextViewMac: NSViewRepresentable {
         )
         textView.delegate = context.coordinator
         textView.isRichText = true
-        textView.isEditable = true
+        textView.isEditable = isEditable
         textView.isSelectable = true
         textView.allowsUndo = true
+        controller.isEditable = isEditable
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -105,6 +109,10 @@ public struct ProseTextViewMac: NSViewRepresentable {
         if let mtv = textView as? ProseNSTextView {
             mtv.updateCodeBlockBgLayerFill()
         }
+        if textView.isEditable != isEditable {
+            textView.isEditable = isEditable
+        }
+        controller.isEditable = isEditable
         applySpellChecking(spellChecking, to: textView)
         coordinator.applyExternalText(text, to: textView)
     }

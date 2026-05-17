@@ -13,6 +13,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
     public let minHeight: CGFloat
     public let editMenuBuilder: EditMenuBuilder?
     public let spellChecking: ProseSpellChecking
+    public let isEditable: Bool
 
     public init(
         controller: EditorController,
@@ -20,7 +21,8 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         sizing: EditorSizing = .fitsContent,
         minHeight: CGFloat = 96,
         editMenuBuilder: EditMenuBuilder? = nil,
-        spellChecking: ProseSpellChecking = .full
+        spellChecking: ProseSpellChecking = .full,
+        isEditable: Bool = true
     ) {
         self.controller = controller
         self._text = text
@@ -28,6 +30,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         self.minHeight = minHeight
         self.editMenuBuilder = editMenuBuilder
         self.spellChecking = spellChecking
+        self.isEditable = isEditable
     }
 
     public func makeUIView(context: Context) -> UITextView {
@@ -37,6 +40,8 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         textView.smartQuotesType = .no
         textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no
+        textView.isEditable = isEditable
+        controller.isEditable = isEditable
         applySpellChecking(spellChecking, to: textView)
         let inset = controller.theme.textContainerInset
         textView.textContainerInset = UIEdgeInsets(
@@ -79,6 +84,10 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         if let mtv = uiView as? ProseUITextView {
             mtv.updateCodeBlockBgLayerFill()
         }
+        if uiView.isEditable != isEditable {
+            uiView.isEditable = isEditable
+        }
+        controller.isEditable = isEditable
         applySpellChecking(spellChecking, to: uiView)
         coordinator.refreshSpellCheckingForCaret(uiView)
         coordinator.applyExternalText(text, to: uiView)

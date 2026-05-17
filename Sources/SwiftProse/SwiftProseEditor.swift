@@ -28,9 +28,10 @@ public struct SwiftProseEditor: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if toolbarVisible, !configuration.toolbar.isEmpty || !configuration.statusItems.isEmpty {
+            let showsToolbar = configuration.isEditable && !configuration.toolbar.isEmpty
+            if toolbarVisible, showsToolbar || !configuration.statusItems.isEmpty {
                 HStack(spacing: 12) {
-                    if !configuration.toolbar.isEmpty {
+                    if showsToolbar {
                         ProseToolbar(
                             items: configuration.toolbar,
                             perform: { action in
@@ -70,9 +71,13 @@ public struct SwiftProseEditor: View {
             )
             if let controller = hosting.controller {
                 if controller.markdown() != text { controller.setMarkdown(text) }
+                controller.allowsCheckboxToggle = configuration.allowsCheckboxToggle
                 hosting.bindSelection(from: controller)
                 onControllerReady?(controller)
             }
+        }
+        .onChange(of: configuration.allowsCheckboxToggle) { _, value in
+            hosting.controller?.allowsCheckboxToggle = value
         }
         .onChange(of: theme) { _, newTheme in
             hosting.controller?.theme = newTheme
@@ -89,7 +94,8 @@ public struct SwiftProseEditor: View {
                 sizing: configuration.sizing,
                 minHeight: configuration.minHeight,
                 contextMenuItems: macContextMenuItems(),
-                spellChecking: configuration.spellChecking
+                spellChecking: configuration.spellChecking,
+                isEditable: configuration.isEditable
             )
             .modifier(SizingFrame(sizing: configuration.sizing))
             #else
@@ -99,7 +105,8 @@ public struct SwiftProseEditor: View {
                 sizing: configuration.sizing,
                 minHeight: configuration.minHeight,
                 editMenuBuilder: makeIOSEditMenuBuilder(controller: controller),
-                spellChecking: configuration.spellChecking
+                spellChecking: configuration.spellChecking,
+                isEditable: configuration.isEditable
             )
             .modifier(SizingFrame(sizing: configuration.sizing))
             #endif
