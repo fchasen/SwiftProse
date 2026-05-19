@@ -15,7 +15,10 @@ public final class EditorController {
     public let textContainer: NSTextContainer
 
     public var theme: ProseTheme {
-        didSet { recompile() }
+        didSet {
+            recompile()
+            refreshTypingAttributes(at: currentSelection.location)
+        }
     }
 
     public private(set) var blocks: [BlockSegment] = []
@@ -42,6 +45,9 @@ public final class EditorController {
         didSet {
             guard hostTextView !== oldValue else { return }
             onHostTextViewChange?(hostTextView)
+            if hostTextView != nil {
+                refreshTypingAttributes(at: currentSelection.location)
+            }
         }
     }
     /// Fires when `hostTextView` is set or cleared. Receives the new value
