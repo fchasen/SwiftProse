@@ -319,9 +319,73 @@ private func isCursorInListItem(controller: EditorController) -> Bool {
 final class ProseUITextView: UITextView {
     weak var proseController: EditorController?
 
+    /// Set true around the body of `paste(_:)` so any downstream
+    /// `shouldChangeTextIn` dispatch doesn't double-process the same
+    /// content. Mirrors the macOS flag for symmetry.
+    fileprivate(set) var isPasting: Bool = false
+
     override func deleteBackward() {
         if proseController?.handleBackspace() == true { return }
         super.deleteBackward()
+    }
+
+    override func paste(_ sender: Any?) {
+        guard let controller = proseController, controller.isEditable else {
+            super.paste(sender)
+            return
+        }
+        let contents = Clipboard.read()
+        guard contents.text != nil || contents.html != nil else {
+            super.paste(sender)
+            return
+        }
+        let selection = selectedRange
+        isPasting = true
+        defer { isPasting = false }
+        let event = PasteEvent(
+            text: contents.text,
+            html: contents.html,
+            plainText: false,
+            source: .paste,
+            selection: selection,
+            inCode: controller.isLocationInCodeBlock(selection.location)
+        )
+        if !controller.dispatchPaste(event) {
+            super.paste(sender)
+        }
+    }
+
+    /// iOS dictation finalization delivers the recognized phrase as one
+    /// bulk insertion. Routing it through the paste pipeline makes a
+    /// dictated "Hello new paragraph World" land as two paragraphs with
+    /// one undo step, instead of flat text via the per-char path.
+    override func insertDictationResult(_ dictationResult: [UIDictationPhrase]) {
+        guard let controller = proseController, controller.isEditable else {
+            super.insertDictationResult(dictationResult)
+            return
+        }
+        let text = dictationResult.map(\.text).joined()
+        guard !text.isEmpty else {
+            super.insertDictationResult(dictationResult)
+            return
+        }
+        let selection = selectedRange
+        let event = PasteEvent(
+            text: text,
+            plainText: true,
+            source: .dictation,
+            selection: selection,
+            inCode: controller.isLocationInCodeBlock(selection.location)
+        )
+        if !controller.dispatchPaste(event) {
+            super.insertDictationResult(dictationResult)
+        }
+    }
+
+    /// No-op override so plugins can hook this later. Default UIKit toast
+    /// behavior is fine.
+    override func dictationRecognitionFailed() {
+        super.dictationRecognitionFailed()
     }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {

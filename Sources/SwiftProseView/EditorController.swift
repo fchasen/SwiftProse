@@ -680,6 +680,122 @@ public final class EditorController {
         return result
     }
 
+    /// When `true`, multi-character non-IME insertions arriving through
+    /// the macOS text-view delegate (`shouldChangeTextIn`) are routed
+    /// through the paste pipeline so dictation, autocomplete, and other
+    /// bulk insertions become a single undo step with correct paragraph
+    /// splits. Set to `false` if a host relies on raw per-string
+    /// `insertText` semantics for those events.
+    public var useStructuredBulkInsert: Bool = true
+
+    /// Return the first non-nil value pulled from `props` by `extract`,
+    /// walking plugins in registration order. PM-equivalent to
+    /// `EditorView.someProp`. Used by paste / dictation dispatch to find
+    /// the consuming plugin without ordering surprises.
+    public func firstNonNilPluginProp<T>(_ extract: (PluginProps) -> T?) -> T? {
+        for plugin in plugins {
+            if let value = extract(plugin.props) { return value }
+        }
+        return nil
+    }
+
+    /// Run the paste pipeline for `event`:
+    ///   1. Plugins' `handlePaste` (first that returns true consumes).
+    ///   2. `transformPastedText` chain (rewrites the plain-text body).
+    ///   3. `transformPasted` chain (rewrites the whole event).
+    ///   4. Default insertion — code blocks keep newlines verbatim;
+    ///      otherwise paragraph runs become storage paragraph breaks.
+    ///
+    /// The whole operation lands as one `withCharacterMutation` group,
+    /// so dictation and paste become one undo step.
+    @discardableResult
+    public func dispatchPaste(_ event: PasteEvent) -> Bool {
+        var current = event
+        for plugin in plugins {
+            if plugin.props.handlePaste?(self, current) == true { return true }
+        }
+        if let raw = current.text {
+            var text = raw
+            let asPlain = current.inCode || current.plainText
+            for plugin in plugins {
+                if let transform = plugin.props.transformPastedText {
+                    text = transform(self, text, asPlain)
+                }
+            }
+            current.text = text
+        }
+        for plugin in plugins {
+            if let transform = plugin.props.transformPasted {
+                current = transform(self, current)
+            }
+        }
+        return performDefaultPasteInsertion(current)
+    }
+
+    /// Insert `event.text` as plain text. Code-block destinations keep
+    /// every newline; other destinations collapse runs of two-or-more
+    /// newlines to a single `\n` so the storage segmenter / repair pass
+    /// turns each into a paragraph break.
+    @discardableResult
+    private func performDefaultPasteInsertion(_ event: PasteEvent) -> Bool {
+        guard isEditable, let raw = event.text, !raw.isEmpty else { return false }
+        let normalized = normalizeLineEndings(raw)
+        let toInsert: String
+        if event.inCode {
+            toInsert = normalized
+        } else {
+            toInsert = collapseBlankLineRuns(normalized)
+        }
+        var result = NSRange(location: event.selection.location, length: 0)
+        withCharacterMutation(range: event.selection) {
+            result = Operations.insertText(
+                in: textStorage,
+                replacing: event.selection,
+                with: toInsert
+            )
+        }
+        setHostSelection(result)
+        refreshTypingAttributes(at: result.location)
+        return true
+    }
+
+    /// Resolve the storage offset's enclosing block spec and return true
+    /// when the cursor sits in a code block. Used by the paste / dictation
+    /// dispatchers to flip the inCode branch.
+    func isLocationInCodeBlock(_ location: Int) -> Bool {
+        let total = textStorage.length
+        guard total > 0 else { return false }
+        let probe = max(0, min(location, total - 1))
+        return textStorage.blockSpec(at: probe)?.isCodeBlock == true
+    }
+
+    func normalizeLineEndings(_ s: String) -> String {
+        if !s.contains("\r") { return s }
+        return s.replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    /// Collapse any run of 2+ newlines to a single `\n`. In storage,
+    /// blocks are separated by exactly one newline; the surrounding
+    /// validate-and-repair pass derives block specs from the synthesized
+    /// node-path after the edit.
+    func collapseBlankLineRuns(_ s: String) -> String {
+        guard s.contains("\n\n") else { return s }
+        var out = String()
+        out.reserveCapacity(s.count)
+        var newlineRun = 0
+        for ch in s {
+            if ch == "\n" {
+                newlineRun += 1
+                if newlineRun == 1 { out.append(ch) }
+            } else {
+                newlineRun = 0
+                out.append(ch)
+            }
+        }
+        return out
+    }
+
     /// Register a plugin. Plugins are consulted in registration order
     /// for filterTransaction / appendTransaction / props hooks.
     public func register(plugin: EditorPlugin) {

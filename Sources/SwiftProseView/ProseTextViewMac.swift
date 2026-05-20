@@ -267,12 +267,38 @@ public struct ProseTextViewMac: NSViewRepresentable {
                              replacementString: String?) -> Bool {
             // Plugins get first crack at every text-input event.
             let controller = parent.controller
-            guard let text = replacementString,
-                  !controller.plugins.isEmpty else { return true }
+            guard let text = replacementString else { return true }
             for plugin in controller.plugins {
                 if plugin.props.handleTextInput?(controller, affectedCharRange, text) == true {
                     return false
                 }
+            }
+            // macOS has no public dictation callback. Multi-character non-IME
+            // insertions are structurally a bulk text drop — route them
+            // through the paste pipeline so dictation / smart-substitution
+            // expansions land as one undo step with paragraph splits applied.
+            // Gates:
+            //   1. > 1 char (single-char keystrokes keep the per-char path so
+            //      input rules see them)
+            //   2. !hasMarkedText (skip IME composition)
+            //   3. !isPasting (Cmd-V already routed itself through the
+            //      pipeline; don't double-dispatch)
+            //   4. contains whitespace or newline (pure tokens are likely
+            //      IME-finalized; only structurally-bulky text routes)
+            if controller.useStructuredBulkInsert,
+               text.count > 1,
+               !textView.hasMarkedText(),
+               (textView as? ProseNSTextView)?.isPasting != true,
+               text.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }) {
+                let event = PasteEvent(
+                    text: text,
+                    plainText: true,
+                    source: .dictation,
+                    selection: affectedCharRange,
+                    inCode: controller.isLocationInCodeBlock(affectedCharRange.location)
+                )
+                _ = controller.dispatchPaste(event)
+                return false
             }
             return true
         }
@@ -375,6 +401,45 @@ final class ProseNSTextView: NSTextView {
     /// `@objc` action methods read it to dispatch to `Operations`. Held weak
     /// so SwiftUI can tear down the text view without leaking the controller.
     weak var proseController: EditorController?
+
+    /// Set true around the body of `paste(_:)` / `pasteAsPlainText(_:)` so
+    /// the dictation heuristic in `shouldChangeTextIn` knows to keep its
+    /// hands off — paste runs through the pipeline directly and doesn't
+    /// need a second dispatch from the delegate path.
+    fileprivate(set) var isPasting: Bool = false
+
+    override func paste(_ sender: Any?) {
+        guard dispatchPaste(plainText: false) else {
+            super.paste(sender)
+            return
+        }
+    }
+
+    override func pasteAsPlainText(_ sender: Any?) {
+        guard dispatchPaste(plainText: true) else {
+            super.pasteAsPlainText(sender)
+            return
+        }
+    }
+
+    @discardableResult
+    private func dispatchPaste(plainText: Bool) -> Bool {
+        guard let controller = proseController, controller.isEditable else { return false }
+        let contents = Clipboard.read()
+        guard contents.text != nil || contents.html != nil else { return false }
+        let selection = selectedRange()
+        isPasting = true
+        defer { isPasting = false }
+        let event = PasteEvent(
+            text: contents.text,
+            html: contents.html,
+            plainText: plainText,
+            source: .paste,
+            selection: selection,
+            inCode: controller.isLocationInCodeBlock(selection.location)
+        )
+        return controller.dispatchPaste(event)
+    }
 
     override func mouseDown(with event: NSEvent) {
         // Plugin handleClick gets first crack — return true to consume.

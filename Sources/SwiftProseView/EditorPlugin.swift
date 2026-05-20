@@ -51,18 +51,35 @@ public extension EditorPlugin {
 public struct PluginProps {
     public var handleClick: ((EditorController, Int) -> Bool)?
     public var handleLongPress: ((EditorController, Int) -> Bool)?
-    public var handlePaste: ((EditorController, String) -> Bool)?
+    /// Called for paste and dictation. Return true to consume the event —
+    /// the default insertion is skipped. Distinguish via `event.source`.
+    public var handlePaste: ((EditorController, PasteEvent) -> Bool)?
     public var handleDrop: ((EditorController, Any) -> Bool)?
     public var handleKeyDown: ((EditorController, String) -> Bool)?
     public var handleTextInput: ((EditorController, NSRange, String) -> Bool)?
 
+    /// Transform the raw plain text before paragraph-splitting. Receives
+    /// the controller, the current text, and `plain` — true when the text
+    /// is destined for a code block or the user asked for a plain-text
+    /// paste. Plugins run in registration order; each sees the previous
+    /// plugin's output.
+    public var transformPastedText: ((EditorController, String, Bool) -> String)?
+
+    /// Final transform of the paste payload before insertion. Phase 1 ships
+    /// the text-shaped event; later phases will extend the event to carry a
+    /// typed `Slice`. Plugins run in registration order, threading the
+    /// event through each.
+    public var transformPasted: ((EditorController, PasteEvent) -> PasteEvent)?
+
     public init(
         handleClick: ((EditorController, Int) -> Bool)? = nil,
         handleLongPress: ((EditorController, Int) -> Bool)? = nil,
-        handlePaste: ((EditorController, String) -> Bool)? = nil,
+        handlePaste: ((EditorController, PasteEvent) -> Bool)? = nil,
         handleDrop: ((EditorController, Any) -> Bool)? = nil,
         handleKeyDown: ((EditorController, String) -> Bool)? = nil,
-        handleTextInput: ((EditorController, NSRange, String) -> Bool)? = nil
+        handleTextInput: ((EditorController, NSRange, String) -> Bool)? = nil,
+        transformPastedText: ((EditorController, String, Bool) -> String)? = nil,
+        transformPasted: ((EditorController, PasteEvent) -> PasteEvent)? = nil
     ) {
         self.handleClick = handleClick
         self.handleLongPress = handleLongPress
@@ -70,6 +87,8 @@ public struct PluginProps {
         self.handleDrop = handleDrop
         self.handleKeyDown = handleKeyDown
         self.handleTextInput = handleTextInput
+        self.transformPastedText = transformPastedText
+        self.transformPasted = transformPasted
     }
 }
 
