@@ -25,6 +25,38 @@ public struct MarkdownTreeSerializer {
         return ensureTrailingNewline(ctx.output)
     }
 
+    /// Serialize a `Slice` to markdown source. The slice's open depths
+    /// don't carry across the markdown boundary; the output is a faithful
+    /// plain-text representation of the fragment's content, suitable for
+    /// the clipboard's plain-text representation.
+    ///
+    /// A slice that's just inline content (no block children) emits as a
+    /// single line of inline markdown. A slice with block children emits
+    /// each block sequentially using the same block emit path the full
+    /// document uses.
+    public func serializeSlice(_ slice: Slice) -> String {
+        var ctx = Context()
+        let kids = slice.content.children
+        if kids.allSatisfy({ isInlineLike($0) }) {
+            ctx.output.append(renderInline(kids))
+        } else {
+            for kid in kids {
+                emitBlock(kid, ctx: &ctx)
+            }
+        }
+        // Slice text doesn't force a trailing newline — callers paste it
+        // into surrounding text and the surrounding context decides.
+        return ctx.output
+    }
+
+    private func isInlineLike(_ node: TreeNode) -> Bool {
+        switch node {
+        case .inline: return true
+        case .leaf(let pn, _): return pn.type == "hard_break" || pn.type == "image"
+        case .structural: return false
+        }
+    }
+
     // MARK: - block emission
 
     private struct Context {

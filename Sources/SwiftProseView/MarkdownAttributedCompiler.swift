@@ -59,6 +59,46 @@ public final class MarkdownAttributedCompiler {
         return ProseDocument.from(storage: storage, schema: schema)
     }
 
+    /// Compile markdown source into a `Slice`. Single-paragraph sources
+    /// produce `openStart == openEnd == 1` so the slice merges into
+    /// surrounding inline context; multi-block sources stay closed
+    /// (`openStart == openEnd == 0`) so each top-level block is preserved
+    /// as a sibling at the paste site.
+    public func compileSlice(
+        _ markdown: String,
+        theme: ProseTheme
+    ) -> Slice {
+        let doc = compileToTree(markdown, theme: theme)
+        guard case .structural(_, let topChildren) = doc.root else {
+            return .empty
+        }
+        let children = stripTrailingEmpty(topChildren)
+        guard !children.isEmpty else { return .empty }
+        let single = children.count == 1 && isInlineWrapper(children[0])
+        if single, case .structural(_, let inlineKids) = children[0] {
+            return Slice(content: Fragment(inlineKids), openStart: 0, openEnd: 0)
+        }
+        return Slice(content: Fragment(children), openStart: 0, openEnd: 0)
+    }
+
+    private func isInlineWrapper(_ node: TreeNode) -> Bool {
+        guard case .structural(let pn, _) = node else { return false }
+        return pn.type == "paragraph"
+    }
+
+    private func stripTrailingEmpty(_ kids: [TreeNode]) -> [TreeNode] {
+        var copy = kids
+        while let last = copy.last {
+            switch last {
+            case .structural(let pn, let inner) where pn.type == "paragraph" && inner.isEmpty:
+                copy.removeLast()
+            default:
+                return copy
+            }
+        }
+        return copy
+    }
+
     private func compileRich(
         _ markdown: String,
         theme: ProseTheme

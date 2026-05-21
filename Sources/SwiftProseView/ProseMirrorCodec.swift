@@ -329,6 +329,20 @@ public struct ProseMirrorCodec {
         try JSONEncoder().encode(encode(storage))
     }
 
+    // MARK: Slice codec
+
+    /// Encode a `Slice` to PM-shaped JSON `{ content, openStart, openEnd }`.
+    /// Open-depth fields are omitted when zero, matching PM.
+    public func encodeSlice(_ slice: Slice) -> PMValue {
+        slice.toJSON(schema: .defaultMarkdown)
+    }
+
+    /// Decode a `Slice` from PM-shaped JSON. Returns nil for malformed
+    /// input; unknown node / mark types are dropped.
+    public func decodeSlice(_ value: PMValue) -> Slice? {
+        Slice.fromJSON(value, schema: .defaultMarkdown)
+    }
+
     /// Tree-direct encode: walk a `ProseDocument` and emit a PM tree.
     /// Marks come from inline runs' `MarkSet` directly rather than being
     /// re-extracted from rendering attributes, preserving mark fidelity
