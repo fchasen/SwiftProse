@@ -700,17 +700,25 @@ public final class EditorController {
     }
 
     /// Run the paste pipeline for `event`:
-    ///   1. Plugins' `handlePaste` (first that returns true consumes).
+    ///   1. `handleDictation` (for `.dictation` events only) then
+    ///      `handlePaste` (first that returns true consumes).
     ///   2. `transformPastedText` chain (rewrites the plain-text body).
     ///   3. `transformPasted` chain (rewrites the whole event).
-    ///   4. Default insertion — code blocks keep newlines verbatim;
-    ///      otherwise paragraph runs become storage paragraph breaks.
+    ///   4. Slice branch — HTML present and not plain-text-only routes
+    ///      through `ClipboardParser`; otherwise the plain-text branch
+    ///      inserts the text directly (code blocks verbatim, others
+    ///      paragraph-split).
     ///
     /// The whole operation lands as one `withCharacterMutation` group,
     /// so dictation and paste become one undo step.
     @discardableResult
     public func dispatchPaste(_ event: PasteEvent) -> Bool {
         var current = event
+        if current.source == .dictation {
+            for plugin in plugins {
+                if plugin.props.handleDictation?(self, current) == true { return true }
+            }
+        }
         for plugin in plugins {
             if plugin.props.handlePaste?(self, current) == true { return true }
         }
@@ -729,7 +737,50 @@ public final class EditorController {
                 current = transform(self, current)
             }
         }
+        if let html = current.html, !html.isEmpty, !current.plainText, !current.inCode {
+            let parser = ClipboardParser(schema: compiler.schema)
+            if let slice = parser.parseFromClipboard(
+                controller: self,
+                text: current.text,
+                html: html,
+                plainText: false,
+                selection: current.selection
+            ) {
+                return insertSlice(slice, replacing: current.selection)
+            }
+        }
         return performDefaultPasteInsertion(current)
+    }
+
+    /// Insert a `Slice` at the given storage range. Phase 4 round-trips
+    /// through markdown; Phase 5 replaces this with a real `replaceRange`
+    /// step that honors defining / isolating / allowed-marks invariants
+    /// without a serialize / parse hop.
+    @discardableResult
+    private func insertSlice(_ slice: Slice, replacing range: NSRange) -> Bool {
+        guard isEditable else { return false }
+        let serializer = MarkdownTreeSerializer(schema: compiler.schema)
+        let markdown = serializer.serializeSlice(slice)
+        guard !markdown.isEmpty else { return false }
+        var result = NSRange(location: range.location, length: 0)
+        withCharacterMutation(range: range) {
+            let attributed = compiler.compile(markdown, theme: theme)
+            let trimmed = trimTrailingNewline(attributed)
+            textStorage.beginEditing()
+            textStorage.replaceCharacters(in: range, with: trimmed)
+            textStorage.endEditing()
+            result = NSRange(location: range.location + trimmed.length, length: 0)
+        }
+        setHostSelection(result)
+        refreshTypingAttributes(at: result.location)
+        return true
+    }
+
+    private func trimTrailingNewline(_ s: NSAttributedString) -> NSAttributedString {
+        guard s.length > 0 else { return s }
+        let last = (s.string as NSString).substring(from: s.length - 1)
+        guard last == "\n" else { return s }
+        return s.attributedSubstring(from: NSRange(location: 0, length: s.length - 1))
     }
 
     /// Insert `event.text` as plain text. Code-block destinations keep

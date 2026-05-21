@@ -71,6 +71,36 @@ public struct PluginProps {
     /// event through each.
     public var transformPasted: ((EditorController, PasteEvent) -> PasteEvent)?
 
+    /// Transform raw HTML before it's parsed into a Slice. The `plain`
+    /// flag is true when the destination is a code block (plugins
+    /// typically strip styling for code).
+    public var transformPastedHTML: ((EditorController, String, Bool) -> String)?
+
+    /// Replace the default HTML-to-Slice parser. Receives the HTML, the
+    /// caret-context selection, and whether the user requested plain text.
+    /// Return nil to fall through to the built-in `DOMParser`.
+    public var clipboardParser: ((EditorController, String, NSRange, Bool) -> Slice?)?
+
+    /// Replace the default plain-text-to-Slice parser. Receives the text,
+    /// the caret-context selection, and whether the user requested plain
+    /// text. Return nil to fall through to the markdown-aware
+    /// `compileSlice` default.
+    public var clipboardTextParser: ((EditorController, String, NSRange, Bool) -> Slice?)?
+
+    /// Replace the default Slice-to-HTML serializer. Return nil to fall
+    /// through to `ClipboardSerializer.renderHTML`.
+    public var clipboardSerializer: ((EditorController, Slice) -> String?)?
+
+    /// Replace the default Slice-to-plain-text serializer. Return nil to
+    /// fall through to `MarkdownTreeSerializer.serializeSlice`.
+    public var clipboardTextSerializer: ((EditorController, Slice) -> String?)?
+
+    /// Called instead of `handlePaste` for dictation events. Defaults to
+    /// nil → falls through to `handlePaste` so plugins that already filter
+    /// paste pick dictation up for free. Plugins that want to differentiate
+    /// (analytics, transcription cleanup) implement only this hook.
+    public var handleDictation: ((EditorController, PasteEvent) -> Bool)?
+
     public init(
         handleClick: ((EditorController, Int) -> Bool)? = nil,
         handleLongPress: ((EditorController, Int) -> Bool)? = nil,
@@ -79,7 +109,13 @@ public struct PluginProps {
         handleKeyDown: ((EditorController, String) -> Bool)? = nil,
         handleTextInput: ((EditorController, NSRange, String) -> Bool)? = nil,
         transformPastedText: ((EditorController, String, Bool) -> String)? = nil,
-        transformPasted: ((EditorController, PasteEvent) -> PasteEvent)? = nil
+        transformPasted: ((EditorController, PasteEvent) -> PasteEvent)? = nil,
+        transformPastedHTML: ((EditorController, String, Bool) -> String)? = nil,
+        clipboardParser: ((EditorController, String, NSRange, Bool) -> Slice?)? = nil,
+        clipboardTextParser: ((EditorController, String, NSRange, Bool) -> Slice?)? = nil,
+        clipboardSerializer: ((EditorController, Slice) -> String?)? = nil,
+        clipboardTextSerializer: ((EditorController, Slice) -> String?)? = nil,
+        handleDictation: ((EditorController, PasteEvent) -> Bool)? = nil
     ) {
         self.handleClick = handleClick
         self.handleLongPress = handleLongPress
@@ -89,6 +125,12 @@ public struct PluginProps {
         self.handleTextInput = handleTextInput
         self.transformPastedText = transformPastedText
         self.transformPasted = transformPasted
+        self.transformPastedHTML = transformPastedHTML
+        self.clipboardParser = clipboardParser
+        self.clipboardTextParser = clipboardTextParser
+        self.clipboardSerializer = clipboardSerializer
+        self.clipboardTextSerializer = clipboardTextSerializer
+        self.handleDictation = handleDictation
     }
 }
 
