@@ -34,4 +34,24 @@ enum Clipboard {
         return Contents(text: nil, html: nil)
         #endif
     }
+
+    /// Replace the system pasteboard with the supplied `text` and (when
+    /// present) `html`. macOS clears + writes the general pasteboard; iOS
+    /// writes one item carrying both representations so any consumer can
+    /// pick its preferred form.
+    static func write(text: String, html: String? = nil) {
+        #if canImport(AppKit) && os(macOS)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        if let html { pb.setString(html, forType: .html) }
+        #elseif canImport(UIKit)
+        let pb = UIPasteboard.general
+        var item: [String: Any] = ["public.utf8-plain-text": text]
+        if let html, let data = html.data(using: .utf8) {
+            item["public.html"] = data
+        }
+        pb.items = [item]
+        #endif
+    }
 }

@@ -422,6 +422,48 @@ final class ProseNSTextView: NSTextView {
         }
     }
 
+    override func copy(_ sender: Any?) {
+        guard writeSelectionToPasteboard() else {
+            super.copy(sender)
+            return
+        }
+    }
+
+    override func cut(_ sender: Any?) {
+        guard writeSelectionToPasteboard() else {
+            super.cut(sender)
+            return
+        }
+        // Delete the selected text after a successful copy. Go through
+        // the controller's insertion path so the deletion is one undo
+        // step joined with whatever follows.
+        let selection = selectedRange()
+        guard selection.length > 0,
+              let controller = proseController,
+              controller.isEditable else { return }
+        let event = PasteEvent(
+            text: "",
+            plainText: true,
+            source: .paste,
+            selection: selection,
+            inCode: controller.isLocationInCodeBlock(selection.location)
+        )
+        _ = controller.dispatchPaste(event)
+    }
+
+    @discardableResult
+    private func writeSelectionToPasteboard() -> Bool {
+        guard let controller = proseController else { return false }
+        let selection = selectedRange()
+        guard selection.length > 0 else { return false }
+        let slice = controller.sliceForRange(selection)
+        guard !slice.isEmpty else { return false }
+        let serializer = ClipboardSerializer(schema: controller.compiler.schema)
+        let bundle = serializer.serializeForClipboard(controller: controller, slice: slice)
+        Clipboard.write(text: bundle.text, html: bundle.html)
+        return true
+    }
+
     @discardableResult
     private func dispatchPaste(plainText: Bool) -> Bool {
         guard let controller = proseController, controller.isEditable else { return false }

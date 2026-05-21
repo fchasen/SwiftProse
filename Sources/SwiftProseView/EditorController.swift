@@ -759,6 +759,34 @@ public final class EditorController {
         return true
     }
 
+    /// Slice the current storage to the given character range and project
+    /// it as a `Slice` suitable for the clipboard. Single-paragraph
+    /// selections unwrap to inline content with `openStart == openEnd == 1`
+    /// so they merge into surrounding context on paste; multi-block
+    /// selections stay closed so each top-level block survives.
+    public func sliceForRange(_ range: NSRange) -> Slice {
+        let total = textStorage.length
+        guard total > 0 else { return .empty }
+        let safe = range.clamped(to: total)
+        guard safe.length > 0 else { return .empty }
+        let doc = ProseDocument.from(storage: textStorage, range: safe, schema: compiler.schema)
+        guard case .structural(_, let kids) = doc.root else { return .empty }
+        let children = kids
+        guard !children.isEmpty else { return .empty }
+        let onlyInline = children.allSatisfy(isInlineWrapper)
+        if onlyInline, children.count == 1, case .structural(_, let inlineKids) = children[0] {
+            return Slice(content: Fragment(inlineKids), openStart: 1, openEnd: 1)
+        }
+        return Slice(content: Fragment(children), openStart: 0, openEnd: 0)
+    }
+
+    private func isInlineWrapper(_ node: TreeNode) -> Bool {
+        if case .structural(let pn, _) = node, pn.type == "paragraph" {
+            return true
+        }
+        return false
+    }
+
     /// Resolve the storage offset's enclosing block spec and return true
     /// when the cursor sits in a code block. Used by the paste / dictation
     /// dispatchers to flip the inCode branch.

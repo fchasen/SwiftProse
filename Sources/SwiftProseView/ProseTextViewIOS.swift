@@ -355,6 +355,45 @@ final class ProseUITextView: UITextView {
         }
     }
 
+    override func copy(_ sender: Any?) {
+        guard writeSelectionToPasteboard() else {
+            super.copy(sender)
+            return
+        }
+    }
+
+    override func cut(_ sender: Any?) {
+        guard writeSelectionToPasteboard() else {
+            super.cut(sender)
+            return
+        }
+        let selection = selectedRange
+        guard selection.length > 0,
+              let controller = proseController,
+              controller.isEditable else { return }
+        let event = PasteEvent(
+            text: "",
+            plainText: true,
+            source: .paste,
+            selection: selection,
+            inCode: controller.isLocationInCodeBlock(selection.location)
+        )
+        _ = controller.dispatchPaste(event)
+    }
+
+    @discardableResult
+    private func writeSelectionToPasteboard() -> Bool {
+        guard let controller = proseController else { return false }
+        let selection = selectedRange
+        guard selection.length > 0 else { return false }
+        let slice = controller.sliceForRange(selection)
+        guard !slice.isEmpty else { return false }
+        let serializer = ClipboardSerializer(schema: controller.compiler.schema)
+        let bundle = serializer.serializeForClipboard(controller: controller, slice: slice)
+        Clipboard.write(text: bundle.text, html: bundle.html)
+        return true
+    }
+
     /// iOS dictation finalization delivers the recognized phrase as one
     /// bulk insertion. Routing it through the paste pipeline makes a
     /// dictated "Hello new paragraph World" land as two paragraphs with

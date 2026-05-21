@@ -248,10 +248,18 @@ public extension ProseDocument {
     /// into shared ancestors. Runs without `proseNodePath` are skipped.
     static func from(
         storage: NSAttributedString,
+        range: NSRange? = nil,
         schema: Schema = .defaultMarkdown
     ) -> ProseDocument {
         let total = storage.length
         guard total > 0 else { return .makeEmpty(schema: schema) }
+        let scanRange: NSRange = {
+            guard let r = range else { return NSRange(location: 0, length: total) }
+            let lo = max(0, r.location)
+            let hi = min(total, r.location + r.length)
+            return NSRange(location: lo, length: max(0, hi - lo))
+        }()
+        guard scanRange.length > 0 else { return .makeEmpty(schema: schema) }
 
         // The tree builder maintains a stack of (node, accumulated children)
         // matching the deepest open path. For each attribute run we close
@@ -263,7 +271,7 @@ public extension ProseDocument {
         var stack: [(node: ProseNode, kids: [TreeNode])] = [(docNode, [])]
         var openPath: NodePath = NodePath([docNode])
 
-        storage.enumerateNodePaths { blockRange, blockPath in
+        storage.enumerateNodePaths(in: scanRange) { blockRange, blockPath in
             // For each `proseNodePath` run, walk the inner `proseMarks`
             // run boundaries so inline children inherit the correct
             // per-character marks. Without this split, the whole block
