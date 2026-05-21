@@ -58,6 +58,29 @@ public struct AutoLinkRule {
         self.href = href
         self.title = title
     }
+
+    /// Ready-made rule for HTTP/HTTPS URLs. The pattern requires the
+    /// URL to be followed by whitespace, end-of-paragraph, or trailing
+    /// punctuation — without that boundary, an in-progress URL would be
+    /// linked early as the user typed each character.
+    ///
+    /// `AutoLinkPlugin` additionally skips ranges that already carry a
+    /// `link` mark, so re-firing the rule on subsequent edits doesn't
+    /// double-link or grow the span past its first match.
+    public static let url = AutoLinkRule(
+        id: "swiftprose.url",
+        pattern: #"(https?://[^\s<>"'\[\]]+[^\s<>"'\[\]\.,!?;:\)])(?=[\s\.,!?;:\)\]]|$)"#,
+        linkCapture: 1,
+        href: { $0.linkText }
+    )
+
+    /// Bare-email autolink — `name@host`. Wraps as `mailto:` href.
+    public static let email = AutoLinkRule(
+        id: "swiftprose.email",
+        pattern: #"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?=[\s\.,!?;:\)\]]|$)"#,
+        linkCapture: 1,
+        href: { match in "mailto:\(match.linkText)" }
+    )
 }
 
 public final class AutoLinkPlugin: EditorPlugin {
@@ -152,14 +175,31 @@ public final class AutoLinkPlugin: EditorPlugin {
 private func autoLinkParagraphRanges(from transactions: [Transaction], in storage: NSTextStorage) -> [NSRange] {
     let ns = storage.string as NSString
     var ranges: [NSRange] = []
+    func extend(_ scanRange: NSRange) {
+        guard scanRange.length > 0 else { return }
+        if !ranges.contains(where: { NSEqualRanges($0, scanRange) }) {
+            ranges.append(scanRange)
+        }
+    }
     for transaction in transactions {
         for step in transaction.steps {
-            guard case .replaceText(let range, let attributed) = step else { continue }
-            let start = max(0, min(range.location, ns.length))
-            let end = max(start, min(range.location + max(range.length, attributed.length), ns.length))
-            let scanRange = ns.paragraphRange(for: NSRange(location: start, length: end - start))
-            if !ranges.contains(where: { NSEqualRanges($0, scanRange) }) {
-                ranges.append(scanRange)
+            switch step {
+            case .replaceText(let range, let attributed):
+                let start = max(0, min(range.location, ns.length))
+                let end = max(start, min(range.location + max(range.length, attributed.length), ns.length))
+                extend(ns.paragraphRange(for: NSRange(location: start, length: end - start)))
+            case .replaceRange(let from, _, let slice):
+                // Paste lands here. The step has already applied by the
+                // time we're called from `appendTransaction`, so storage
+                // now contains the slice's content starting at `from`.
+                // Scan the union of every paragraph the slice spans in
+                // post-state by walking from `from` for the slice's
+                // content size.
+                let start = max(0, min(from, ns.length))
+                let end = max(start, min(from + slice.content.size, ns.length))
+                extend(ns.paragraphRange(for: NSRange(location: start, length: max(0, end - start))))
+            default:
+                continue
             }
         }
     }
