@@ -219,4 +219,18 @@ public enum Transforms {
         _ = targetType
         return []
     }
+
+    /// PM's `Transform.replaceRange` — replace storage `[from, to]` with
+    /// `slice`. The minimal fitter that ships with Phase 5 round-trips the
+    /// slice through markdown so storage gets re-stamped block specs and
+    /// mark attrs; PM-equivalent semantics (defining-ancestor preservation,
+    /// isolating boundary blocking, allowed-marks stripping, findWrapping
+    /// recovery) layer on top of this step in follow-up work.
+    public static func replaceRange(
+        from: Int,
+        to: Int,
+        slice: Slice
+    ) -> Step {
+        .replaceRange(from: from, to: to, slice: slice)
+    }
 }

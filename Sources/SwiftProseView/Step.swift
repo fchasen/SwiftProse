@@ -94,6 +94,14 @@ public enum Step {
     /// the controller surfaces this through a side-channel for hosts that
     /// need to track e.g. "current language" without round-tripping.
     case setDocAttr(name: String, value: ProseAttrValue)
+    /// Replace storage `[from, to]` with `slice`. Mirrors PM's
+    /// `ReplaceStep` paired with `Transform.replaceRange` — Phase 5
+    /// ships a minimal fitter that round-trips through markdown
+    /// (`MarkdownTreeSerializer.serializeSlice` + recompile). Full
+    /// PM-Fitter semantics (defining-ancestor preservation, isolating
+    /// boundary blocking, allowed-marks stripping, findWrapping recovery)
+    /// land alongside `Transforms.swift` extensions.
+    case replaceRange(from: Int, to: Int, slice: Slice)
 
     public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedStep {
         switch self {
@@ -130,7 +138,85 @@ public enum Step {
             return applySetDocAttr(in: storage, name: name, value: value)
         case .setNodeAttrsAt(let pos, let attrs):
             return applySetNodeAttrsAt(in: storage, pos: pos, attrs: attrs)
+        case .replaceRange(let from, let to, let slice):
+            return applyReplaceRange(in: storage, from: from, to: to, slice: slice, env: env)
         }
+    }
+
+    /// Minimal fitter — round-trips `slice` through markdown so storage
+    /// gets fully-stamped block specs and mark attrs at insertion. PM's
+    /// real `Fitter` honors defining / isolating / allowedMarks at every
+    /// fit point; that semantics layer lands as transforms in
+    /// `Transforms.swift` (see `Transforms.swift:replaceRange` stub).
+    private func applyReplaceRange(
+        in storage: NSTextStorage,
+        from: Int,
+        to: Int,
+        slice: Slice,
+        env: StepEnvironment
+    ) -> AppliedStep {
+        let len = storage.length
+        let lo = max(0, min(from, len))
+        let hi = max(lo, min(to, len))
+        let safe = NSRange(location: lo, length: hi - lo)
+        let prior = storage.attributedSubstring(from: safe)
+        let priorSlice = Self.sliceFromAttributedString(prior, schema: env.compiler.schema)
+        let serializer = MarkdownTreeSerializer(schema: env.compiler.schema)
+        let markdown = serializer.serializeSlice(slice)
+        let attributed: NSAttributedString
+        if markdown.isEmpty {
+            attributed = NSAttributedString()
+        } else {
+            let compiled = env.compiler.compile(markdown, theme: env.theme)
+            attributed = Self.trimTrailingNewline(compiled)
+        }
+        storage.beginEditing()
+        storage.replaceCharacters(in: safe, with: attributed)
+        let mappedRange = NSRange(location: safe.location, length: attributed.length)
+        Step.restampPredecessorContext(in: storage, range: mappedRange)
+        storage.endEditing()
+        let inverse = Step.replaceRange(
+            from: mappedRange.location,
+            to: mappedRange.location + mappedRange.length,
+            slice: priorSlice
+        )
+        let stepMap = StepMap(oldRange: safe, newLength: attributed.length)
+        return AppliedStep(
+            inverse: inverse,
+            mappedRange: mappedRange,
+            affectedLineRange: mappedRange,
+            stepMap: stepMap
+        )
+    }
+
+    /// Project an attributed substring to a `Slice` so the inverse of
+    /// `applyReplaceRange` can round-trip the displaced content back into
+    /// storage. Single-paragraph captures unwrap to inline content with
+    /// open-1 boundaries; multi-block captures stay closed.
+    private static func sliceFromAttributedString(
+        _ attributed: NSAttributedString,
+        schema: Schema
+    ) -> Slice {
+        guard attributed.length > 0 else { return .empty }
+        let doc = ProseDocument.from(storage: attributed, schema: schema)
+        guard case .structural(_, let kids) = doc.root, !kids.isEmpty else {
+            return .empty
+        }
+        let onlyInline = kids.allSatisfy { node in
+            if case .structural(let pn, _) = node, pn.type == "paragraph" { return true }
+            return false
+        }
+        if onlyInline, kids.count == 1, case .structural(_, let inlineKids) = kids[0] {
+            return Slice(content: Fragment(inlineKids), openStart: 1, openEnd: 1)
+        }
+        return Slice(content: Fragment(kids), openStart: 0, openEnd: 0)
+    }
+
+    private static func trimTrailingNewline(_ s: NSAttributedString) -> NSAttributedString {
+        guard s.length > 0 else { return s }
+        let last = (s.string as NSString).substring(from: s.length - 1)
+        guard last == "\n" else { return s }
+        return s.attributedSubstring(from: NSRange(location: 0, length: s.length - 1))
     }
 
     private func applySetNodeAttrsAt(
@@ -697,6 +783,11 @@ public enum Step {
                 return .rangeOutOfBounds(NSRange(location: pos, length: 0), length: len)
             }
             return nil
+        case .replaceRange(let from, let to, _):
+            if from < 0 || to < from || to > len {
+                return .rangeOutOfBounds(NSRange(location: from, length: max(0, to - from)), length: len)
+            }
+            return nil
         }
     }
 
@@ -710,7 +801,7 @@ public enum Step {
             return false
         case .setSpec, .replaceAround, .setNodeAttrs, .setNodeAttrsAt,
              .replaceCellInline, .setTableSubtree, .addNodeMark,
-             .removeNodeMark, .setDocAttr:
+             .removeNodeMark, .setDocAttr, .replaceRange:
             return true
         }
     }
@@ -784,6 +875,10 @@ public enum Step {
             return self
         case .setNodeAttrsAt(let pos, let attrs):
             return .setNodeAttrsAt(pos: mapping.map(pos, bias: .before), attrs: attrs)
+        case .replaceRange(let from, let to, let slice):
+            let mappedFrom = mapping.map(from, bias: .before)
+            let mappedTo = mapping.map(to, bias: .after)
+            return .replaceRange(from: mappedFrom, to: mappedTo, slice: slice)
         }
     }
 

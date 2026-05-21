@@ -752,35 +752,23 @@ public final class EditorController {
         return performDefaultPasteInsertion(current)
     }
 
-    /// Insert a `Slice` at the given storage range. Phase 4 round-trips
-    /// through markdown; Phase 5 replaces this with a real `replaceRange`
-    /// step that honors defining / isolating / allowed-marks invariants
-    /// without a serialize / parse hop.
+    /// Insert a `Slice` at the given storage range via a typed
+    /// `Step.replaceRange` transaction. The step's `apply` round-trips
+    /// the slice through markdown (a minimal fitter — PM-equivalent
+    /// defining / isolating / allowed-marks semantics layer on top in
+    /// follow-up work).
     @discardableResult
     private func insertSlice(_ slice: Slice, replacing range: NSRange) -> Bool {
         guard isEditable else { return false }
-        let serializer = MarkdownTreeSerializer(schema: compiler.schema)
-        let markdown = serializer.serializeSlice(slice)
-        guard !markdown.isEmpty else { return false }
-        var result = NSRange(location: range.location, length: 0)
-        withCharacterMutation(range: range) {
-            let attributed = compiler.compile(markdown, theme: theme)
-            let trimmed = trimTrailingNewline(attributed)
-            textStorage.beginEditing()
-            textStorage.replaceCharacters(in: range, with: trimmed)
-            textStorage.endEditing()
-            result = NSRange(location: range.location + trimmed.length, length: 0)
-        }
-        setHostSelection(result)
-        refreshTypingAttributes(at: result.location)
+        guard !slice.isEmpty else { return false }
+        let from = range.location
+        let to = range.location + range.length
+        var transaction = Transaction(steps: [
+            Transforms.replaceRange(from: from, to: to, slice: slice)
+        ])
+        transaction.label = "Paste"
+        _ = apply(transaction)
         return true
-    }
-
-    private func trimTrailingNewline(_ s: NSAttributedString) -> NSAttributedString {
-        guard s.length > 0 else { return s }
-        let last = (s.string as NSString).substring(from: s.length - 1)
-        guard last == "\n" else { return s }
-        return s.attributedSubstring(from: NSRange(location: 0, length: s.length - 1))
     }
 
     /// Insert `event.text` as plain text. Code-block destinations keep
@@ -1076,6 +1064,9 @@ public final class EditorController {
                 // current accumulator. The apply path resolves the
                 // affected range from the stored NodePath / table id.
                 continue
+            case .replaceRange(let from, let to, _):
+                lo = min(lo, from)
+                hi = max(hi, to)
             }
         }
         guard hi > lo else { return NSRange(location: 0, length: 0) }
