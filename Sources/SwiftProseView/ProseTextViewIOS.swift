@@ -112,11 +112,13 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         if let proposedWidth = proposal.width, proposedWidth > 0 {
             let inset = uiView.textContainerInset
             let containerWidth = max(0, proposedWidth - inset.left - inset.right)
-            controller.textContainer.size = CGSize(
-                width: containerWidth,
-                height: .greatestFiniteMagnitude
-            )
-            controller.scheduleTableHeightStamp(containerWidth: containerWidth)
+            if abs(controller.textContainer.size.width - containerWidth) > 0.5 {
+                controller.textContainer.size = CGSize(
+                    width: containerWidth,
+                    height: .greatestFiniteMagnitude
+                )
+                controller.scheduleTableHeightStamp(containerWidth: containerWidth)
+            }
         }
         let intrinsic = uiView.intrinsicContentSize
         let width = proposal.width ?? intrinsic.width

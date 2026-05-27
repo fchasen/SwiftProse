@@ -139,11 +139,13 @@ public struct ProseTextViewMac: NSViewRepresentable {
         if let proposedWidth = proposal.width, proposedWidth > 0 {
             let inset = textView.textContainerInset
             let containerWidth = max(0, proposedWidth - inset.width * 2)
-            controller.textContainer.size = NSSize(
-                width: containerWidth,
-                height: CGFloat.greatestFiniteMagnitude
-            )
-            controller.scheduleTableHeightStamp(containerWidth: containerWidth)
+            if abs(controller.textContainer.size.width - containerWidth) > 0.5 {
+                controller.textContainer.size = NSSize(
+                    width: containerWidth,
+                    height: CGFloat.greatestFiniteMagnitude
+                )
+                controller.scheduleTableHeightStamp(containerWidth: containerWidth)
+            }
         }
         let intrinsic = textView.intrinsicContentSize
         let width = proposal.width ?? intrinsic.width
