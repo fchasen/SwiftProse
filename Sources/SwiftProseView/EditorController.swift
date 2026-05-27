@@ -953,13 +953,22 @@ public final class EditorController {
         if recordHistory, let label = transaction.label {
             undoManager.setActionName(label)
         }
-        // tr.selection wins; otherwise collapse to just before the trailing
-        // newline that block-level steps emit.
+        // tr.selection wins; otherwise collapse to the end of the changed
+        // range, backing off from a trailing newline when the render emitted
+        // a block terminator.
         let resultRange: NSRange
         if let sel = transaction.selection {
             resultRange = sel.selectedRange
         } else {
-            let cursor = max(lastRange.location, lastRange.location + lastRange.length - 1)
+            let end = lastRange.location + lastRange.length
+            let cursor: Int
+            if lastRange.length > 0,
+               end <= textStorage.length,
+               (textStorage.string as NSString).character(at: end - 1) == 0x0A {
+                cursor = end - 1
+            } else {
+                cursor = end
+            }
             resultRange = NSRange(location: cursor, length: 0)
         }
         setHostSelection(resultRange)
@@ -1055,6 +1064,7 @@ public final class EditorController {
             switch step {
             case .replaceText(let range, _),
                  .setSpec(let range, _),
+                 .setSpecPreservingLineTerminator(let range, _),
                  .toggleInlineMark(let range, _),
                  .addMark(let range, _),
                  .removeMark(let range, _),

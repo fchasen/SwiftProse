@@ -33,6 +33,7 @@ public enum InlineMark: Equatable, Sendable {
 public enum Step {
     case replaceText(range: NSRange, with: NSAttributedString)
     case setSpec(lineRange: NSRange, BlockSpec)
+    case setSpecPreservingLineTerminator(lineRange: NSRange, BlockSpec)
     case toggleInlineMark(range: NSRange, InlineMark)
     /// Replace the slice between `outer.start..inner.start` AND
     /// `inner.end..outer.end` with `content` (split into a leading and
@@ -108,7 +109,21 @@ public enum Step {
         case .replaceText(let range, let attributed):
             return applyReplaceText(in: storage, range: range, attributed: attributed)
         case .setSpec(let lineRange, let spec):
-            return applySetSpec(in: storage, lineRange: lineRange, spec: spec, env: env)
+            return applySetSpec(
+                in: storage,
+                lineRange: lineRange,
+                spec: spec,
+                env: env,
+                preserveLineTerminator: false
+            )
+        case .setSpecPreservingLineTerminator(let lineRange, let spec):
+            return applySetSpec(
+                in: storage,
+                lineRange: lineRange,
+                spec: spec,
+                env: env,
+                preserveLineTerminator: true
+            )
         case .toggleInlineMark(let range, let mark):
             return applyToggleInlineMark(in: storage, range: range, mark: mark, env: env)
         case .replaceAround(let outer, let inner, let content, let contentSplit):
@@ -544,12 +559,18 @@ public enum Step {
         in storage: NSTextStorage,
         lineRange: NSRange,
         spec: BlockSpec,
-        env: StepEnvironment
+        env: StepEnvironment,
+        preserveLineTerminator: Bool
     ) -> AppliedStep {
         let safe = lineRange.clamped(to: storage.length)
         let prior = storage.attributedSubstring(from: safe)
 
-        let newAttr = render(spec: spec, replacing: prior, env: env)
+        let newAttr = render(
+            spec: spec,
+            replacing: prior,
+            env: env,
+            preserveLineTerminator: preserveLineTerminator
+        )
         storage.beginEditing()
         storage.replaceCharacters(in: safe, with: newAttr)
         let mappedRange = NSRange(location: safe.location, length: newAttr.length)
@@ -582,7 +603,8 @@ public enum Step {
     private func render(
         spec: BlockSpec,
         replacing prior: NSAttributedString,
-        env: StepEnvironment
+        env: StepEnvironment,
+        preserveLineTerminator: Bool = false
     ) -> NSAttributedString {
         let priorMarkdown = env.serializer.serialize(prior)
         let body = stripBlockMarkup(priorMarkdown)
@@ -594,18 +616,51 @@ public enum Step {
         // are not preserved on this path — acceptable since list-item
         // toggle from a non-list line is a structural change anyway.
         if bodyEmpty, let direct = renderEmpty(spec: spec, env: env) {
-            return direct
+            return preservingLineTerminatorIfNeeded(
+                direct,
+                prior: prior,
+                enabled: preserveLineTerminator
+            )
         }
         // Nested list items (`  - foo`) need direct construction even with
         // a non-empty body. Level-0 lists round-trip through tree-sitter
         // so inline marks (`- **bold**`) compile correctly.
         if spec.isListItem, spec.listLevel > 0,
            let direct = renderListItem(spec: spec, body: body, env: env) {
-            return direct
+            return preservingLineTerminatorIfNeeded(
+                direct,
+                prior: prior,
+                enabled: preserveLineTerminator
+            )
         }
         let newMarkdown = compose(spec: spec, body: body)
         let normalized = newMarkdown.hasSuffix("\n") ? newMarkdown : newMarkdown + "\n"
-        return env.compiler.compile(normalized, theme: env.theme)
+        let rendered = env.compiler.compile(normalized, theme: env.theme)
+        return preservingLineTerminatorIfNeeded(
+            rendered,
+            prior: prior,
+            enabled: preserveLineTerminator
+        )
+    }
+
+    private func preservingLineTerminatorIfNeeded(
+        _ rendered: NSAttributedString,
+        prior: NSAttributedString,
+        enabled: Bool
+    ) -> NSAttributedString {
+        guard enabled,
+              prior.length > 0,
+              rendered.length > 0 else {
+            return rendered
+        }
+        let priorString = prior.string as NSString
+        let renderedString = rendered.string as NSString
+        let priorEndsWithNewline = priorString.character(at: prior.length - 1) == 0x0A
+        let renderedEndsWithNewline = renderedString.character(at: rendered.length - 1) == 0x0A
+        guard !priorEndsWithNewline, renderedEndsWithNewline else {
+            return rendered
+        }
+        return rendered.attributedSubstring(from: NSRange(location: 0, length: rendered.length - 1))
     }
 
     private func renderEmpty(
@@ -747,6 +802,7 @@ public enum Step {
         switch self {
         case .replaceText(let range, _),
              .setSpec(let range, _),
+             .setSpecPreservingLineTerminator(let range, _),
              .toggleInlineMark(let range, _),
              .addMark(let range, _),
              .removeMark(let range, _),
@@ -799,7 +855,8 @@ public enum Step {
         switch self {
         case .replaceText, .toggleInlineMark, .addMark, .removeMark, .setMarkAttrs:
             return false
-        case .setSpec, .replaceAround, .setNodeAttrs, .setNodeAttrsAt,
+        case .setSpec, .setSpecPreservingLineTerminator,
+             .replaceAround, .setNodeAttrs, .setNodeAttrsAt,
              .replaceCellInline, .setTableSubtree, .addNodeMark,
              .removeNodeMark, .setDocAttr, .replaceRange:
             return true
@@ -845,6 +902,8 @@ public enum Step {
             return .replaceText(range: mapping.mapRange(range), with: attr)
         case .setSpec(let lineRange, let spec):
             return .setSpec(lineRange: mapping.mapRange(lineRange), spec)
+        case .setSpecPreservingLineTerminator(let lineRange, let spec):
+            return .setSpecPreservingLineTerminator(lineRange: mapping.mapRange(lineRange), spec)
         case .toggleInlineMark(let range, let mark):
             return .toggleInlineMark(range: mapping.mapRange(range), mark)
         case .replaceAround(let outer, let inner, let content, let split):

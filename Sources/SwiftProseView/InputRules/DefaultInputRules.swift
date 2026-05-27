@@ -184,10 +184,10 @@ public extension InputRule {
 
     // MARK: - inline rules
     //
-    // Inline rules don't delete the markdown markup — they re-run the line
-    // through the compiler via setSpec(currentSpec). The compiler picks up
-    // the just-typed `**`, `~~`, `` ` `` markers and applies the inline
-    // styling. The user keeps the visible markdown source.
+    // Inline rules re-run the line through the compiler using the current
+    // block spec. The compiler picks up the just-typed `**`, `~~`, and
+    // `` ` `` markers, applies inline styling, and the serializer restores
+    // the markdown delimiters on round-trip.
 
     static let bold = InputRule(
         id: "inputRule.bold",
@@ -232,7 +232,7 @@ public extension InputRule {
     private static func recompileLine(match: InputRule.Match, label: String) -> Transaction {
         let current = currentSpec(at: match.lineRange.location, in: match.storage)
         return Transaction(steps: [
-            .setSpec(lineRange: match.lineRange, current)
+            .setSpecPreservingLineTerminator(lineRange: match.lineRange, current)
         ], label: label)
     }
 

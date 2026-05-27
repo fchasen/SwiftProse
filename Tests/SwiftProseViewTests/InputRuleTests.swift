@@ -261,6 +261,91 @@ import UIKit
         #expect(inline == .codeSpan)
     }
 
+    @Test func completingInlineCodeDoesNotAppendANewLine() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        type("`code`", in: controller)
+
+        let text = controller.textStorage.string
+        #expect(text == "code", "expected inline code re-render to preserve unterminated line, got \(String(reflecting: text))")
+    }
+
+    @Test func completingInlineCodeBeforeFollowingLineKeepsExistingLineBreak() throws {
+        let controller = try EditorController(initialMarkdown: "hello \nnext\n")
+        controller.testSelection = NSRange(location: 6, length: 0)
+        type("`code`", in: controller)
+
+        let text = controller.textStorage.string
+        #expect(text == "hello code\nnext\n")
+        #expect((text.filter { $0 == "\n" }).count == 2)
+    }
+
+    @Test func typingOpeningBacktickDoesNotCreateAnotherLine() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        controller.testSelection = NSRange(location: 5, length: 0)
+        type(" `", in: controller)
+
+        let text = controller.textStorage.string
+        let newlines = text.filter { $0 == "\n" }.count
+        #expect(newlines == 1, "expected one newline after opening inline code, got \(newlines) in \(String(reflecting: text))")
+        #expect(controller.textStorage.blockSpec(at: 0)?.kind == .paragraph)
+    }
+
+    @Test func typingOpeningBacktickBeforeFollowingLineDoesNotInsertBlankLine() throws {
+        let controller = try EditorController(initialMarkdown: "hello\nnext\n")
+        controller.testSelection = NSRange(location: 5, length: 0)
+        type(" `", in: controller)
+
+        let text = controller.textStorage.string
+        let newlines = text.filter { $0 == "\n" }.count
+        #expect(newlines == 2, "expected existing two newlines, got \(newlines) in \(String(reflecting: text))")
+        #expect(text == "hello `\nnext\n")
+    }
+
+    @Test func roundTrippingOpeningBacktickDoesNotCreateAnotherLine() throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        controller.testSelection = NSRange(location: 5, length: 0)
+        type(" `", in: controller)
+
+        let markdown = controller.markdown()
+        controller.setMarkdown(markdown, async: false)
+
+        let text = controller.textStorage.string
+        let newlines = text.filter { $0 == "\n" }.count
+        #expect(markdown == "hello `\n")
+        #expect(newlines == 1, "expected one newline after markdown round trip, got \(newlines) in \(String(reflecting: text))")
+    }
+
+    #if canImport(AppKit) && os(macOS)
+    @MainActor
+    @Test func deferredOpeningBacktickDoesNotCreateAnotherLine() async throws {
+        let controller = try EditorController(initialMarkdown: "hello\n")
+        let textView = NSTextView(frame: .zero, textContainer: controller.textContainer)
+        controller.hostTextView = textView
+        textView.setSelectedRange(NSRange(location: 5, length: 0))
+
+        typeThroughHost(" `", controller: controller, textView: textView)
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        let text = controller.textStorage.string
+        let newlines = text.filter { $0 == "\n" }.count
+        #expect(newlines == 1, "expected one newline after deferred opening inline code, got \(newlines) in \(String(reflecting: text))")
+    }
+
+    @MainActor
+    @Test func deferredCompletingInlineCodeDoesNotAppendANewLine() async throws {
+        let controller = try EditorController(initialMarkdown: "")
+        let textView = NSTextView(frame: .zero, textContainer: controller.textContainer)
+        controller.hostTextView = textView
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+
+        typeThroughHost("`code`", controller: controller, textView: textView)
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        #expect(controller.textStorage.string == "code")
+        #expect(textView.selectedRange().location == 4)
+    }
+    #endif
+
     // MARK: - fenced code block
 
     /// Typing ` ```Enter ` opens an empty fenced code block. The rule waits
@@ -460,4 +545,19 @@ import UIKit
             controller.testSelection = NSRange(location: cursorPos, length: 0)
         }
     }
+
+    #if canImport(AppKit) && os(macOS)
+    @MainActor
+    private func typeThroughHost(_ chars: String, controller: EditorController, textView: NSTextView) {
+        for char in chars {
+            let selection = textView.selectedRange()
+            let typedLength = (String(char) as NSString).length
+            let storage = controller.textStorage
+            storage.beginEditing()
+            storage.replaceCharacters(in: selection, with: String(char))
+            textView.setSelectedRange(NSRange(location: selection.location + typedLength, length: 0))
+            storage.endEditing()
+        }
+    }
+    #endif
 }
