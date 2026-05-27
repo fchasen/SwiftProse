@@ -95,7 +95,8 @@ public struct SwiftProseEditor: View {
                 minHeight: configuration.minHeight,
                 contextMenuItems: macContextMenuItems(),
                 spellChecking: configuration.spellChecking,
-                isEditable: configuration.isEditable
+                isEditable: configuration.isEditable,
+                onSubmit: configuration.onSubmit
             )
             .modifier(SizingFrame(sizing: configuration.sizing))
             #else
@@ -106,7 +107,8 @@ public struct SwiftProseEditor: View {
                 minHeight: configuration.minHeight,
                 editMenuBuilder: makeIOSEditMenuBuilder(controller: controller),
                 spellChecking: configuration.spellChecking,
-                isEditable: configuration.isEditable
+                isEditable: configuration.isEditable,
+                onSubmit: configuration.onSubmit
             )
             .modifier(SizingFrame(sizing: configuration.sizing))
             #endif

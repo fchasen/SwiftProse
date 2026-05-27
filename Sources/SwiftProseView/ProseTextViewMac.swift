@@ -12,6 +12,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
     public let contextMenuItems: [ProseContextMenuItem]
     public let spellChecking: ProseSpellChecking
     public let isEditable: Bool
+    public let onSubmit: (() -> Void)?
 
     public init(
         controller: EditorController,
@@ -20,7 +21,8 @@ public struct ProseTextViewMac: NSViewRepresentable {
         minHeight: CGFloat = 96,
         contextMenuItems: [ProseContextMenuItem] = [],
         spellChecking: ProseSpellChecking = .full,
-        isEditable: Bool = true
+        isEditable: Bool = true,
+        onSubmit: (() -> Void)? = nil
     ) {
         self.controller = controller
         self._text = text
@@ -29,6 +31,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
         self.contextMenuItems = contextMenuItems
         self.spellChecking = spellChecking
         self.isEditable = isEditable
+        self.onSubmit = onSubmit
     }
 
     public func makeNSView(context: Context) -> NSView {
@@ -57,6 +60,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
         context.coordinator.textView = textView
         controller.hostTextView = textView
         textView.proseController = controller
+        textView.onSubmit = onSubmit
 
         let press = NSPressGestureRecognizer(
             target: context.coordinator,
@@ -108,6 +112,7 @@ public struct ProseTextViewMac: NSViewRepresentable {
         }
         if let mtv = textView as? ProseNSTextView {
             mtv.updateCodeBlockBgLayerFill()
+            mtv.onSubmit = onSubmit
         }
         if textView.isEditable != isEditable {
             textView.isEditable = isEditable
@@ -402,6 +407,8 @@ final class ProseNSTextView: NSTextView {
     /// so SwiftUI can tear down the text view without leaking the controller.
     weak var proseController: EditorController?
 
+    var onSubmit: (() -> Void)?
+
     /// Set true around the body of `paste(_:)` / `pasteAsPlainText(_:)` so
     /// the dictation heuristic in `shouldChangeTextIn` knows to keep its
     /// hands off — paste runs through the pipeline directly and doesn't
@@ -558,6 +565,18 @@ final class ProseNSTextView: NSTextView {
            let action = shortcutAction(forCommandKey: chars,
                                        shift: event.modifierFlags.contains(.shift)) {
             proseController?.perform(action)
+            return
+        }
+        if let onSubmit,
+           (event.keyCode == 36 || event.keyCode == 76),
+           !event.modifierFlags.contains(.command),
+           !event.modifierFlags.contains(.control),
+           !event.modifierFlags.contains(.option) {
+            if event.modifierFlags.contains(.shift) {
+                doCommand(by: #selector(NSResponder.insertNewline(_:)))
+            } else {
+                onSubmit()
+            }
             return
         }
         super.keyDown(with: event)

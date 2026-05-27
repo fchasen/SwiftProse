@@ -74,6 +74,9 @@ extension SwiftProseEditor {
         /// `isEditable == true` (checkboxes already toggle). Defaults to
         /// `false`.
         public var allowsCheckboxToggle: Bool
+        /// When set, plain Return fires this callback; Shift+Return still
+        /// inserts a newline. The chat-style "Enter to send" idiom.
+        public var onSubmit: (() -> Void)?
 
         public init(
             toolbar: [ToolbarItem] = Configuration.defaultToolbar,
@@ -83,7 +86,8 @@ extension SwiftProseEditor {
             minHeight: CGFloat = 96,
             spellChecking: ProseSpellChecking = .full,
             isEditable: Bool = true,
-            allowsCheckboxToggle: Bool = false
+            allowsCheckboxToggle: Bool = false,
+            onSubmit: (() -> Void)? = nil
         ) {
             self.toolbar = toolbar
             self.statusItems = statusItems
@@ -93,6 +97,7 @@ extension SwiftProseEditor {
             self.spellChecking = spellChecking
             self.isEditable = isEditable
             self.allowsCheckboxToggle = allowsCheckboxToggle
+            self.onSubmit = onSubmit
         }
 
         public static let defaultToolbar: [ToolbarItem] = [

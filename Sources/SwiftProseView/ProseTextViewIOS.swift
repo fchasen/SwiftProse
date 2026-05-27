@@ -14,6 +14,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
     public let editMenuBuilder: EditMenuBuilder?
     public let spellChecking: ProseSpellChecking
     public let isEditable: Bool
+    public let onSubmit: (() -> Void)?
 
     public init(
         controller: EditorController,
@@ -22,7 +23,8 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         minHeight: CGFloat = 96,
         editMenuBuilder: EditMenuBuilder? = nil,
         spellChecking: ProseSpellChecking = .full,
-        isEditable: Bool = true
+        isEditable: Bool = true,
+        onSubmit: (() -> Void)? = nil
     ) {
         self.controller = controller
         self._text = text
@@ -31,6 +33,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         self.editMenuBuilder = editMenuBuilder
         self.spellChecking = spellChecking
         self.isEditable = isEditable
+        self.onSubmit = onSubmit
     }
 
     public func makeUIView(context: Context) -> UITextView {
@@ -261,6 +264,10 @@ public struct ProseTextViewIOS: UIViewRepresentable {
                 }
             }
             if text == "\n" {
+                if let onSubmit = parent.onSubmit {
+                    onSubmit()
+                    return false
+                }
                 if parent.controller.handleNewline() {
                     pushTextNow()
                     return false
