@@ -141,7 +141,13 @@ public final class EditorController {
     /// `setMarkdown(_:)`, `insert(text:)`, …) stay available so hosts can
     /// still drive content. Kept in sync by the SwiftUI surface from
     /// `Configuration.isEditable`; direct callers set it themselves.
-    public var isEditable: Bool = true
+    public var isEditable: Bool = true {
+        didSet {
+            guard oldValue != isEditable else { return }
+            TableAttachmentViewProvider.sharedIsEditable = isEditable
+            propagateIsEditableToTables()
+        }
+    }
     /// Escape hatch for `toggleCheckbox(at:)` while `isEditable == false`.
     /// Lets read-only documents keep interactive task-list checkboxes.
     /// No effect when `isEditable == true`.
@@ -1907,6 +1913,19 @@ public final class EditorController {
     /// host text view directly — without that, the line fragment
     /// hosting the table keeps its old height and the scroll view's
     /// content size never widens to fit the taller table.
+    private func propagateIsEditableToTables() {
+        guard textStorage.length > 0 else { return }
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        textStorage.enumerateAttribute(
+            NSAttributedString.Key("NSAttachment"),
+            in: fullRange
+        ) { value, _, _ in
+            guard let att = value as? ProseNodeAttachment,
+                  let view = att.boundView else { return }
+            view.isEditable = self.isEditable
+        }
+    }
+
     func invalidateTableAttachmentLayout(_ attachment: ProseNodeAttachment) {
         guard textStorage.length > 0 else { return }
         let fullRange = NSRange(location: 0, length: textStorage.length)

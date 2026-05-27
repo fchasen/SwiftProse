@@ -20,6 +20,12 @@ public final class TableBlockView: PlatformView {
     public var dispatch: ((Transaction) -> Void)? {
         didSet { updateCellEditable() }
     }
+    /// Mirror of `EditorController.isEditable`. Combined with `dispatch`
+    /// to drive per-cell editability — read-only controllers keep tables
+    /// inert even though `sharedDispatch` is wired up.
+    public var isEditable: Bool = true {
+        didSet { updateCellEditable() }
+    }
 
     /// `(row, column)` of the cell whose text view is currently first
     /// responder. `nil` when focus is outside the table. Updated by
@@ -530,7 +536,7 @@ public final class TableBlockView: PlatformView {
     }
 
     private func updateCellEditable() {
-        let editable = dispatch != nil
+        let editable = isEditable && dispatch != nil
         for row in cellViews { for cell in row { cell.setEditable(editable) } }
     }
 

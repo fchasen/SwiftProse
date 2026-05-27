@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import SwiftProseSyntax
+import SwiftProseRendering
 @testable import SwiftProseView
 
 @Suite(.serialized) struct ReadOnlyModeTests {
@@ -58,5 +59,31 @@ import SwiftProseSyntax
         controller.isEditable = true
         controller.perform(.heading(level: 1))
         #expect(controller.markdown() == "# hi\n")
+    }
+
+    @Test func tableBlockViewMatchesControllerIsEditable() throws {
+        let md = "| h |\n| --- |\n| a |\n"
+        let controller = try EditorController(initialMarkdown: md)
+        var att: ProseNodeAttachment?
+        controller.textStorage.enumerateNodePaths { runRange, path in
+            guard att == nil, path.leaf?.type == "table" else { return }
+            let raw = controller.textStorage.attribute(
+                NSAttributedString.Key("NSAttachment"),
+                at: runRange.location,
+                effectiveRange: nil
+            )
+            att = raw as? ProseNodeAttachment
+        }
+        let attachment = try #require(att)
+        let view = TableBlockView(subtree: attachment.subtree, theme: controller.theme)
+        attachment.boundView = view
+        view.dispatch = { tx in _ = controller.apply(tx) }
+        #expect(view.isEditable == true)
+        controller.isEditable = false
+        #expect(view.isEditable == false)
+        #expect(TableAttachmentViewProvider.sharedIsEditable == false)
+        controller.isEditable = true
+        #expect(view.isEditable == true)
+        #expect(TableAttachmentViewProvider.sharedIsEditable == true)
     }
 }

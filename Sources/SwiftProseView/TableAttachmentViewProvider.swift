@@ -262,6 +262,11 @@ public final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
     /// to the active controller.
     public static var sharedDispatch: ((Transaction) -> Void)? = nil
 
+    /// Mirror of `EditorController.isEditable`. Newly realized
+    /// `TableBlockView`s read this so they match the active controller's
+    /// editability without needing a callback from the controller.
+    public static var sharedIsEditable: Bool = true
+
     /// Closure invoked when a `TableBlockView`'s reported intrinsic size
     /// changes after a cell or structural mutation. The controller hooks
     /// this to call `layoutManager.invalidateLayout(for:)` for the
@@ -309,6 +314,7 @@ public final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
         // is built for). Outer container is bounded by the line
         // fragment width.
         blockView.frame = CGRect(origin: .zero, size: initialInner)
+        blockView.isEditable = TableAttachmentViewProvider.sharedIsEditable
         blockView.dispatch = TableAttachmentViewProvider.sharedDispatch
 
         let container = TableScrollContainer(tableBlockView: blockView)
