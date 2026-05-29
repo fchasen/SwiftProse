@@ -17,10 +17,7 @@ enum Clipboard {
 
     static func read() -> Contents {
         #if canImport(AppKit) && os(macOS)
-        let pb = NSPasteboard.general
-        let text = pb.string(forType: .string)
-        let html = pb.string(forType: .html)
-        return Contents(text: text, html: html)
+        return read(from: .general)
         #elseif canImport(UIKit)
         let pb = UIPasteboard.general
         var text: String? = pb.string
@@ -34,6 +31,42 @@ enum Clipboard {
         return Contents(text: nil, html: nil)
         #endif
     }
+
+    #if canImport(AppKit) && os(macOS)
+    static func read(from pasteboard: NSPasteboard) -> Contents {
+        let text = pasteboard.string(forType: .string)
+            ?? attributedString(from: pasteboard)?.string
+        let html = pasteboard.string(forType: .html)
+            ?? pasteboard.data(forType: .html).flatMap(decodeHTML)
+        return Contents(text: text, html: html)
+    }
+
+    private static func attributedString(from pasteboard: NSPasteboard) -> NSAttributedString? {
+        if let objects = pasteboard.readObjects(forClasses: [NSAttributedString.self], options: nil),
+           let attributed = objects.first as? NSAttributedString {
+            return attributed
+        }
+        if let data = pasteboard.data(forType: .rtf),
+           let attributed = NSAttributedString(rtf: data, documentAttributes: nil) {
+            return attributed
+        }
+        if let data = pasteboard.data(forType: .rtfd),
+           let attributed = NSAttributedString(rtfd: data, documentAttributes: nil) {
+            return attributed
+        }
+        if let data = pasteboard.data(forType: .html),
+           let attributed = NSAttributedString(html: data, documentAttributes: nil) {
+            return attributed
+        }
+        return nil
+    }
+
+    private static func decodeHTML(_ data: Data) -> String? {
+        String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .utf16)
+            ?? String(data: data, encoding: .isoLatin1)
+    }
+    #endif
 
     /// Replace the system pasteboard with the supplied `text` and (when
     /// present) `html`. macOS clears + writes the general pasteboard; iOS

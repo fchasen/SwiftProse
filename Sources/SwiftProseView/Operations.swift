@@ -16,10 +16,15 @@ public enum Operations {
     public static func insertText(
         in storage: NSTextStorage,
         replacing range: NSRange,
-        with text: String
+        with text: String,
+        fallbackAttributes: [NSAttributedString.Key: Any] = [:]
     ) -> NSRange {
         let safe = range.clamped(to: storage.length)
-        let attrs = inheritedAttributes(in: storage, at: safe.location)
+        let attrs = inheritedAttributes(
+            in: storage,
+            at: safe.location,
+            fallbackAttributes: fallbackAttributes
+        )
         let attributed = NSAttributedString(string: text, attributes: attrs)
         storage.beginEditing()
         storage.replaceCharacters(in: safe, with: attributed)
@@ -39,7 +44,11 @@ public enum Operations {
         theme: ProseTheme
     ) -> NSRange {
         let safe = range.clamped(to: storage.length)
-        var attrs = inheritedAttributes(in: storage, at: safe.location)
+        var attrs = inheritedAttributes(
+            in: storage,
+            at: safe.location,
+            fallbackAttributes: theme.plainParagraphAttributes()
+        )
         attrs[.link] = url
         attrs[.proseLink] = url
         attrs[.foregroundColor] = theme.linkColor
@@ -605,11 +614,12 @@ public enum Operations {
     /// minimal paragraph style.
     private static func inheritedAttributes(
         in storage: NSTextStorage,
-        at location: Int
+        at location: Int,
+        fallbackAttributes: [NSAttributedString.Key: Any]
     ) -> [NSAttributedString.Key: Any] {
         let safe = max(0, min(location, storage.length))
         if storage.length == 0 {
-            return [:]
+            return fallbackAttributes
         }
         let probe = (safe >= storage.length) ? storage.length - 1 : safe
         let raw = storage.attributes(at: probe, effectiveRange: nil)

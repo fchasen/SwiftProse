@@ -674,7 +674,12 @@ public final class EditorController {
         let selection = currentSelection
         var result = NSRange(location: 0, length: 0)
         withCharacterMutation(range: selection) {
-            result = Operations.insertText(in: textStorage, replacing: selection, with: text)
+            result = Operations.insertText(
+                in: textStorage,
+                replacing: selection,
+                with: text,
+                fallbackAttributes: theme.plainParagraphAttributes()
+            )
         }
         setHostSelection(result)
         return result
@@ -790,7 +795,8 @@ public final class EditorController {
             result = Operations.insertText(
                 in: textStorage,
                 replacing: event.selection,
-                with: toInsert
+                with: toInsert,
+                fallbackAttributes: theme.plainParagraphAttributes()
             )
         }
         setHostSelection(result)

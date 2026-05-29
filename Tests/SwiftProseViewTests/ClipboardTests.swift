@@ -66,6 +66,27 @@ import UIKit
         #expect(controller.markdown() == "hi there\n")
     }
 
+    @Test func defaultBranchThemesPlainPasteIntoEmptyStorage() throws {
+        let theme = ProseTheme.default
+        let controller = try EditorController(initialMarkdown: "", theme: theme)
+        controller.testSelection = NSRange(location: 0, length: 0)
+        let event = PasteEvent(
+            text: "Bug 2043020 - header",
+            selection: NSRange(location: 0, length: 0)
+        )
+        #expect(controller.dispatchPaste(event) == true)
+        let attrs = controller.textStorage.attributes(at: 0, effectiveRange: nil)
+        #if canImport(AppKit) && os(macOS)
+        let font = try #require(attrs[.font] as? NSFont)
+        #else
+        let font = try #require(attrs[.font] as? UIFont)
+        #endif
+        #expect(abs(font.pointSize - theme.bodyFont.pointSize) < 0.1)
+        #expect(attrs[.foregroundColor] != nil)
+        #expect(attrs[.paragraphStyle] != nil)
+        #expect(attrs[.proseNodePath] is NodePathBox)
+    }
+
     @Test func multiBlockSplitOnBlankLineRuns() throws {
         let controller = try EditorController(initialMarkdown: "start", theme: .default)
         controller.testSelection = NSRange(location: 5, length: 0)
@@ -215,6 +236,30 @@ import UIKit
 }
 
 #if canImport(AppKit) && os(macOS)
+@MainActor
+@Suite(.serialized) struct MacClipboardPasteboardTests {
+
+    @Test func rtfOnlyTextKitPayloadFallsBackToPlainText() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        pasteboard.clearContents()
+        let attributed = NSAttributedString(
+            string: "Bug 2043020 - header",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 8),
+                .foregroundColor: NSColor.black
+            ]
+        )
+        let data = try #require(attributed.rtf(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [:]
+        ))
+        pasteboard.setData(data, forType: .rtf)
+
+        let contents = Clipboard.read(from: pasteboard)
+        #expect(contents.text == "Bug 2043020 - header")
+    }
+}
+
 @MainActor
 @Suite(.serialized) struct MacDictationHeuristicTests {
 

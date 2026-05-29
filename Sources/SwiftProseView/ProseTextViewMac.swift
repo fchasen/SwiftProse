@@ -422,6 +422,19 @@ final class ProseNSTextView: NSTextView {
         }
     }
 
+    override func readSelection(
+        from pboard: NSPasteboard,
+        type: NSPasteboard.PasteboardType
+    ) -> Bool {
+        if dispatchPaste(from: pboard, plainText: false) { return true }
+        return super.readSelection(from: pboard, type: type)
+    }
+
+    override func readSelection(from pboard: NSPasteboard) -> Bool {
+        if dispatchPaste(from: pboard, plainText: false) { return true }
+        return super.readSelection(from: pboard)
+    }
+
     override func copy(_ sender: Any?) {
         guard writeSelectionToPasteboard() else {
             super.copy(sender)
@@ -466,8 +479,13 @@ final class ProseNSTextView: NSTextView {
 
     @discardableResult
     private func dispatchPaste(plainText: Bool) -> Bool {
+        dispatchPaste(from: .general, plainText: plainText)
+    }
+
+    @discardableResult
+    private func dispatchPaste(from pasteboard: NSPasteboard, plainText: Bool) -> Bool {
         guard let controller = proseController, controller.isEditable else { return false }
-        let contents = Clipboard.read()
+        let contents = Clipboard.read(from: pasteboard)
         guard contents.text != nil || contents.html != nil else { return false }
         let selection = selectedRange()
         isPasting = true
