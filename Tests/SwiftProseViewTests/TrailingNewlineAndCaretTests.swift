@@ -72,3 +72,38 @@ struct TrailingNewlineAndCaretTests {
     }
     #endif
 }
+
+/// Regressions for audit findings: blank-line normalization between blocks,
+/// the `.all` selection resolution, and the trailing landing paragraph.
+@Suite("Serializer & selection fixes")
+struct SerializerAndSelectionFixTests {
+
+    // Fix 1: blocks are separated by exactly one blank line — never three+
+    // consecutive newlines.
+    @Test
+    func blocksAreSeparatedBySingleBlankLine() throws {
+        let controller = try EditorController(initialMarkdown: "# H\n\npara\n\n> quote\n")
+        let md = controller.markdown()
+        #expect(!md.contains("\n\n\n"))
+    }
+
+    // Fix 2: `.all` resolves to the whole document; the length-agnostic
+    // property still reports empty, and other cases pass through.
+    @Test
+    func allSelectionResolvesToFullDocument() {
+        #expect(Selection.all.resolvedRange(documentLength: 10) == NSRange(location: 0, length: 10))
+        #expect(Selection.all.selectedRange == NSRange(location: 0, length: 0))
+        #expect(Selection.cursor(at: 3).resolvedRange(documentLength: 10) == NSRange(location: 3, length: 0))
+        #expect(Selection.textRange(NSRange(location: 2, length: 4)).resolvedRange(documentLength: 10)
+                == NSRange(location: 2, length: 4))
+    }
+
+    // Fix 3: a doc ending in an atomic block keeps a plain trailing paragraph
+    // as a landing spot (the invariant the per-keystroke guard must preserve).
+    @Test
+    func atomicTerminatedDocKeepsTrailingLandingParagraph() throws {
+        let controller = try EditorController(initialMarkdown: "```\ncode\n```\n")
+        let last = controller.textStorage.length - 1
+        #expect(controller.textStorage.blockSpec(at: last)?.isCodeBlock == false)
+    }
+}

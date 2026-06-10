@@ -81,7 +81,7 @@ public struct MarkdownTreeSerializer {
         mutating func emitBlankLineBetweenBlocks() {
             if blocksAtThisLevel == 0 { return }
             // Ensure exactly one blank line between blocks (two "\n").
-            while output.hasSuffix("\n\n") { break }
+            while output.hasSuffix("\n\n") { output.removeLast() }
             if !output.hasSuffix("\n") { output.append("\n") }
             output.append("\n")
         }

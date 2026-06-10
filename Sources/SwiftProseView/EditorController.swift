@@ -348,7 +348,10 @@ public final class EditorController {
             guard !self.applyingMarkdown else { return }
             if self.textStorage.editedMask.contains(.editedCharacters) {
                 let changeInLength = self.textStorage.changeInLength
-                self.accumulateHighlightRange(self.textStorage.editedRange)
+                // Capture the user's edit before the attribute repairs below
+                // overwrite `editedRange` with their own (length-preserving) edits.
+                let userEditedRange = self.textStorage.editedRange
+                self.accumulateHighlightRange(userEditedRange)
                 self.scrubTypedAttributes()
                 self.repairEditedLine()
                 self.demoteEmptyStyledLines()
@@ -362,7 +365,13 @@ public final class EditorController {
                 } else {
                     self.resegment()
                 }
-                self.ensureTrailingParagraph()
+                // Reconcile the trailing paragraph only when the edit reached
+                // the document end. A mid-document keystroke can't change which
+                // block is last, so this avoids a per-keystroke storage mutation
+                // (and caret nudge) at the tail for the common typing case.
+                if userEditedRange.location + userEditedRange.length >= self.textStorage.length {
+                    self.ensureTrailingParagraph()
+                }
                 self.intrinsicSizeInvalidator?()
                 // The typed character already received our storedMarks via
                 // typingAttributes; further typing should inherit naturally
@@ -969,7 +978,7 @@ public final class EditorController {
         // a block terminator.
         let resultRange: NSRange
         if let sel = transaction.selection {
-            resultRange = sel.selectedRange
+            resultRange = sel.resolvedRange(documentLength: textStorage.length)
         } else {
             let end = lastRange.location + lastRange.length
             let cursor: Int

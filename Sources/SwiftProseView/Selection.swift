@@ -20,14 +20,26 @@ public enum Selection: Equatable, Sendable {
     case all
 
     /// The character range covered by this selection. For `node`, the
-    /// range that backs the node in storage. For `all`, an inclusive
-    /// range from 0 to `documentLength` — callers needing the length
-    /// should pass it in via the controller helper.
+    /// range that backs the node in storage. `all` can't know the document
+    /// length here, so it reports an empty range — use
+    /// `resolvedRange(documentLength:)` when the selection may be `all`.
     public var selectedRange: NSRange {
         switch self {
         case .text(let range, _, _): return range
         case .node(_, let range): return range
-        case .all: return NSRange(location: 0, length: 0) // sentinel — controller fills in
+        case .all: return NSRange(location: 0, length: 0)
+        }
+    }
+
+    /// Resolve to a concrete character range against a document of
+    /// `documentLength`. `all` spans the whole document; `text` / `node`
+    /// return their stored range. Prefer this over `selectedRange` when the
+    /// selection may be `all`.
+    public func resolvedRange(documentLength: Int) -> NSRange {
+        switch self {
+        case .text(let range, _, _): return range
+        case .node(_, let range): return range
+        case .all: return NSRange(location: 0, length: documentLength)
         }
     }
 
