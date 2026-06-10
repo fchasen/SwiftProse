@@ -47,6 +47,6 @@ import UIKit
             let depth = storage.blockSpec(at: i)?.blockquoteDepth ?? 0
             #expect(depth > 0, "char at \(i) should have blockquote depth, got \(depth)")
         }
-        #expect(controller.markdown() == "> fred\n")
+        #expect(controller.markdown() == "> fred")
     }
 }

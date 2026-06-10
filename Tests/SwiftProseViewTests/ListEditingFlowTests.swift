@@ -56,7 +56,7 @@ import UIKit
         let consumed = controller.handleNewline()
         dump(controller, label: "step 3 - after Return")
         #expect(consumed, "Return should be consumed by handleNewline")
-        #expect(controller.markdown() == "- one\n- \n", "should have two list items in markdown")
+        #expect(controller.markdown() == "- one\n- ", "should have two list items in markdown")
 
         let storage = controller.textStorage
         // Expect two FFFC characters in storage.
@@ -79,7 +79,7 @@ import UIKit
         controller.testSelection = NSRange(location: controller.textStorage.length - 1, length: 0)
         #expect(controller.handleNewline()) // exits list
         dump(controller, label: "after double-Return")
-        #expect(controller.markdown() == "- one\n", "second Return should exit list")
+        #expect(controller.markdown() == "- one", "second Return should exit list")
     }
 
     @Test func tabIndentsListItem() throws {
@@ -97,7 +97,7 @@ import UIKit
         controller.perform(.indent)
         dump(controller, label: "after Tab on second item")
         // The second item should now be nested.
-        #expect(controller.markdown() == "- one\n  - two\n", "second item should be indented in markdown")
+        #expect(controller.markdown() == "- one\n  - two", "second item should be indented in markdown")
         // The bullet for the nested item should be a different shape.
         let nestedSpec = controller.textStorage.blockSpec(at: ns.length - 3)
         #expect(nestedSpec?.listLevel == 1, "nested item should be list level 1")
@@ -137,7 +137,7 @@ import UIKit
         controller.testSelection = NSRange(location: 0, length: 0)
         controller.insert(text: "hello")
         #expect(controller.textStorage.string == "hello")
-        #expect(controller.markdown() == "hello\n")
+        #expect(controller.markdown() == "hello")
     }
 
     @Test func deleteAllTextFromList() throws {
@@ -174,6 +174,6 @@ import UIKit
         let demoted = controller.handleBackspace()
         dump(controller, label: "after Backspace at marker-end")
         #expect(demoted, "backspace should demote")
-        #expect(controller.markdown() == "apple\n", "list should be demoted to plain")
+        #expect(controller.markdown() == "apple", "list should be demoted to plain")
     }
 }

@@ -103,7 +103,7 @@ import UIKit
         } else {
             Issue.record("expected fenced code spec, got \(String(describing: spec?.kind))")
         }
-        #expect(controller.markdown() == "```\n\n```\n",
+        #expect(controller.markdown() == "```\n\n```",
                 "expected canonical empty fence, got \(String(reflecting: controller.markdown()))")
     }
 
@@ -113,7 +113,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "hello\n")
         controller.testSelection = NSRange(location: 0, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "hello\n\n```\n\n```\n",
+        #expect(controller.markdown() == "hello\n\n```\n\n```",
                 "got \(String(reflecting: controller.markdown()))")
         let firstSpec = controller.textStorage.blockSpec(at: 0)
         #expect(firstSpec?.kind == .paragraph,
@@ -124,7 +124,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "hello\n")
         controller.testSelection = NSRange(location: 6, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "hello\n\n```\n\n```\n")
+        #expect(controller.markdown() == "hello\n\n```\n\n```")
     }
 
     // MARK: - code block: cursor-position consistency
@@ -136,7 +136,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "hello\n")
         controller.testSelection = NSRange(location: cursor, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "hello\n\n```\n\n```\n",
+        #expect(controller.markdown() == "hello\n\n```\n\n```",
                 "cursor=\(cursor) produced \(String(reflecting: controller.markdown()))")
     }
 
@@ -146,7 +146,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "first\n\nsecond\n\nthird\n")
         controller.testSelection = NSRange(location: 9, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "first\n\nsecond\n\n```\n\n```\n\nthird\n",
+        #expect(controller.markdown() == "first\n\nsecond\n\n```\n\n```\n\nthird",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
@@ -156,7 +156,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "first\n\nsecond")
         controller.testSelection = NSRange(location: 10, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "first\n\nsecond\n\n```\n\n```\n",
+        #expect(controller.markdown() == "first\n\nsecond\n\n```\n\n```",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
@@ -166,7 +166,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "alpha\n\nbeta\n")
         controller.testSelection = NSRange(location: 5, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "alpha\n\n```\n\n```\n\nbeta\n",
+        #expect(controller.markdown() == "alpha\n\n```\n\n```\n\nbeta",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
@@ -175,7 +175,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "alpha\n\nbeta\n")
         controller.testSelection = NSRange(location: 7, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "alpha\n\nbeta\n\n```\n\n```\n",
+        #expect(controller.markdown() == "alpha\n\nbeta\n\n```\n\n```",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
@@ -186,7 +186,7 @@ import UIKit
         // location 6 = the second `\n` (the blank line)
         controller.testSelection = NSRange(location: 6, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "alpha\n\n```\n\n```\n\nbeta\n",
+        #expect(controller.markdown() == "alpha\n\n```\n\n```\n\nbeta",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
@@ -200,7 +200,7 @@ import UIKit
         _ = controller.perform(.codeBlock)
         let md = controller.markdown()
         #expect(md.contains("alpha\n"), "alpha must remain plain, got \(String(reflecting: md))")
-        #expect(md.contains("beta\n"), "beta must remain plain, got \(String(reflecting: md))")
+        #expect(md.contains("beta"), "beta must remain plain, got \(String(reflecting: md))")
         #expect(md.contains("```\n\n```"),
                 "expected empty fence inserted, got \(String(reflecting: md))")
         #expect(!md.contains("```\nalpha"),
@@ -228,7 +228,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "```\nhello\n```\n")
         controller.testSelection = NSRange(location: 5, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "hello\n",
+        #expect(controller.markdown() == "hello",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
@@ -239,7 +239,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "```\nhello world\n```\n")
         controller.testSelection = NSRange(location: 0, length: 0)
         _ = controller.perform(.codeBlock)
-        #expect(controller.markdown() == "hello world\n",
+        #expect(controller.markdown() == "hello world",
                 "got \(String(reflecting: controller.markdown()))")
     }
 
@@ -311,7 +311,7 @@ import UIKit
                     "cursor=\(cursor) unexpectedly wrapped \(word); got \(String(reflecting: md))")
         }
         // The empty fence lands immediately after the anchor paragraph.
-        let needle = "\(expected)\n\n```\n\n```\n"
+        let needle = "\(expected)\n\n```\n\n```"
         #expect(md.contains(needle),
                 "cursor=\(cursor) expected empty fence after \(expected); got \(String(reflecting: md))")
     }

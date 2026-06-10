@@ -165,10 +165,10 @@ import UIKit
         controller.apply(Transaction(steps: [
             .setSpec(lineRange: lineRange, BlockSpec(kind: .heading(level: 2)))
         ]))
-        #expect(controller.markdown() == "## alpha\n")
+        #expect(controller.markdown() == "## alpha")
         controller.undoManager.undo()
-        #expect(controller.markdown() == "alpha\n")
+        #expect(controller.markdown() == "alpha")
         controller.undoManager.redo()
-        #expect(controller.markdown() == "## alpha\n")
+        #expect(controller.markdown() == "## alpha")
     }
 }

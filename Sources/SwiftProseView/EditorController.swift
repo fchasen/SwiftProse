@@ -624,7 +624,12 @@ public final class EditorController {
     }
 
     public func markdown() -> String {
-        return serializer.serializeFromTree(textStorage)
+        let md = serializer.serializeFromTree(textStorage)
+        // Public document text matches prosemirror-markdown: blocks are
+        // separated by blank lines but the document carries no terminal
+        // newline. (The tree serializer newline-terminates each block; the
+        // boundary trims the final one.)
+        return md.hasSuffix("\n") ? String(md.dropLast()) : md
     }
 
     public func loadProseMirrorJSON(_ json: String, schemaMap: SchemaMap = .basic) throws {
@@ -2026,6 +2031,7 @@ public final class EditorController {
             precondition(Thread.isMainThread,
                          "replaceStorage must be called on the main thread when a host text view is attached")
         }
+        let priorSelection = currentSelection
         applyingMarkdown = true
         let total = NSRange(location: 0, length: textStorage.length)
         textStorage.beginEditing()
@@ -2034,6 +2040,11 @@ public final class EditorController {
         applyingMarkdown = false
         ensureTrailingParagraph()
         resegment()
+        // Replacing all characters resets the host text view's caret to the
+        // document end; restore the prior offset (clamped) so an external
+        // setMarkdown / recompile / theme change doesn't move the cursor.
+        setHostSelection(priorSelection)
+        refreshTypingAttributes(at: priorSelection.clamped(to: textStorage.length).location)
     }
 
     /// Append an empty paragraph after the last block when that block is

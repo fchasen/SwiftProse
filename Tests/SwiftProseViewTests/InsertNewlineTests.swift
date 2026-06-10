@@ -52,7 +52,7 @@ import UIKit
         // Empty list line drops back to a plain paragraph — markdown round-trip
         // collapses the trailing blank paragraph, so the saved source is just
         // the surviving list item.
-        #expect(controller.markdown() == "- one\n")
+        #expect(controller.markdown() == "- one")
         let lineLoc = controller.textStorage.length - 1
         let spec = controller.textStorage.blockSpec(at: lineLoc)
         #expect(spec?.isListItem == false || spec == nil)
@@ -64,7 +64,7 @@ import UIKit
         #expect(controller.handleNewline())
         controller.testSelection = NSRange(location: controller.textStorage.length - 1, length: 0)
         #expect(controller.handleNewline())
-        #expect(controller.markdown() == "- one\n")
+        #expect(controller.markdown() == "- one")
         let lineLoc = controller.textStorage.length - 1
         let spec = controller.textStorage.blockSpec(at: lineLoc)
         #expect(spec?.isListItem == false || spec == nil)

@@ -21,7 +21,7 @@ import UIKit
             label: "Promote to heading"
         )
         controller.apply(transaction)
-        #expect(controller.markdown() == "## draft text\n")
+        #expect(controller.markdown() == "## draft text")
     }
 
     @Test func inlineMarkStepWraps() throws {
@@ -30,7 +30,7 @@ import UIKit
         controller.apply(Transaction(steps: [
             .toggleInlineMark(range: range, .bold)
         ]))
-        #expect(controller.markdown() == "**hello** world\n")
+        #expect(controller.markdown() == "**hello** world")
     }
 
     @Test func embedderCanReadDiagnostics() throws {

@@ -38,27 +38,27 @@ import SwiftProseRendering
         controller.allowsCheckboxToggle = true
         let didToggle = controller.toggleCheckbox(at: 0)
         #expect(didToggle == true)
-        #expect(controller.markdown() == "- [x] task\n")
+        #expect(controller.markdown() == "- [x] task")
         // perform(_:) is still gated — toolbar / keymap mutations stay off.
         controller.perform(.bold)
-        #expect(controller.markdown() == "- [x] task\n")
+        #expect(controller.markdown() == "- [x] task")
     }
 
     @Test func programmaticApplyStillWorksWhenNotEditable() throws {
         let controller = try EditorController(initialMarkdown: "hello\n")
         controller.isEditable = false
         controller.setMarkdown("world\n")
-        #expect(controller.markdown() == "world\n")
+        #expect(controller.markdown() == "world")
     }
 
     @Test func reEnablingRestoresEditing() throws {
         let controller = try EditorController(initialMarkdown: "hi\n")
         controller.isEditable = false
         controller.perform(.heading(level: 1))
-        #expect(controller.markdown() == "hi\n")
+        #expect(controller.markdown() == "hi")
         controller.isEditable = true
         controller.perform(.heading(level: 1))
-        #expect(controller.markdown() == "# hi\n")
+        #expect(controller.markdown() == "# hi")
     }
 
     @Test func tableBlockViewMatchesControllerIsEditable() throws {

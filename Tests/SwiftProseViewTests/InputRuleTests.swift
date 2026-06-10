@@ -311,7 +311,7 @@ import UIKit
 
         let text = controller.textStorage.string
         let newlines = text.filter { $0 == "\n" }.count
-        #expect(markdown == "hello `\n")
+        #expect(markdown == "hello `")
         #expect(newlines == 1, "expected one newline after markdown round trip, got \(newlines) in \(String(reflecting: text))")
     }
 

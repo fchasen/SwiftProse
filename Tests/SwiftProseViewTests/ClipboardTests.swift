@@ -48,7 +48,7 @@ import UIKit
         let consumed = controller.dispatchPaste(event)
         #expect(consumed == true)
         // Default insertion was suppressed — storage is unchanged.
-        #expect(controller.markdown() == "hello\n")
+        #expect(controller.markdown() == "hello")
         #expect(plugin.lastSource == .paste)
         // transformPasted{,Text} should not run when handlePaste consumed.
         #expect(plugin.transformPastedTextSeen == nil)
@@ -63,7 +63,7 @@ import UIKit
             selection: NSRange(location: 2, length: 0)
         )
         #expect(controller.dispatchPaste(event) == true)
-        #expect(controller.markdown() == "hi there\n")
+        #expect(controller.markdown() == "hi there")
     }
 
     @Test func defaultBranchThemesPlainPasteIntoEmptyStorage() throws {
@@ -98,7 +98,7 @@ import UIKit
         // \n\n runs collapse to single \n in storage; the segmenter +
         // repair pass turns each \n into a paragraph boundary in the
         // markdown round-trip.
-        #expect(controller.markdown() == "start\n\nfirst\n\nsecond\n")
+        #expect(controller.markdown() == "start\n\nfirst\n\nsecond")
     }
 
     @Test func collapseBlankLineRunsCollapsesAllRunsToSingleNewline() throws {
@@ -121,7 +121,7 @@ import UIKit
             )
         )
         // Any run of 2+ blank lines lands as exactly one paragraph break.
-        #expect(controller.markdown() == "a\n\nb\n")
+        #expect(controller.markdown() == "a\n\nb")
     }
 
     @Test func plainTextRouteSkipsHtmlEvenWhenPresent() throws {
@@ -134,7 +134,7 @@ import UIKit
             selection: NSRange(location: 1, length: 0)
         )
         _ = controller.dispatchPaste(event)
-        #expect(controller.markdown() == "xy\n")
+        #expect(controller.markdown() == "xy")
     }
 
     @Test func transformPastedTextChainsBeforeInsert() throws {
@@ -152,7 +152,7 @@ import UIKit
         controller.register(plugin: UpperPlugin())
         let event = PasteEvent(text: "bc", selection: NSRange(location: 1, length: 0))
         _ = controller.dispatchPaste(event)
-        #expect(controller.markdown() == "aBC\n")
+        #expect(controller.markdown() == "aBC")
     }
 
     @Test func transformPastedRewritesEvent() throws {
@@ -172,7 +172,7 @@ import UIKit
         controller.register(plugin: RewritePlugin())
         let event = PasteEvent(text: "ignored", selection: NSRange(location: 0, length: 0))
         _ = controller.dispatchPaste(event)
-        #expect(controller.markdown() == "swapped\n")
+        #expect(controller.markdown() == "swapped")
     }
 
     @Test func dictationLandsAsOneUndoStep() throws {
@@ -185,11 +185,11 @@ import UIKit
             selection: NSRange(location: 2, length: 0)
         )
         _ = controller.dispatchPaste(event)
-        #expect(controller.markdown() == "hi hello\n\nworld\n")
+        #expect(controller.markdown() == "hi hello\n\nworld")
         #expect(controller.undoManager.canUndo)
         controller.undoManager.undo()
         // One undo step reverts the whole insertion.
-        #expect(controller.markdown() == "hi\n")
+        #expect(controller.markdown() == "hi")
     }
 
     @Test func emptyTextEventIsNoOp() throws {
@@ -197,7 +197,7 @@ import UIKit
         controller.testSelection = NSRange(location: 3, length: 0)
         let event = PasteEvent(text: "", selection: NSRange(location: 3, length: 0))
         #expect(controller.dispatchPaste(event) == false)
-        #expect(controller.markdown() == "abc\n")
+        #expect(controller.markdown() == "abc")
     }
 
     @Test func nilTextEventIsNoOp() throws {
@@ -205,7 +205,7 @@ import UIKit
         controller.testSelection = NSRange(location: 3, length: 0)
         let event = PasteEvent(text: nil, selection: NSRange(location: 3, length: 0))
         #expect(controller.dispatchPaste(event) == false)
-        #expect(controller.markdown() == "abc\n")
+        #expect(controller.markdown() == "abc")
     }
 
     @Test func readOnlyControllerSkipsDefaultInsertion() throws {
@@ -214,7 +214,7 @@ import UIKit
         controller.isEditable = false
         let event = PasteEvent(text: " more", selection: NSRange(location: 3, length: 0))
         #expect(controller.dispatchPaste(event) == false)
-        #expect(controller.markdown() == "abc\n")
+        #expect(controller.markdown() == "abc")
     }
 
     @Test func crlfNormalization() throws {
@@ -279,7 +279,7 @@ import UIKit
             replacementString: "hello\n\nworld"
         )
         #expect(should == false, "structured branch should swallow the default insert")
-        #expect(controller.markdown() == "hello\n\nworld\n")
+        #expect(controller.markdown() == "hello\n\nworld")
     }
 
     @Test func singleCharStaysOnDefaultPath() throws {

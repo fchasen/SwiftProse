@@ -97,7 +97,7 @@ private final class BindingObserver {
         // No debounced push for "user text" should have leaked through —
         // the coordinator cancelled it when applyExternalText took the
         // external path.
-        #expect(controller.markdown() == "external\n")
+        #expect(controller.markdown() == "external")
         #expect(observer.pushCount == 0,
                 "external set must not be overwritten by a debounced user-typing push; got \(observer.pushCount) pushes")
     }

@@ -20,11 +20,11 @@ import SwiftProseSyntax
         #expect(step.canApply(to: storage) == nil)
         #expect(step.isStructural)
         let applied = step.apply(to: storage, env: env(for: controller))
-        #expect(controller.markdown() == "helloX world\n")
+        #expect(controller.markdown() == "helloX world")
         // Inverse rebuilds the original storage.
         let priorStep = applied.inverse
         _ = priorStep.apply(to: storage, env: env(for: controller))
-        #expect(controller.markdown() == "hello world\n")
+        #expect(controller.markdown() == "hello world")
     }
 
     @Test func replaceRangeReplacesRangeContent() throws {
@@ -36,7 +36,7 @@ import SwiftProseSyntax
         )
         let step = Step.replaceRange(from: 4, to: 7, slice: slice)
         _ = step.apply(to: storage, env: env(for: controller))
-        #expect(controller.markdown() == "abc XYZ\n")
+        #expect(controller.markdown() == "abc XYZ")
     }
 
     @Test func replaceRangeInsertsClosedBlockSlice() throws {

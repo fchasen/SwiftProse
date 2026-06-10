@@ -22,7 +22,7 @@ import UIKit
         #expect(bodyStart > 0, "test setup: marker run not found")
         controller.testSelection = NSRange(location: bodyStart, length: 0)
         #expect(controller.handleBackspace())
-        #expect(controller.markdown() == "apple\n")
+        #expect(controller.markdown() == "apple")
         let spec = controller.textStorage.blockSpec(at: 0)
         #expect(spec?.isListItem == false || spec == nil)
     }
@@ -31,7 +31,7 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "- apple\n")
         controller.testSelection = NSRange(location: controller.textStorage.length - 2, length: 0)
         #expect(controller.handleBackspace() == false)
-        #expect(controller.markdown() == "- apple\n")
+        #expect(controller.markdown() == "- apple")
     }
 
     @Test func backspaceOnNonListReturnsFalse() throws {

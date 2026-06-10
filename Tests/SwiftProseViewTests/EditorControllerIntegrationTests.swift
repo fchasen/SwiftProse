@@ -161,7 +161,7 @@ import UIKit
         let cursor = controller.testSelection?.location ?? 0
         controller.testSelection = NSRange(location: cursor, length: 0)
         controller.insert(text: "after")
-        #expect(controller.markdown() == "```\nlet x = 1\n```\n\nafter\n")
+        #expect(controller.markdown() == "```\nlet x = 1\n```\n\nafter")
     }
 
     @Test func exitCodeBlockFromEmptyBlockReplacesWithParagraph() throws {
@@ -186,7 +186,7 @@ import UIKit
         #expect(lastSpec?.kind == .paragraph,
                 "expected trailing paragraph, got \(String(describing: lastSpec?.kind))")
         // The trailing paragraph is invisible to markdown serialization.
-        #expect(controller.markdown() == "```\nlet x = 1\n```\n")
+        #expect(controller.markdown() == "```\nlet x = 1\n```")
     }
 
     @Test func tappingPastCodeBlockLandsInTrailingParagraph() throws {
@@ -194,7 +194,7 @@ import UIKit
         let total = controller.textStorage.length
         controller.testSelection = NSRange(location: total, length: 0)
         controller.insert(text: "after")
-        #expect(controller.markdown() == "```\nlet x = 1\n```\n\nafter\n")
+        #expect(controller.markdown() == "```\nlet x = 1\n```\n\nafter")
     }
 
     @Test func loadingPlainParagraphDocDoesNotAddTrailing() throws {
@@ -221,7 +221,7 @@ import UIKit
         let handled = controller.handleBackspace()
         #expect(handled == true)
         // The empty fence is gone; round-tripped markdown drops it.
-        #expect(controller.markdown() == "hello\n")
+        #expect(controller.markdown() == "hello")
     }
 
     @Test func backspaceInNonEmptyCodeBlockKeepsBlock() throws {
@@ -239,7 +239,7 @@ import UIKit
         controller.testSelection = NSRange(location: bodyStart, length: 0)
         let handled = controller.handleForwardDelete()
         #expect(handled == true)
-        #expect(controller.markdown() == "hello\n")
+        #expect(controller.markdown() == "hello")
     }
 
     @Test func backspaceAfterToolbarInsertOnEmptyDocument() throws {
@@ -268,6 +268,6 @@ import UIKit
         let handled = controller.handleBackspace()
         #expect(handled == true,
                 "expected backspace to drop empty block, cursor=\(landed) storage=\(String(reflecting: controller.textStorage.string))")
-        #expect(controller.markdown() == "hello\n")
+        #expect(controller.markdown() == "hello")
     }
 }
