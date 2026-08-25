@@ -349,6 +349,20 @@ private func isCursorInListItem(controller: EditorController) -> Bool {
 final class ProseUITextView: UITextView {
     weak var proseController: EditorController?
 
+    /// Route undo to the controller's stack, which now holds a typed
+    /// inverse for every edit including typing.
+    ///
+    /// UIKit resolves `undoManager` through the responder chain for
+    /// Cmd-Z, the edit menu, shake, and three-finger swipe, so overriding
+    /// it here covers all four. **Needs a device pass**: if UIKit's own
+    /// typing-undo registration also goes through this getter rather than
+    /// an internal ivar, each keystroke lands twice and this must return
+    /// `nil` instead, with Cmd-Z / Shift-Cmd-Z moved into `keyCommands`
+    /// (see `handleUndo` / `handleRedo` below, which are already wired).
+    override var undoManager: UndoManager? {
+        proseController?.undoManager ?? super.undoManager
+    }
+
     /// Set true around the body of `paste(_:)` so any downstream
     /// `shouldChangeTextIn` dispatch doesn't double-process the same
     /// content. Mirrors the macOS flag for symmetry.
@@ -675,7 +689,27 @@ final class ProseUITextView: UITextView {
             modifierFlags: .command,
             action: #selector(handleCommandReturn(_:))
         ))
+        commands.append(UIKeyCommand(
+            input: "z",
+            modifierFlags: .command,
+            action: #selector(handleUndo(_:))
+        ))
+        commands.append(UIKeyCommand(
+            input: "z",
+            modifierFlags: [.command, .shift],
+            action: #selector(handleRedo(_:))
+        ))
         return commands
+    }
+
+    @objc private func handleUndo(_ sender: UIKeyCommand) {
+        guard let manager = proseController?.undoManager, manager.canUndo else { return }
+        manager.undo()
+    }
+
+    @objc private func handleRedo(_ sender: UIKeyCommand) {
+        guard let manager = proseController?.undoManager, manager.canRedo else { return }
+        manager.redo()
     }
 
     @objc private func handleShiftTab(_ sender: UIKeyCommand) {

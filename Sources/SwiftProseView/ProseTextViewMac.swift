@@ -43,7 +43,11 @@ public struct ProseTextViewMac: NSViewRepresentable {
         textView.isRichText = true
         textView.isEditable = isEditable
         textView.isSelectable = true
-        textView.allowsUndo = true
+        // The controller owns undo now: every edit — typing included —
+        // registers a typed inverse from `ProseTextStorage`'s capture hook.
+        // Leaving this on would have NSTextView register a second, text-
+        // snapshot entry for the same keystroke.
+        textView.allowsUndo = false
         controller.isEditable = isEditable
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -443,6 +447,14 @@ final class ProseNSTextView: NSTextView {
     /// `@objc` action methods read it to dispatch to `Operations`. Held weak
     /// so SwiftUI can tear down the text view without leaking the controller.
     weak var proseController: EditorController?
+
+    /// Menu `undo:` resolves through the responder chain's `undoManager`,
+    /// while `NSTextView`'s own registration consults the delegate's
+    /// `undoManager(for:)`. Override both so Cmd-Z and the Edit menu reach
+    /// the same stack the controller registers on.
+    override var undoManager: UndoManager? {
+        proseController?.undoManager ?? super.undoManager
+    }
 
     var onSubmit: (() -> Void)?
 

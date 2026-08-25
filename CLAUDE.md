@@ -40,6 +40,29 @@ SwiftProse  ← SwiftUI surface (`SwiftProseEditor`), env modifiers, toolbar, st
 
 `SwiftProse` `@_exported`s the lower three — downstream apps just `import SwiftProse`. When adding code, place it in the lowest layer that satisfies its imports; don't reach upward.
 
+### Input pipeline (envelopes)
+
+Platform edits do not reach the controller as notifications. `ProseTextStorage` (a `NSTextStorage` subclass) captures the pre-image of every mutation and tags it with an `EditOrigin` — `.platform`, `.transaction`, `.history`, `.normalize`, `.load` — pushed by `withOrigin(_:capturing:)` scopes around the controller's own writes (it replaced the single `applyingMarkdown` flag).
+
+```
+text view mutates storage
+  ↓  ProseTextStorage captures pre-image + EditOrigin
+processEditing → EditRecord (queued, flushed after the outermost mutation unwinds)
+  ↓  .platform only
+PendingEnvelope → drain (sync when headless, next tick when hosted)
+  ↓
+classify → EditClass (typing / deletion / correction / bulk / compositionInterim /
+            compositionCommit / dictationInterim / attributeOnly / history)
+  ↓
+normalize → publish DocumentChange → input rules (typing only) → append transactions
+```
+
+Records are flushed **after** the outermost mutation unwinds, never from inside `processEditing`: `NSTextStorage` folds mutations made during that pass into it rather than starting a new one, so an observer that edits from there gets no record of its own and leaks its captures into the next unrelated edit.
+
+The text-view delegates stamp an `EditHint` (from the **pre-edit** `selectedRange`) before returning `true`; the drain treats it as a starting point and storage as the truth. The macOS bulk-insert veto is gated on `affectedCharRange == selectedRange` so autocorrect isn't routed through the paste pipeline.
+
+`drainPendingEnvelopes()` runs at the head of every public read (`document`, `markdown()`, `blocks`, `sliceForRange`, `exportProseMirrorJSON`) and every mutating entry point, so the deferral is invisible.
+
 ### Live editing pipeline
 
 The editor is a single TextKit 2 stack (`NSTextStorage` + `NSTextContentStorage` + `NSTextLayoutManager`) — there is no separate model document. Markdown source is the canonical state; rich attributes are recomputed on top, and a typed `ProseDocument` tree is reverse-projected from storage on demand (cached on `EditorController.document`, invalidated by every storage edit).
@@ -128,7 +151,15 @@ After every transaction, `EditorController.validateAndRepair(in:)` runs:
 
 ### History
 
-`SwiftProseView/HistoryConfig.swift`. `EditorController.historyConfig: HistoryConfig` exposes `depth` (forwarded to `undoManager.levelsOfUndo`) and `newGroupDelay`. `controller.closeHistoryGroup()` opens a fresh undo group; transactions tagged `meta["closeHistory"] == true` do the same on apply. `controller.undoDepth` / `redoDepth` / `isHistoryTransaction(_:)` are read-only accessors.
+One path for everything. Every edit — a keystroke, a command, a paste, a table-cell change — registers a `HistoryRecord` (`SwiftProseView/HistoryRecord.swift`) holding **typed inverse `Step`s**, newest first, replayed with `Transaction.apply(..., sequential: true)`. Sequential means *unmapped*: each inverse is already expressed in the state its forward step produced, so mapping it again would double-count.
+
+- **Where inverses come from.** Platform edits: `ProseTextStorage`'s capture hook snapshots the pre-image of every mutation, which *is* the inverse (attributes and `NodePathBox` references included). Transactions: `AppliedTransaction.inverse`. Direct mutators (`withCharacterMutation` / `withAttributeMutation`): the pre-image of their range.
+- **Coalescing** reads `historyConfig.newGroupDelay` for real. A `.typing` / `.deletion` / `.correction` envelope joins the open burst iff it lands within the delay **and** abuts a range the burst already touched. Everything else opens its own unit. `closeHistoryGroup()` and every command entry point close the burst.
+- **`undoManager.groupsByEvent` is off** — the controller does its own grouping, one `HistoryRecord` per group. Left on, a typed character and the input rule it triggered would collapse into one undo.
+- **History replay sets `StepEnvironment.isHistoryReplay`**, which turns off `applyReplaceText`'s node re-stamping (it would discard the identity the pre-image carries) and turns on `Step.unifyLineNodePaths` (a restored run whose neighbours were re-stamped meanwhile would otherwise split one line into two blocks).
+- Platform undo routing: macOS sets `allowsUndo = false` and overrides `ProseNSTextView.undoManager`; iOS overrides `ProseUITextView.undoManager` and adds Cmd-Z / Shift-Cmd-Z key commands.
+
+`controller.undoDepth` / `redoDepth` / `isHistoryTransaction(_:)` are read-only accessors.
 
 `EditorController.undoInputRule()` runs at the head of the Backspace chain — when the most recently fired input rule is still on the cursor, Backspace undoes the rule rather than deleting a character. `inputRules.lastFiredRule` is set by `InputRuleRunner.evaluate` after a successful match.
 

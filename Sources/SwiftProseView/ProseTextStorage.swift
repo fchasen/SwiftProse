@@ -133,13 +133,25 @@ public final class ProseTextStorage: NSTextStorage {
     private var pendingContext: CaptureContext?
     private var inProcessEditing = 0
 
+    /// Nesting depth of `beginEditing` / `endEditing`.
+    private var editingDepth = 0
+    /// Records built by `processEditing` and waiting to be handed to
+    /// `editObserver` once it is safe to mutate again.
+    private var queuedRecords: [EditRecord] = []
+    private var isFlushing = false
+
     /// Asked for the platform state at the first capture of a group:
     /// the pre-edit selection, whether the input system has marked text,
     /// and the delegate's hint. Consumed here rather than at drain because
     /// a drag-move produces two captures before anything drains.
     var captureContextProvider: (() -> CaptureContext)?
 
-    /// Called once per `processEditing`, after `super.processEditing()`.
+    /// Called once per edit group, after the outermost mutation has fully
+    /// unwound. Deliberately *not* called from inside `processEditing`:
+    /// `NSTextStorage` folds mutations made during that pass into it
+    /// instead of starting a new one, so an observer that edits from there
+    /// would get no record of its own and would leak its captures into the
+    /// next unrelated edit.
     var editObserver: ((EditRecord) -> Void)?
 
     /// The record for the pass currently running, readable from inside the
@@ -267,6 +279,7 @@ public final class ProseTextStorage: NSTextStorage {
             range: range,
             changeInLength: (str as NSString).length - range.length
         )
+        flushRecordsIfSettled()
     }
 
     /// One capture and one `edited(_:)` for an attributed replacement. The
@@ -282,30 +295,35 @@ public final class ProseTextStorage: NSTextStorage {
             range: range,
             changeInLength: attrString.length - range.length
         )
+        flushRecordsIfSettled()
     }
 
     public override func setAttributes(_ attrs: [NSAttributedString.Key: Any]?, range: NSRange) {
         capture(.attributes, replacing: range)
         backing.setAttributes(attrs, range: range)
         edited(.editedAttributes, range: range, changeInLength: 0)
+        flushRecordsIfSettled()
     }
 
     public override func addAttribute(_ name: NSAttributedString.Key, value: Any, range: NSRange) {
         capture(.attributes, replacing: range)
         backing.addAttribute(name, value: value, range: range)
         edited(.editedAttributes, range: range, changeInLength: 0)
+        flushRecordsIfSettled()
     }
 
     public override func addAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSRange) {
         capture(.attributes, replacing: range)
         backing.addAttributes(attrs, range: range)
         edited(.editedAttributes, range: range, changeInLength: 0)
+        flushRecordsIfSettled()
     }
 
     public override func removeAttribute(_ name: NSAttributedString.Key, range: NSRange) {
         capture(.attributes, replacing: range)
         backing.removeAttribute(name, range: range)
         edited(.editedAttributes, range: range, changeInLength: 0)
+        flushRecordsIfSettled()
     }
 
     /// Fix attributes on demand rather than inside every `processEditing`.
@@ -376,7 +394,32 @@ public final class ProseTextStorage: NSTextStorage {
         inProcessEditing -= 1
         currentRecord = nil
 
-        editObserver?(record)
+        queuedRecords.append(record)
+    }
+
+    public override func beginEditing() {
+        editingDepth += 1
+        super.beginEditing()
+    }
+
+    public override func endEditing() {
+        super.endEditing()
+        editingDepth = max(0, editingDepth - 1)
+        flushRecordsIfSettled()
+    }
+
+    /// Hand queued records to the observer once no mutation is in flight.
+    /// Re-entrant by design: the observer normalizes, which produces more
+    /// records, which the same loop picks up.
+    private func flushRecordsIfSettled() {
+        guard editingDepth == 0, inProcessEditing == 0 else { return }
+        guard !isFlushing else { return }
+        isFlushing = true
+        defer { isFlushing = false }
+        while !queuedRecords.isEmpty {
+            let record = queuedRecords.removeFirst()
+            editObserver?(record)
+        }
     }
 
     // MARK: - capture

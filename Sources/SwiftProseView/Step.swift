@@ -12,14 +12,25 @@ public struct StepEnvironment {
     public let serializer: AttributedMarkdownSerializer
     public let theme: ProseTheme
 
+    /// Set while undo / redo replays a typed inverse.
+    ///
+    /// An inverse carries the exact pre-image, `NodePathBox` references
+    /// included, so its node identity is already right. The stitching
+    /// `applyReplaceText` normally does — deriving a `BlockSpec` from the
+    /// content and re-minting nodes from it — would throw that identity
+    /// away and split what used to be one paragraph in two.
+    public var isHistoryReplay: Bool
+
     public init(
         compiler: MarkdownAttributedCompiler,
         serializer: AttributedMarkdownSerializer,
-        theme: ProseTheme
+        theme: ProseTheme,
+        isHistoryReplay: Bool = false
     ) {
         self.compiler = compiler
         self.serializer = serializer
         self.theme = theme
+        self.isHistoryReplay = isHistoryReplay
     }
 }
 
@@ -107,7 +118,7 @@ public enum Step {
     public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedStep {
         switch self {
         case .replaceText(let range, let attributed):
-            return applyReplaceText(in: storage, range: range, attributed: attributed)
+            return applyReplaceText(in: storage, range: range, attributed: attributed, env: env)
         case .setSpec(let lineRange, let spec):
             return applySetSpec(
                 in: storage,
@@ -519,14 +530,19 @@ public enum Step {
     private func applyReplaceText(
         in storage: NSTextStorage,
         range: NSRange,
-        attributed: NSAttributedString
+        attributed: NSAttributedString,
+        env: StepEnvironment
     ) -> AppliedStep {
         let safe = range.clamped(to: storage.length)
         let prior = storage.attributedSubstring(from: safe)
         storage.beginEditing()
         storage.replaceCharacters(in: safe, with: attributed)
         let mappedRange = NSRange(location: safe.location, length: attributed.length)
-        Step.restampPredecessorContext(in: storage, range: mappedRange)
+        if env.isHistoryReplay {
+            Step.unifyLineNodePaths(in: storage, range: mappedRange)
+        } else {
+            Step.restampPredecessorContext(in: storage, range: mappedRange)
+        }
         storage.endEditing()
         let inverse = Step.replaceText(range: mappedRange, with: prior)
         let stepMap = StepMap(oldRange: safe, newLength: attributed.length)
@@ -551,6 +567,40 @@ public enum Step {
         }
         for (runRange, spec) in pairs {
             storage.setBlockSpec(spec, in: runRange)
+        }
+    }
+
+    /// Make every line touched by `range` carry a single `proseNodePath`,
+    /// choosing the box that already covers most of the line.
+    ///
+    /// Restoring a pre-image on undo puts back the node it was captured
+    /// with, but the characters around it may have been re-stamped in the
+    /// meantime — undoing a one-character deletion inside a line whose
+    /// spec later changed would otherwise leave two different paragraph
+    /// nodes on one line, and the line would serialize as two blocks.
+    /// Unlike `restampPredecessorContext` this adopts an existing node
+    /// rather than minting one, so identity survives.
+    static func unifyLineNodePaths(in storage: NSTextStorage, range: NSRange) {
+        let safe = range.clamped(to: storage.length)
+        guard safe.length > 0 else { return }
+        let ns = storage.string as NSString
+        var cursor = safe.location
+        let end = safe.location + safe.length
+        while cursor < end {
+            let line = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
+            guard line.length > 0 else { break }
+            var tally: [ObjectIdentifier: (box: NodePathBox, weight: Int)] = [:]
+            storage.enumerateAttribute(.proseNodePath, in: line) { value, runRange, _ in
+                guard let box = value as? NodePathBox else { return }
+                let key = ObjectIdentifier(box)
+                tally[key, default: (box, 0)].weight += runRange.length
+            }
+            if tally.count > 1,
+               let winner = tally.values.max(by: { $0.weight < $1.weight })?.box {
+                storage.addAttribute(.proseNodePath, value: winner, range: line)
+            }
+            let next = line.location + line.length
+            cursor = next > cursor ? next : cursor + 1
         }
     }
 
@@ -1315,23 +1365,42 @@ public struct Transaction {
 
     public func getMeta(_ key: String) -> AnyHashable? { meta[key] }
 
+    /// Apply every step, atomically.
+    ///
+    /// `sequential` turns off position mapping. Forward transactions are
+    /// authored against one document state, so each step has to be mapped
+    /// through the edits before it. Inverse transactions are not: each
+    /// inverse step is already expressed in the state its own forward step
+    /// produced, and replaying them newest-first walks back through exactly
+    /// those states. Mapping them a second time would double-count —
+    /// `[insert "AB"@10, insert "C"@0]` inverts to `[del(0,1), del(10,2)]`,
+    /// and mapping the second through the first turns a correct `(10,2)`
+    /// into a wrong `(9,2)`.
     @discardableResult
-    public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedTransaction {
+    public func apply(
+        to storage: NSTextStorage,
+        env: StepEnvironment,
+        sequential: Bool = false
+    ) -> AppliedTransaction {
         // One origin scope and one edit bracket for the whole transaction,
         // so an N-step command produces one `processEditing` pass instead
         // of N. Covers direct `tx.apply` callers and the nested apply in
         // `Operations`; storage counts the brackets, so nesting is safe.
         guard let prose = storage as? ProseTextStorage else {
-            return applyCore(to: storage, env: env)
+            return applyCore(to: storage, env: env, sequential: sequential)
         }
         return prose.withOrigin(.transaction) {
             prose.beginEditing()
             defer { prose.endEditing() }
-            return applyCore(to: storage, env: env)
+            return applyCore(to: storage, env: env, sequential: sequential)
         }
     }
 
-    private func applyCore(to storage: NSTextStorage, env: StepEnvironment) -> AppliedTransaction {
+    private func applyCore(
+        to storage: NSTextStorage,
+        env: StepEnvironment,
+        sequential: Bool
+    ) -> AppliedTransaction {
         var inverses: [Step] = []
         var mapping = Mapping.empty
         // Accumulate the union of every step's mappedRange so downstream
@@ -1341,7 +1410,7 @@ public struct Transaction {
         var unionLo: Int? = nil
         var unionHi: Int? = nil
         for step in steps {
-            let mapped = step.mapped(through: mapping)
+            let mapped = sequential ? step : step.mapped(through: mapping)
             if mapped.canApply(to: storage) != nil {
                 continue
             }

@@ -57,7 +57,16 @@ public final class EditorController {
         cachedDocument = nil
     }
 
-    public let undoManager: UndoManager = UndoManager()
+    /// The controller does its own grouping — one `HistoryRecord` per
+    /// group — so `groupsByEvent` is off. Left on, `UndoManager` wraps
+    /// everything an event produces in one outer group, and the typed
+    /// character plus the input rule it triggered would collapse into a
+    /// single undo instead of two.
+    public let undoManager: UndoManager = {
+        let manager = UndoManager()
+        manager.groupsByEvent = false
+        return manager
+    }()
     /// Set by the platform `UIViewRepresentable` / `NSViewRepresentable`
     /// when the host text view is created. Hosts that need to configure the
     /// underlying view (e.g. attach an iOS `inputAccessoryView`) observe
@@ -221,18 +230,19 @@ public final class EditorController {
     /// `closeHistory(tr)`.
     public func closeHistoryGroup() {
         drainPendingEnvelopes()
+        closeTypingRecord()
         if undoManager.groupingLevel > 0 {
             undoManager.endUndoGrouping()
             undoManager.beginUndoGrouping()
         }
     }
 
-    /// Number of undoable transactions on the stack — UI bind-target.
+    /// Whether anything is undoable. UI bind-target.
     public var undoDepth: Int {
-        undoManager.canUndo ? max(1, undoManager.levelsOfUndo) : 0
+        undoManager.canUndo ? 1 : 0
     }
 
-    /// Number of redoable transactions on the stack.
+    /// Whether anything is redoable.
     public var redoDepth: Int {
         undoManager.canRedo ? 1 : 0
     }
@@ -395,6 +405,9 @@ public final class EditorController {
     /// tests can drive `newGroupDelay` without sleeping.
     var historyClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
 
+    /// Companion seam: tests install this to move `historyClock` forward.
+    var testClockAdvance: ((TimeInterval) -> Void)?
+
     private func storageDidProcessEditing(_ record: EditRecord) {
         // Cache invalidation runs for every origin so the next `document`
         // read after `setMarkdown` / `replaceStorage` re-derives.
@@ -410,7 +423,11 @@ public final class EditorController {
         switch record.origin {
         case .normalize:
             // A side effect of an edit that is publishing on its own
-            // behalf. Nothing further to do.
+            // behalf. Its inverse joins that edit's undo unit when one is
+            // being assembled.
+            if collectingInverses != nil, !record.captures.isEmpty {
+                collectingInverses?.insert(contentsOf: inverseSteps(from: record), at: 0)
+            }
             return
         case .transaction, .history, .load:
             accumulateHighlightRange(record.editedRange)
@@ -460,6 +477,13 @@ public final class EditorController {
 
         accumulateHighlightRange(userEditedRange)
 
+        // Everything the close does to fix up this edit joins its undo
+        // unit: undoing the keystroke also undoes the demotion, the
+        // trailing paragraph, and the attribute repair it triggered.
+        let outerCollecting = collectingInverses
+        collectingInverses = []
+        defer { collectingInverses = outerCollecting }
+
         switch editClass {
         case .compositionInterim, .dictationInterim:
             // Not content yet. Keep the cache and highlight bookkeeping the
@@ -477,6 +501,7 @@ public final class EditorController {
         let step: Step
         if editClass == .compositionCommit, let baseline = compositionBaseline {
             compositionBaseline = nil
+            pendingCompositionPreImage = baseline.preImage
             let end = max(baseline.range.location, userEditedRange.location + userEditedRange.length)
             let span = NSRange(
                 location: baseline.range.location,
@@ -488,35 +513,19 @@ public final class EditorController {
                 if hostTextView != nil { scheduleResegment() } else { resegment() }
                 return
             }
+            committedCompositionLength = post.length
             step = .replaceText(range: baseline.range, with: post)
         } else {
             step = derivedStep(from: record)
         }
 
-        scrubTypedAttributes(in: userEditedRange)
-        repairEditedLine(in: userEditedRange)
-        demoteEmptyStyledLines(in: userEditedRange)
-        // Defer `resegment()` to the next runloop tick when a host text
-        // view is attached so rapid typing rebuilds `blocks` once instead
-        // of per character. Headless callers keep the synchronous path so
-        // reads of `controller.blocks` after a storage edit see fresh data.
-        if hostTextView != nil {
-            scheduleResegment()
-        } else {
-            resegment()
-        }
-        // Reconcile the trailing paragraph only when the edit reached the
-        // document end. A mid-document keystroke can't change which block
-        // is last, so this avoids a per-keystroke storage mutation (and
-        // caret nudge) at the tail for the common typing case.
-        if userEditedRange.location + userEditedRange.length >= textStorage.length {
-            ensureTrailingParagraph()
-        }
-        intrinsicSizeInvalidator?()
+        normalizeAfterEdit(in: userEditedRange, accumulateHighlight: false)
         // The typed character already received our storedMarks via
         // typingAttributes; further typing should inherit naturally from
         // the new cursor position, not from the storedMark set.
         clearStoredInlineMarks()
+
+        registerEnvelope(record, class: editClass, step: step)
 
         fanoutDocumentChange(DocumentChange(step: step, controller: self))
 
@@ -577,6 +586,11 @@ public final class EditorController {
     /// assigned.
     var classificationProbe: ((EditClass) -> Void)?
 
+    /// Carried from building a composition-commit step to registering its
+    /// inverse a few lines later.
+    private var pendingCompositionPreImage: NSAttributedString?
+    private var committedCompositionLength = 0
+
     /// Decide what `record` was. First match wins.
     func classify(_ record: EditRecord) -> EditClass {
         if undoManager.isUndoing || undoManager.isRedoing { return .history }
@@ -629,6 +643,86 @@ public final class EditorController {
         }
     }
 
+    /// Bring storage back to its invariants after an edit touched
+    /// `editedRange`. Shared by the platform envelope close and the direct
+    /// mutators so both leave the buffer in the same state.
+    /// `scrub` cleans up attributes AppKit copies onto typed characters
+    /// from the run before them. It is a platform-typing artifact — a
+    /// programmatic mutation gets its attributes from the compiler, and
+    /// scrubbing there strips the list marker off its own tab.
+    private func normalizeAfterEdit(
+        in editedRange: NSRange,
+        accumulateHighlight: Bool = true,
+        scrub: Bool = true
+    ) {
+        if accumulateHighlight { accumulateHighlightRange(editedRange) }
+        if scrub { scrubTypedAttributes(in: editedRange) }
+        repairEditedLine(in: editedRange)
+        demoteEmptyStyledLines(in: editedRange)
+        // Defer `resegment()` to the next runloop tick when a host text
+        // view is attached so rapid typing rebuilds `blocks` once instead
+        // of per character. Headless callers keep the synchronous path so
+        // reads of `controller.blocks` after a storage edit see fresh data.
+        if hostTextView != nil {
+            scheduleResegment()
+        } else {
+            resegment()
+        }
+        // Reconcile the trailing paragraph only when the edit reached the
+        // document end. A mid-document keystroke can't change which block
+        // is last, so this avoids a per-keystroke storage mutation (and
+        // caret nudge) at the tail for the common typing case.
+        if editedRange.location + editedRange.length >= textStorage.length {
+            ensureTrailingParagraph()
+        }
+        intrinsicSizeInvalidator?()
+    }
+
+    /// Put the closed envelope on the undo stack.
+    ///
+    /// Typing, deletion, and correction coalesce into one burst while the
+    /// user keeps working in the same place; everything else opens its own
+    /// unit. A composition is always one unit measured against the state
+    /// before it started.
+    private func registerEnvelope(
+        _ record: EditRecord,
+        class editClass: EditClass,
+        step: Step
+    ) {
+        guard editClass != .history else { return }
+        var inverses = collectingInverses ?? []
+        if editClass == .compositionCommit, case .replaceText(let range, _) = step {
+            // The whole composition inverts to one edit: put back what was
+            // there before the first marked-text pass.
+            let baselinePre = pendingCompositionPreImage ?? NSAttributedString()
+            pendingCompositionPreImage = nil
+            let postLength = max(0, textStorage.length - range.location)
+            let span = NSRange(
+                location: range.location,
+                length: min(committedCompositionLength, postLength)
+            )
+            inverses.append(.replaceText(range: span, with: baselinePre))
+        } else {
+            inverses.append(contentsOf: inverseSteps(from: record))
+        }
+        guard !inverses.isEmpty else { return }
+
+        let coalescing: Bool
+        switch editClass {
+        case .typing, .deletion, .correction: coalescing = true
+        default: coalescing = false
+        }
+        let context = record.context
+        registerOrJoin(
+            inverseSteps: inverses,
+            selectionBefore: context?.selectionBefore ?? currentSelection,
+            selectionAfter: currentSelection,
+            touched: record.editedRange,
+            at: context?.timestamp ?? historyClock(),
+            coalescing: coalescing
+        )
+    }
+
     /// Forward-only `Step.replaceText` describing `record`. The pre-edit
     /// range is reconstructed by subtracting `changeInLength`; the post-edit
     /// content is read from current storage.
@@ -652,7 +746,7 @@ public final class EditorController {
         let ns = textStorage.string as NSString
         let probe = edited.clamped(to: total)
         let lineRange = ns.paragraphRange(for: probe)
-        proseStorage.withOrigin(.normalize) {
+        proseStorage.withOrigin(.normalize, capturing: true) {
             SpecValidator.repair(in: textStorage, range: lineRange)
         }
     }
@@ -681,7 +775,7 @@ public final class EditorController {
         }
         if attachmentStrays.isEmpty && markerStrays.isEmpty { return }
 
-        proseStorage.withOrigin(.normalize) {
+        proseStorage.withOrigin(.normalize, capturing: true) {
             textStorage.beginEditing()
             for r in attachmentStrays { textStorage.removeAttribute(.attachment, range: r) }
             for r in markerStrays { textStorage.removeAttribute(.proseListMarker, range: r) }
@@ -740,18 +834,20 @@ public final class EditorController {
         guard unionRange.length > 0 else { return }
 
         var demoted = false
-        var cursor = unionRange.location
-        let end = unionRange.location + unionRange.length
-        textStorage.beginEditing()
-        while cursor < end {
-            let lineRange = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
-            if demoteLineIfEmpty(lineRange: lineRange, plainAttrs: plainAttrs) {
-                demoted = true
+        proseStorage.withOrigin(.normalize, capturing: true) {
+            var cursor = unionRange.location
+            let end = unionRange.location + unionRange.length
+            textStorage.beginEditing()
+            while cursor < end {
+                let lineRange = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
+                if demoteLineIfEmpty(lineRange: lineRange, plainAttrs: plainAttrs) {
+                    demoted = true
+                }
+                let next = lineRange.location + lineRange.length
+                cursor = next > cursor ? next : cursor + 1
             }
-            let next = lineRange.location + lineRange.length
-            cursor = next > cursor ? next : cursor + 1
+            textStorage.endEditing()
         }
-        textStorage.endEditing()
         if demoted {
             applyTypingAttributes(plainAttrs)
         }
@@ -1177,34 +1273,33 @@ public final class EditorController {
         let recordHistory = (transaction.getMeta("addToHistory") as? Bool) != false
         let env = makeStepEnvironment()
         var lastRange = currentSelection
+        let preSelection = currentSelection
         let preMutationRange = mutationRange(for: transaction)
-        let mutate = {
-            self.proseStorage.withOrigin(.transaction) {
-                let preLength = self.textStorage.length
-                let applied = transaction.apply(to: self.textStorage, env: env)
-                lastRange = applied.mappedRange
-                let delta = self.textStorage.length - preLength
-                let unionLength = max(0, preMutationRange.length + max(0, delta))
-                let validationRange = NSRange(
-                    location: min(preMutationRange.location, max(0, self.textStorage.length)),
-                    length: min(unionLength, self.textStorage.length - min(preMutationRange.location, max(0, self.textStorage.length)))
-                )
-                self.validateAndRepair(in: validationRange)
-            }
-            self.ensureTrailingParagraph()
-            self.resegment()
-            self.intrinsicSizeInvalidator?()
+        var appliedTransaction: AppliedTransaction?
+        // Normalization that follows the steps belongs to the same undo
+        // unit — undoing the command undoes the trailing paragraph it
+        // caused, not one keystroke later.
+        let outerCollecting = collectingInverses
+        collectingInverses = []
+        proseStorage.withOrigin(.transaction) {
+            let preLength = self.textStorage.length
+            let applied = transaction.apply(to: self.textStorage, env: env)
+            appliedTransaction = applied
+            lastRange = applied.mappedRange
+            let delta = self.textStorage.length - preLength
+            let unionLength = max(0, preMutationRange.length + max(0, delta))
+            let validationRange = NSRange(
+                location: min(preMutationRange.location, max(0, self.textStorage.length)),
+                length: min(unionLength, self.textStorage.length - min(preMutationRange.location, max(0, self.textStorage.length)))
+            )
+            self.validateAndRepair(in: validationRange)
         }
-        if recordHistory {
-            withCharacterMutation(range: preMutationRange, mutate)
-        } else {
-            mutate()
-        }
-        // Apply the transaction's label as the user-facing undo name when
-        // history was recorded.
-        if recordHistory, let label = transaction.label {
-            undoManager.setActionName(label)
-        }
+        ensureTrailingParagraph()
+        resegment()
+        intrinsicSizeInvalidator?()
+        let normalizationInverses = collectingInverses ?? []
+        collectingInverses = outerCollecting
+
         // tr.selection wins; otherwise collapse to the end of the changed
         // range, backing off from a trailing newline when the render emitted
         // a block terminator.
@@ -1225,6 +1320,20 @@ public final class EditorController {
         }
         setHostSelection(resultRange)
         refreshTypingAttributes(at: resultRange.location)
+        if recordHistory, let applied = appliedTransaction {
+            // A command always opens its own unit — typing before it must
+            // not be swept in.
+            closeTypingRecord()
+            registerOrJoin(
+                inverseSteps: normalizationInverses + applied.inverse.steps,
+                selectionBefore: preSelection,
+                selectionAfter: resultRange,
+                touched: applied.mappedRange,
+                at: historyClock(),
+                coalescing: false,
+                label: transaction.label
+            )
+        }
         if transaction.scrollIntoView {
             scrollSelectionIntoView()
         }
@@ -1609,92 +1718,197 @@ public final class EditorController {
         return result
     }
 
-    // MARK: - undo plumbing
+    // MARK: - undo
 
+    /// The typing / deletion / correction burst currently accepting more
+    /// edits. Closed by the delay, by a non-adjacent edit, by any other
+    /// edit class, and by every command entry point.
+    private var openTypingRecord: HistoryRecord?
+
+    /// While non-nil, normalization inverses are collected here instead of
+    /// being dropped, so the pass that fixes up an edit is undone with it.
+    private var collectingInverses: [Step]?
+
+    /// True while `applyHistory` is replaying; suppresses re-registration
+    /// from nested paths.
+    private(set) var isApplyingHistory = false
+
+    /// Turn a storage record's captures into inverse steps, newest first.
+    ///
+    /// Each capture's pre-image is replaced back over the range the capture
+    /// produced. Reversing the order is what makes it valid: the last
+    /// capture's post-range is correct in the final state, and undoing it
+    /// restores the state the one before it was measured against.
+    func inverseSteps(from record: EditRecord) -> [Step] {
+        record.captures.reversed().map { capture in
+            let inserted: Int
+            switch capture.kind {
+            case .characters(let n): inserted = n
+            case .attributes: inserted = capture.range.length
+            }
+            let postRange = NSRange(location: capture.range.location, length: inserted)
+            return .replaceText(range: postRange.clamped(to: textStorage.length), with: capture.preImage)
+        }
+    }
+
+    /// Close the open typing burst so the next edit starts a fresh unit.
+    func closeTypingRecord() {
+        openTypingRecord = nil
+    }
+
+    /// Put `record` on the undo stack as one unit.
+    private func register(_ record: HistoryRecord) {
+        guard !isApplyingHistory else { return }
+        undoManager.beginUndoGrouping()
+        undoManager.registerUndo(withTarget: self) { controller in
+            controller.performUndo(of: record)
+        }
+        if let label = record.label {
+            undoManager.setActionName(label)
+        }
+        undoManager.endUndoGrouping()
+    }
+
+    /// Register `record`, or fold it into the open burst when it belongs
+    /// to the same one. Returns the unit that ended up holding it.
+    @discardableResult
+    private func registerOrJoin(
+        inverseSteps: [Step],
+        selectionBefore: NSRange,
+        selectionAfter: NSRange,
+        touched: NSRange,
+        at time: TimeInterval,
+        coalescing: Bool,
+        label: String? = nil
+    ) -> HistoryRecord? {
+        guard !inverseSteps.isEmpty else { return nil }
+        if coalescing,
+           let open = openTypingRecord,
+           time - open.lastEditAt <= historyConfig.newGroupDelay,
+           open.touches(touched) {
+            open.absorb(
+                inverseSteps: inverseSteps,
+                selectionAfter: selectionAfter,
+                touched: touched,
+                at: time
+            )
+            return open
+        }
+        let record = HistoryRecord(
+            inverseSteps: inverseSteps,
+            selectionBefore: selectionBefore,
+            selectionAfter: selectionAfter,
+            touchedRanges: [touched],
+            lastEditAt: time,
+            label: label
+        )
+        register(record)
+        openTypingRecord = coalescing ? record : nil
+        return record
+    }
+
+    /// Undo (or redo — `UndoManager` routes the re-registration for us)
+    /// one unit, then push its counterpart with the selections swapped.
+    private func performUndo(of record: HistoryRecord) {
+        closeTypingRecord()
+        let applied = applyHistory(Transaction(steps: record.inverseSteps, label: record.label))
+        setHostSelection(record.selectionBefore)
+        testSelection = record.selectionBefore
+        refreshTypingAttributes(at: record.selectionBefore.location)
+
+        let counterpart = HistoryRecord(
+            inverseSteps: applied.inverse.steps,
+            selectionBefore: record.selectionAfter,
+            selectionAfter: record.selectionBefore,
+            touchedRanges: [applied.mappedRange],
+            lastEditAt: historyClock(),
+            label: record.label
+        )
+        register(counterpart)
+    }
+
+    /// Replay `transaction` as history: sequential, no plugin filters, no
+    /// registration of its own, no append transactions. Matches what the
+    /// old undo closures did.
+    @discardableResult
+    func applyHistory(_ transaction: Transaction) -> AppliedTransaction {
+        var env = makeStepEnvironment()
+        env.isHistoryReplay = true
+        let wasApplying = isApplyingHistory
+        isApplyingHistory = true
+        defer { isApplyingHistory = wasApplying }
+
+        var applied: AppliedTransaction!
+        proseStorage.withOrigin(.history) {
+            applied = transaction.apply(to: textStorage, env: env, sequential: true)
+            validateAndRepair(in: applied.mappedRange.clamped(to: textStorage.length))
+        }
+        ensureTrailingParagraph()
+        accumulateHighlightRange(applied.mappedRange)
+        resegment()
+        intrinsicSizeInvalidator?()
+        return applied
+    }
+
+    /// Run `body` as one undoable character mutation.
+    ///
+    /// The pre-image of `range` *is* the inverse — it carries the original
+    /// attributes, `NodePathBox` references included, so undo restores node
+    /// identity rather than re-deriving it.
     func withCharacterMutation(range: NSRange, _ body: () -> Void) {
+        drainPendingEnvelopes()
         let preLength = textStorage.length
         let preRange = range.clamped(to: preLength)
         let pre = textStorage.attributedSubstring(from: preRange)
         let preSelection = currentSelection
-        body()
+        let outerCollecting = collectingInverses
+        collectingInverses = []
+        proseStorage.withOrigin(.transaction) { body() }
         let delta = textStorage.length - preLength
-        let postRange = NSRange(location: preRange.location, length: preRange.length + delta)
-        undoManager.beginUndoGrouping()
-        registerCharacterInverse(at: postRange, with: pre, selection: preSelection)
-        undoManager.endUndoGrouping()
+        let postRange = NSRange(location: preRange.location, length: max(0, preRange.length + delta))
+
+        normalizeAfterEdit(in: postRange, scrub: false)
+        clearStoredInlineMarks()
+        let normalizationInverses = collectingInverses ?? []
+        collectingInverses = outerCollecting
+
+        // A programmatic mutation always opens its own undo unit.
+        closeTypingRecord()
+        registerOrJoin(
+            inverseSteps: normalizationInverses
+                + [.replaceText(range: postRange.clamped(to: textStorage.length), with: pre)],
+            selectionBefore: preSelection,
+            selectionAfter: currentSelection,
+            touched: postRange,
+            at: historyClock(),
+            coalescing: false
+        )
+        // Plugins' append transactions (auto-link, completion) run for
+        // programmatic insertion; input rules do not. A rule that rewrites
+        // what a host just inserted is not what the host asked for.
+        let step = Step.replaceText(
+            range: preRange,
+            with: textStorage.attributedSubstring(from: postRange.clamped(to: textStorage.length))
+        )
+        runAppendTransactions(after: [Transaction(steps: [step])])
     }
 
+    /// Run `body` as one undoable attribute mutation. Same mechanism as
+    /// `withCharacterMutation` — the pre-image restores the attributes.
     func withAttributeMutation(range: NSRange, _ body: () -> Void) {
         let safe = range.clamped(to: textStorage.length)
-        let runs = captureAttributeRuns(in: safe)
+        let pre = textStorage.attributedSubstring(from: safe)
         let preSelection = currentSelection
-        body()
-        undoManager.beginUndoGrouping()
-        registerAttributeInverse(at: safe, runs: runs, selection: preSelection)
-        undoManager.endUndoGrouping()
-    }
-
-    private func registerCharacterInverse(
-        at range: NSRange,
-        with content: NSAttributedString,
-        selection: NSRange
-    ) {
-        undoManager.registerUndo(withTarget: self) { [weak self] _ in
-            guard let self else { return }
-            let safe = range.clamped(to: self.textStorage.length)
-            let redoContent = self.textStorage.attributedSubstring(from: safe)
-            let redoSelection = self.currentSelection
-            self.proseStorage.withOrigin(.history) {
-                self.textStorage.beginEditing()
-                self.textStorage.replaceCharacters(in: safe, with: content)
-                self.textStorage.endEditing()
-            }
-            self.setHostSelection(selection)
-            self.refreshTypingAttributes(at: selection.location)
-            self.resegment()
-            let redoRange = NSRange(location: safe.location, length: content.length)
-            self.registerCharacterInverse(at: redoRange, with: redoContent, selection: redoSelection)
-        }
-    }
-
-    private func registerAttributeInverse(
-        at range: NSRange,
-        runs: [AttributeRun],
-        selection: NSRange
-    ) {
-        undoManager.registerUndo(withTarget: self) { [weak self] _ in
-            guard let self else { return }
-            let safe = range.clamped(to: self.textStorage.length)
-            let redoRuns = self.captureAttributeRuns(in: safe)
-            let redoSelection = self.currentSelection
-            self.proseStorage.withOrigin(.history) {
-                self.textStorage.beginEditing()
-                for run in runs {
-                    let runSafe = run.range.clamped(to: self.textStorage.length)
-                    if runSafe.length > 0 {
-                        self.textStorage.setAttributes(run.attrs, range: runSafe)
-                    }
-                }
-                self.textStorage.endEditing()
-            }
-            self.setHostSelection(selection)
-            self.refreshTypingAttributes(at: selection.location)
-            self.resegment()
-            self.registerAttributeInverse(at: safe, runs: redoRuns, selection: redoSelection)
-        }
-    }
-
-    private struct AttributeRun {
-        let range: NSRange
-        let attrs: [NSAttributedString.Key: Any]
-    }
-
-    private func captureAttributeRuns(in range: NSRange) -> [AttributeRun] {
-        var runs: [AttributeRun] = []
-        textStorage.enumerateAttributes(in: range, options: []) { attrs, subRange, _ in
-            runs.append(AttributeRun(range: subRange, attrs: attrs))
-        }
-        return runs
+        proseStorage.withOrigin(.transaction) { body() }
+        closeTypingRecord()
+        registerOrJoin(
+            inverseSteps: [.replaceText(range: safe.clamped(to: textStorage.length), with: pre)],
+            selectionBefore: preSelection,
+            selectionAfter: currentSelection,
+            touched: safe,
+            at: historyClock(),
+            coalescing: false
+        )
     }
 
     /// After programmatic storage edits, NSTextView's `typingAttributes`
@@ -2306,7 +2520,7 @@ public final class EditorController {
         guard isAtomic else { return }
         let plainAttrs = theme.plainParagraphAttributes()
         let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
-        proseStorage.withOrigin(.normalize) {
+        proseStorage.withOrigin(.normalize, capturing: true) {
             textStorage.beginEditing()
             textStorage.replaceCharacters(in: NSRange(location: total, length: 0), with: blank)
             textStorage.endEditing()

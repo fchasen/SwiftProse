@@ -242,6 +242,10 @@ Structural chrome (blockquote bars, code-block backgrounds, HRs) comes from `Dec
 controller.historyConfig = HistoryConfig(depth: 200, newGroupDelay: 0.5)
 ```
 
+One undo path covers everything — typing, commands, paste, table-cell edits — because every edit registers a typed inverse. `newGroupDelay` is the pause after which a typing burst becomes a new undo group; a burst also splits when the caret jumps somewhere non-adjacent, matching ProseMirror. A command always opens its own group, and one undo of a table-cell edit reverts that cell.
+
+The controller owns the `UndoManager` (`groupsByEvent` is off, since it does its own grouping). On macOS the text view's `allowsUndo` is off and `undoManager` resolves to the controller's, so Cmd-Z and the Edit menu reach the same stack; iOS overrides `undoManager` on the text view and adds Cmd-Z / Shift-Cmd-Z.
+
 `controller.undoDepth` / `redoDepth` are read-only counters. `controller.closeHistoryGroup()` opens a fresh undo group, matched by `meta["closeHistory"] = true` on transactions.
 
 ## UI integrations
@@ -495,7 +499,7 @@ A `Step` is a typed, undoable edit:
 | `setDocAttr` | Document-level attr change. |
 | `replaceCellInline` / `setTableSubtree` | Table-cell edits. |
 
-Each step's `apply` returns a typed inverse so undo / redo preserves `NodeID`s. `Step.canApply(to:)` probes legality without mutating storage; `Transaction.apply` skips illegal steps cleanly. `Step.merge(_:)` coalesces adjacent typing into one step (collab prerequisite).
+Each step's `apply` returns a typed inverse. Undo and redo replay those inverses through `Transaction.apply(..., sequential: true)` — unmapped, because each inverse is already expressed in the state its forward step produced. Every edit goes through this one path, typing included, so identity-addressed steps (`replaceCellInline`, `setTableSubtree`) reverse correctly and `NodeID`s survive. `Step.canApply(to:)` probes legality without mutating storage; `Transaction.apply` skips illegal steps cleanly. `Step.merge(_:)` coalesces adjacent typing into one step (collab prerequisite).
 
 Position mapping is preserved across transactions. `StepMap.mapResult(_:bias:)` returns a `MapResult { pos, deleted, deletedBefore, deletedAfter, deletedAcross }`. `Mapping` tracks mirror pairs (`appendMap(_:mirrors:)`, `getMirror(_:)`, `invert()`, `appendMappingInverted(_:)`).
 
