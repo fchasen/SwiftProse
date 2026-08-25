@@ -488,8 +488,6 @@ Each step's `apply` returns a typed inverse so undo / redo preserves `NodeID`s. 
 
 Position mapping is preserved across transactions. `StepMap.mapResult(_:bias:)` returns a `MapResult { pos, deleted, deletedBefore, deletedAfter, deletedAcross }`. `Mapping` tracks mirror pairs (`appendMap(_:mirrors:)`, `getMirror(_:)`, `invert()`, `appendMappingInverted(_:)`).
 
-The `Transforms` enum exposes the PM `Transform` vocabulary as functions returning Step lists — `lift`, `wrap`, `split`, `join`, `setBlockType`, `setNodeMarkup`, `clearIncompatible` — plus probes (`canSplit`, `canJoin`, `liftTarget`, `findWrapping`).
-
 ## Architecture
 
 Four SPM targets in a strict dependency chain:

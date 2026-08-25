@@ -47,7 +47,7 @@ The editor is a single TextKit 2 stack (`NSTextStorage` + `NSTextContentStorage`
 ```
 text typed
   ↓
-MarkdownParser (tree-sitter, .block + .inline grammars, incremental)
+MarkdownParser (tree-sitter, .block + .inline grammars)
   ↓
 BlockSegmenter / BlockClassifier  →  [BlockSegment]
   ↓
@@ -97,14 +97,12 @@ These are nested, not parallel — pick the highest layer that gets the job done
 1. **`Operations`** (`SwiftProseView/Operations.swift`) — direct `NSTextStorage` mutators. Internal building blocks; new mutating behavior should rarely live here.
 2. **`Step`** (`SwiftProseView/Step.swift`) — typed, undoable edit. Variants: `replaceText`, `setSpec`, `toggleInlineMark`, `replaceAround`, `addMark`, `removeMark`, `setNodeAttrs`, `setNodeAttrsAt` (position-addressed), `addNodeMark`, `removeNodeMark`, `setDocAttr`, `replaceCellInline`, `setTableSubtree`. Each `Step.apply` returns an `AppliedStep` whose `inverse` is itself typed (`addMark` ↔ `removeMark`, `setNodeAttrs` ↔ `setNodeAttrs(priorAttrs)`, `replaceAround` ↔ `replaceAround`, `setSpec` ↔ `setSpec(priorSpec)`) so undo / redo preserves `NodeID`s. `Step.canApply(to:)` returns a `LegalityError?` without mutating storage; `Transaction.apply` skips illegal steps cleanly. `Step.merge(_:)` coalesces adjacent inserts / matching mark ops; `Step.isStructural` is `true` for setSpec / replaceAround / setNodeAttrs / table / node-mark / setDocAttr — `merge` refuses to coalesce structural steps. **New behavior should compose `Step`s.**
 3. **`Transaction`** — ordered list of `Step`s, applied atomically; pushed onto the `UndoManager` as a single unit. Carries `selection: Selection?` (installed on apply), `scrollIntoView: Bool`, `meta: [String: AnyHashable]` (`setMeta(_:_:)` / `getMeta(_:)`), and `label: String?` (forwarded to `undoManager.setActionName`). `meta["addToHistory"] == false` skips undo recording; `meta["closeHistory"] == true` opens a fresh undo group on apply. `Transaction.apply` accumulates the union of every step's `mappedRange` so post-apply validation covers the full mutated area.
-4. **`Command`** (`SwiftProseView/Command.swift`) — registered in `CommandRegistry`, resolved per `EditorAction`. Builds a `Transaction` from a selection. Toolbar/menu items dispatch through here. See `Sources/SwiftProseView/Commands/`. `chainCommands(_:)` runs commands in order, first non-nil transaction wins. Generic `ToggleMarkCommand(id:mark:label:)` and `SetBlockTypeCommand(id:label:kind:)` subsume per-mark / per-heading commands. PM-shaped command stubs in `Commands/PMCommands.swift` (`selectAll`, `splitBlock`, `joinBackward` / `joinForward`, `selectNodeBackward` / `selectNodeForward`, `selectTextblockStart` / `selectTextblockEnd`, etc.) — many are skeletons returning nil until their structural Step builders land.
+4. **`Command`** (`SwiftProseView/Command.swift`) — registered in `CommandRegistry`, resolved per `EditorAction`. Builds a `Transaction` from a selection. Toolbar/menu items dispatch through here. See `Sources/SwiftProseView/Commands/`. `chainCommands(_:)` runs commands in order, first non-nil transaction wins. Generic `ToggleMarkCommand(id:mark:label:)` and `SetBlockTypeCommand(id:label:kind:)` subsume per-mark / per-heading commands.
 5. **`InputRule`** (`SwiftProseView/InputRules/InputRule.swift`) — regex-driven, peer of `Command` (not a subtype). Fires implicitly when typed text matches; receives capture groups; produces a `Transaction`. See `InputRules/DefaultInputRules.swift`. PM helpers `wrappingInputRule(...)` and `textblockTypeInputRule(...)` build rules from a regex plus a target node type / block spec. `InputRule.inCode: InCodePolicy` (`.run` / `.skip`) lets bold / italic / strike / codeSpan opt out when the cursor sits inside a code block. Optional smart-typography rules (`InputRule.smartSubstitutionRules(_:)`) ship behind a `RuleOptions` set (`.smartQuotes`, `.ellipsis`, `.emDash`).
 
 `StepEnvironment` carries `(compiler, serializer, theme)` into every `Step.apply` — steps that need to reflow attributes (e.g. `setSpec`) recompile the affected region through it.
 
 `StepMap.mapResult(_:bias:)` returns a `MapResult { pos, deleted, deletedBefore, deletedAfter, deletedAcross }` so callers can react to deletion-around-position. `Mapping` tracks mirror pairs (`appendMap(_:mirrors:)`, `getMirror(_:)`, `invert()`, `appendMappingInverted(_:)`).
-
-`Transforms` (`SwiftProseView/Transforms.swift`) is a stub vocabulary mirroring PM's `Transform`: `lift`, `wrap`, `split`, `join`, `setBlockType`, `setNodeMarkup`, `clearIncompatible` plus probes (`canSplit`, `canJoin`, `liftTarget`, `findWrapping`). The Step-builder bodies are not fully wired yet — commands that need lift / wrap continue to compose `setSpec` bundles until each call site migrates.
 
 ### Selection
 
@@ -156,7 +154,7 @@ Encoder behaviors worth knowing:
 
 ### Isolating nodes (node views)
 
-`NodeType.isolating` (today: `table`) marks a self-managed subtree that can be hoisted into a single `NSTextAttachment` so a `NodeViewProvider` renders the editing surface (cell grid, embedded editor, image gallery). Infrastructure in place: `ProseNodeAttachment` (Rendering) carries the structural subtree, `ProseSubtreeAttachment` (Syntax) is the layer-clean probe protocol used by `ProseDocument.from(storage:)` to lift the attachment's subtree, and `EditorController.nodeViewRegistry` is empty by default. Per-cell paragraphs in storage are still the live emit; the attachment-driven view is not yet wired.
+`NodeType.isolating` (today: `table`) marks a self-managed subtree that can be hoisted into a single `NSTextAttachment` so a `NodeViewProvider` renders the editing surface (cell grid, embedded editor, image gallery). Infrastructure in place: `ProseNodeAttachment` (Rendering) carries the structural subtree, `ProseSubtreeAttachment` (Syntax) is the layer-clean probe protocol used by `ProseDocument.from(storage:)` to lift the attachment's subtree, and `EditorController.nodeViewRegistry` is empty by default. Tables are already attachment-backed: one `ProseNodeAttachment` paragraph in storage, cell content off-buffer, and cell edits arriving as `Step.replaceCellInline` transactions from `TableBlockView`. `nodeViewRegistry` is the generalization of that path to other isolating types.
 
 ### Code-block syntax highlighting
 

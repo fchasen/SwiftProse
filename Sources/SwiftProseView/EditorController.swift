@@ -800,7 +800,7 @@ public final class EditorController {
         let from = range.location
         let to = range.location + range.length
         var transaction = Transaction(steps: [
-            Transforms.replaceRange(from: from, to: to, slice: slice)
+            .replaceRange(from: from, to: to, slice: slice)
         ])
         transaction.label = "Paste"
         _ = apply(transaction)

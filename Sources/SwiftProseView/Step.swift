@@ -101,7 +101,7 @@ public enum Step {
     /// (`MarkdownTreeSerializer.serializeSlice` + recompile). Full
     /// PM-Fitter semantics (defining-ancestor preservation, isolating
     /// boundary blocking, allowed-marks stripping, findWrapping recovery)
-    /// land alongside `Transforms.swift` extensions.
+    /// are not implemented.
     case replaceRange(from: Int, to: Int, slice: Slice)
 
     public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedStep {
@@ -161,8 +161,7 @@ public enum Step {
     /// Minimal fitter — round-trips `slice` through markdown so storage
     /// gets fully-stamped block specs and mark attrs at insertion. PM's
     /// real `Fitter` honors defining / isolating / allowedMarks at every
-    /// fit point; that semantics layer lands as transforms in
-    /// `Transforms.swift` (see `Transforms.swift:replaceRange` stub).
+    /// fit point; that semantics layer is not implemented.
     private func applyReplaceRange(
         in storage: NSTextStorage,
         from: Int,

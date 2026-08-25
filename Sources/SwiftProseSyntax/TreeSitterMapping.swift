@@ -7,9 +7,9 @@ import SwiftTreeSitter
 /// byte offsets and `Point.column` values it emits are **UTF-16 byte offsets**
 /// — exactly twice the corresponding `NSRange`/UTF-16 code-unit offset.
 ///
-/// This adapter does the trivial 2× / ÷2 conversion plus the line/column walk,
-/// and constructs `InputEdit`s correctly for the incremental parser. Callers
-/// only ever see `NSRange` (UTF-16 code units) on the Swift side.
+/// This adapter does the trivial 2× / ÷2 conversion plus the line/column
+/// walk. Callers only ever see `NSRange` (UTF-16 code units) on the Swift
+/// side.
 public struct TreeSitterMapping {
     public let text: String
 
@@ -59,39 +59,5 @@ public struct TreeSitterMapping {
     /// `NSRange` (UTF-16 code units) → tree-sitter byte range.
     public func tsRange(for nsRange: NSRange) -> Range<UInt32> {
         byteOffset(forUTF16: nsRange.location)..<byteOffset(forUTF16: nsRange.location + nsRange.length)
-    }
-
-    /// Builds an `InputEdit` describing the replacement of `nsRange` (in this
-    /// mapping's `text`) with `replacement`. Used to feed tree-sitter's
-    /// incremental parser before re-parsing the new full text.
-    public func makeInputEdit(replacing nsRange: NSRange, with replacement: String) -> InputEdit {
-        let startByte = byteOffset(forUTF16: nsRange.location)
-        let oldEndByte = byteOffset(forUTF16: nsRange.location + nsRange.length)
-        let replacementUtf16 = (replacement as NSString).length
-        let newEndByte = startByte + UInt32(replacementUtf16 * 2)
-
-        let startPoint = point(forByte: startByte)
-        let oldEndPoint = point(forByte: oldEndByte)
-
-        var newRow = startPoint.row
-        var newColumn = startPoint.column
-        for codeUnit in replacement.utf16 {
-            if codeUnit == 0x0A {
-                newRow += 1
-                newColumn = 0
-            } else {
-                newColumn += 2
-            }
-        }
-        let newEndPoint = Point(row: newRow, column: newColumn)
-
-        return InputEdit(
-            startByte: startByte,
-            oldEndByte: oldEndByte,
-            newEndByte: newEndByte,
-            startPoint: startPoint,
-            oldEndPoint: oldEndPoint,
-            newEndPoint: newEndPoint
-        )
     }
 }
