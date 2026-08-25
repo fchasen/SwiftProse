@@ -302,7 +302,7 @@ public final class ProseHosting: ObservableObject {
             self.activeActionIDs = controller.activeActionIDs()
         }
         if documentObserver == nil {
-            documentObserver = controller.addOnDocumentChange { [weak self, weak controller] _, _ in
+            documentObserver = controller.addOnDocumentChange { [weak self, weak controller] _ in
                 guard let self, let controller else { return }
                 self.activeActionIDs = controller.activeActionIDs()
             }

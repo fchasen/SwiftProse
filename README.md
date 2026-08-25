@@ -271,7 +271,7 @@ var body: some View {
             _ = ctrl.addOnSelectionChanged { _ in
                 activeIDs = ctrl.activeActionIDs()
             }
-            _ = ctrl.addOnDocumentChange { _, _ in
+            _ = ctrl.addOnDocumentChange { _ in
                 activeIDs = ctrl.activeActionIDs()
             }
         }
@@ -395,8 +395,9 @@ A transaction's `selection` field installs the result on apply. Convenience cons
 ```swift
 SwiftProseEditor(text: $text)
     .onProseControllerReady { controller in
-        controller.onDocumentChange = { document, step in
-            // Drive collab transport, mirror to a tree, etc.
+        controller.onDocumentChange = { change in
+            // change.step describes the edit; change.document projects
+            // the tree on read.
         }
         controller.onDiagnostic = { diagnostic in
             // Block-level invariant violations (auto-repaired).
@@ -411,10 +412,13 @@ SwiftProseEditor(text: $text)
     }
 ```
 
-`onDocumentChange` fires after every character edit with the freshly-derived `ProseDocument` plus a `Step.replaceText` describing the edit. The single-callback properties coexist with multi-subscriber registration:
+`onDocumentChange` fires after every character edit with a `DocumentChange`: `change.step` is a `Step.replaceText` describing the edit, and `change.document` projects the typed tree **on read**. Subscribers that never touch `document` cost nothing beyond the callback. The single-callback properties coexist with multi-subscriber registration:
 
 ```swift
-let token = controller.addOnDocumentChange { doc, step in /* ... */ }
+let token = controller.addOnDocumentChange { change in
+    print(change.step)      // free
+    print(change.document)  // projects the tree, then caches it
+}
 controller.removeObserver(token)
 ```
 

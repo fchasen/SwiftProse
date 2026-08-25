@@ -100,7 +100,7 @@ public final class CompletionPlugin: EditorPlugin {
             prior.removeObserver(observer)
         }
         attachedController = controller
-        documentObserver = controller.addOnDocumentChange { [weak self, weak controller] _, _ in
+        documentObserver = controller.addOnDocumentChange { [weak self, weak controller] _ in
             guard let self, let controller else { return }
             self.refresh(controller: controller)
         }

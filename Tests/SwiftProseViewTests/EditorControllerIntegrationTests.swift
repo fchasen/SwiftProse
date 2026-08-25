@@ -125,9 +125,9 @@ import UIKit
         let controller = try EditorController(initialMarkdown: "hello\n")
         var fireCount = 0
         var receivedDoc: ProseDocument?
-        controller.onDocumentChange = { doc, _ in
+        controller.onDocumentChange = { change in
             fireCount += 1
-            receivedDoc = doc
+            receivedDoc = change.document
         }
         controller.testSelection = NSRange(location: 5, length: 0)
         controller.insert(text: "!")
@@ -138,8 +138,8 @@ import UIKit
     @Test func documentChangeCallbackProvidesReplaceTextStep() throws {
         let controller = try EditorController(initialMarkdown: "hello\n")
         var capturedStep: Step?
-        controller.onDocumentChange = { _, step in
-            capturedStep = step
+        controller.onDocumentChange = { change in
+            capturedStep = change.step
         }
         controller.testSelection = NSRange(location: 5, length: 0)
         controller.insert(text: "!")

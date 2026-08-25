@@ -29,12 +29,23 @@ public final class EditorController {
     /// step) mutates the storage.
     public var document: ProseDocument {
         if let cached = cachedDocument { return cached }
+        projectionRunCount += 1
         let fresh = ProseDocument.from(storage: textStorage, schema: compiler.schema)
         cachedDocument = fresh
         return fresh
     }
 
     private var cachedDocument: ProseDocument?
+
+    /// Test-only invocation counter; bumped whenever `document` misses the
+    /// cache and re-projects the storage. Lets tests assert that a
+    /// keystroke costs zero projections when nobody reads the tree.
+    var projectionRunCount: Int = 0
+
+    /// Test seam: drop the projected-tree cache without mutating storage.
+    func invalidateDocumentCacheForBenchmark() {
+        cachedDocument = nil
+    }
 
     public let undoManager: UndoManager = UndoManager()
     /// Set by the platform `UIViewRepresentable` / `NSViewRepresentable`
@@ -67,7 +78,7 @@ public final class EditorController {
     // Multi-subscriber observer lists. Single-callback properties above
     // remain for the common case; `addOn…` registers additional
     // subscribers and returns a token usable with `removeObserver`.
-    private var documentChangeObservers: [(UUID, (ProseDocument, Step) -> Void)] = []
+    private var documentChangeObservers: [(UUID, (DocumentChange) -> Void)] = []
     private var diagnosticObservers: [(UUID, (SpecDiagnostic) -> Void)] = []
     private var selectionChangedObservers: [(UUID, (NSRange) -> Void)] = []
 
@@ -76,7 +87,7 @@ public final class EditorController {
     }
 
     @discardableResult
-    public func addOnDocumentChange(_ handler: @escaping (ProseDocument, Step) -> Void) -> ObserverToken {
+    public func addOnDocumentChange(_ handler: @escaping (DocumentChange) -> Void) -> ObserverToken {
         let id = UUID()
         documentChangeObservers.append((id, handler))
         return ObserverToken(id: id)
@@ -102,9 +113,9 @@ public final class EditorController {
         selectionChangedObservers.removeAll { $0.0 == token.id }
     }
 
-    func fanoutDocumentChange(_ document: ProseDocument, _ step: Step) {
-        onDocumentChange?(document, step)
-        for (_, handler) in documentChangeObservers { handler(document, step) }
+    func fanoutDocumentChange(_ change: DocumentChange) {
+        onDocumentChange?(change)
+        for (_, handler) in documentChangeObservers { handler(change) }
     }
 
     func fanoutDiagnostic(_ diagnostic: SpecDiagnostic) {
@@ -121,13 +132,13 @@ public final class EditorController {
     /// sync without polling. Forwarded by the platform coordinators in
     /// `ProseTextViewMac` / `ProseTextViewIOS`.
     public var onSelectionChanged: ((NSRange) -> Void)?
-    /// Fires after each character edit with the freshly-derived
-    /// `ProseDocument` and a `Step.replaceText` describing the storage
-    /// edit. Wire this to maintain a tree mirror, drive collaborative-
+    /// Fires after each character edit with a `DocumentChange` carrying a
+    /// `Step.replaceText` describing the storage edit and a lazily-projected
+    /// `document`. Wire this to maintain a tree mirror, drive collaborative-
     /// editing transport, or react to document changes in general. Skipped
     /// for attribute-only edits (font traits etc.) since those don't have
     /// a clean `replaceText` mapping; the cache still invalidates.
-    public var onDocumentChange: ((ProseDocument, Step) -> Void)?
+    public var onDocumentChange: ((DocumentChange) -> Void)?
 
     public let commands: CommandRegistry
     public let inputRules: InputRuleRunner
@@ -343,7 +354,7 @@ public final class EditorController {
             if self.textStorage.editedMask.contains(.editedCharacters) {
                 let derived = self.deriveReplaceTextStep()
                 derivedTransaction = Transaction(steps: [derived])
-                self.fanoutDocumentChange(self.document, derived)
+                self.fanoutDocumentChange(DocumentChange(step: derived, controller: self))
             }
             guard !self.applyingMarkdown else { return }
             if self.textStorage.editedMask.contains(.editedCharacters) {
@@ -1070,10 +1081,12 @@ public final class EditorController {
         // Project the live storage to a typed tree and run the schema-level
         // validator. Diagnostics surface through onSchemaDiagnostic so hosts
         // can wire them into the same surface as block-spec diagnostics.
+        // Gated on a handler being installed: the projection is O(document)
+        // and every transaction would otherwise pay for it unobserved.
+        guard let schemaHandler = onSchemaDiagnostic else { return }
         let document = ProseDocument.from(storage: textStorage, schema: compiler.schema)
-        let schemaDiagnostics = SchemaValidator.validate(document)
-        for diagnostic in schemaDiagnostics {
-            onSchemaDiagnostic?(diagnostic)
+        for diagnostic in SchemaValidator.validate(document) {
+            schemaHandler(diagnostic)
         }
     }
 
