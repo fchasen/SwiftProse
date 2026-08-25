@@ -1317,6 +1317,21 @@ public struct Transaction {
 
     @discardableResult
     public func apply(to storage: NSTextStorage, env: StepEnvironment) -> AppliedTransaction {
+        // One origin scope and one edit bracket for the whole transaction,
+        // so an N-step command produces one `processEditing` pass instead
+        // of N. Covers direct `tx.apply` callers and the nested apply in
+        // `Operations`; storage counts the brackets, so nesting is safe.
+        guard let prose = storage as? ProseTextStorage else {
+            return applyCore(to: storage, env: env)
+        }
+        return prose.withOrigin(.transaction) {
+            prose.beginEditing()
+            defer { prose.endEditing() }
+            return applyCore(to: storage, env: env)
+        }
+    }
+
+    private func applyCore(to storage: NSTextStorage, env: StepEnvironment) -> AppliedTransaction {
         var inverses: [Step] = []
         var mapping = Mapping.empty
         // Accumulate the union of every step's mappedRange so downstream

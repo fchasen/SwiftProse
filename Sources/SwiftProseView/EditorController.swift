@@ -10,6 +10,9 @@ import UIKit
 public final class EditorController {
 
     public let textStorage: NSTextStorage
+    /// Same object as `textStorage`, typed. Carries the capture hook and
+    /// the `EditOrigin` stack.
+    let proseStorage: ProseTextStorage
     public let contentStorage: NSTextContentStorage
     public let layoutManager: NSTextLayoutManager
     public let textContainer: NSTextContainer
@@ -30,7 +33,7 @@ public final class EditorController {
     public var document: ProseDocument {
         if let cached = cachedDocument { return cached }
         projectionRunCount += 1
-        let fresh = ProseDocument.from(storage: textStorage, schema: compiler.schema)
+        let fresh = ProseDocument.from(storage: proseStorage.contents, schema: compiler.schema)
         cachedDocument = fresh
         return fresh
     }
@@ -241,7 +244,6 @@ public final class EditorController {
     ]
     private let layoutDelegate: LayoutManagerDelegate
     private var storageObserver: NSObjectProtocol?
-    private var applyingMarkdown = false
 
     /// Marks queued for the next typed character. ProseMirror's storedMarks:
     /// click bold with no selection, then the next char you type is bold.
@@ -301,7 +303,9 @@ public final class EditorController {
         TableAttachmentViewProvider.registerOnce()
         TableAttachmentViewProvider.sharedTheme = theme
 
-        self.textStorage = NSTextStorage()
+        let storage = ProseTextStorage()
+        self.proseStorage = storage
+        self.textStorage = storage
         self.contentStorage = NSTextContentStorage()
         self.contentStorage.textStorage = textStorage
         self.layoutManager = NSTextLayoutManager()
@@ -313,10 +317,10 @@ public final class EditorController {
         layoutManager.delegate = layoutDelegate
         layoutDelegate.controller = self
 
-        applyingMarkdown = true
-        let initial = compileFor(initialMarkdown)
-        textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: initial)
-        applyingMarkdown = false
+        proseStorage.withOrigin(.load) {
+            let initial = compileFor(initialMarkdown)
+            textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: initial)
+        }
         ensureTrailingParagraph()
         resegment()
 
@@ -356,7 +360,7 @@ public final class EditorController {
                 derivedTransaction = Transaction(steps: [derived])
                 self.fanoutDocumentChange(DocumentChange(step: derived, controller: self))
             }
-            guard !self.applyingMarkdown else { return }
+            guard self.proseStorage.currentRecord?.origin ?? .platform == .platform else { return }
             if self.textStorage.editedMask.contains(.editedCharacters) {
                 let changeInLength = self.textStorage.changeInLength
                 // Capture the user's edit before the attribute repairs below
@@ -435,9 +439,9 @@ public final class EditorController {
         let ns = textStorage.string as NSString
         let probe = edited.clamped(to: total)
         let lineRange = ns.paragraphRange(for: probe)
-        applyingMarkdown = true
-        SpecValidator.repair(in: textStorage, range: lineRange)
-        applyingMarkdown = false
+        proseStorage.withOrigin(.normalize) {
+            SpecValidator.repair(in: textStorage, range: lineRange)
+        }
     }
 
 
@@ -465,12 +469,12 @@ public final class EditorController {
         }
         if attachmentStrays.isEmpty && markerStrays.isEmpty { return }
 
-        applyingMarkdown = true
-        textStorage.beginEditing()
-        for r in attachmentStrays { textStorage.removeAttribute(.attachment, range: r) }
-        for r in markerStrays { textStorage.removeAttribute(.proseListMarker, range: r) }
-        textStorage.endEditing()
-        applyingMarkdown = false
+        proseStorage.withOrigin(.normalize) {
+            textStorage.beginEditing()
+            for r in attachmentStrays { textStorage.removeAttribute(.attachment, range: r) }
+            for r in markerStrays { textStorage.removeAttribute(.proseListMarker, range: r) }
+            textStorage.endEditing()
+        }
     }
 
     /// Subranges of `range` whose characters are NOT the FFFC attachment
@@ -644,7 +648,7 @@ public final class EditorController {
     }
 
     public func markdown() -> String {
-        let md = serializer.serializeFromTree(textStorage)
+        let md = serializer.serializeFromTree(proseStorage.contents)
         // Public document text matches prosemirror-markdown: blocks are
         // separated by blank lines but the document carries no terminal
         // newline. (The tree serializer newline-terminates each block; the
@@ -845,7 +849,7 @@ public final class EditorController {
         guard total > 0 else { return .empty }
         let safe = range.clamped(to: total)
         guard safe.length > 0 else { return .empty }
-        let doc = ProseDocument.from(storage: textStorage, range: safe, schema: compiler.schema)
+        let doc = ProseDocument.from(storage: proseStorage.contents, range: safe, schema: compiler.schema)
         guard case .structural(_, let kids) = doc.root else { return .empty }
         let children = kids
         guard !children.isEmpty else { return .empty }
@@ -958,18 +962,18 @@ public final class EditorController {
         var lastRange = currentSelection
         let preMutationRange = mutationRange(for: transaction)
         let mutate = {
-            self.applyingMarkdown = true
-            let preLength = self.textStorage.length
-            let applied = transaction.apply(to: self.textStorage, env: env)
-            lastRange = applied.mappedRange
-            let delta = self.textStorage.length - preLength
-            let unionLength = max(0, preMutationRange.length + max(0, delta))
-            let validationRange = NSRange(
-                location: min(preMutationRange.location, max(0, self.textStorage.length)),
-                length: min(unionLength, self.textStorage.length - min(preMutationRange.location, max(0, self.textStorage.length)))
-            )
-            self.validateAndRepair(in: validationRange)
-            self.applyingMarkdown = false
+            self.proseStorage.withOrigin(.transaction) {
+                let preLength = self.textStorage.length
+                let applied = transaction.apply(to: self.textStorage, env: env)
+                lastRange = applied.mappedRange
+                let delta = self.textStorage.length - preLength
+                let unionLength = max(0, preMutationRange.length + max(0, delta))
+                let validationRange = NSRange(
+                    location: min(preMutationRange.location, max(0, self.textStorage.length)),
+                    length: min(unionLength, self.textStorage.length - min(preMutationRange.location, max(0, self.textStorage.length)))
+                )
+                self.validateAndRepair(in: validationRange)
+            }
             self.ensureTrailingParagraph()
             self.resegment()
             self.intrinsicSizeInvalidator?()
@@ -1084,7 +1088,7 @@ public final class EditorController {
         // Gated on a handler being installed: the projection is O(document)
         // and every transaction would otherwise pay for it unobserved.
         guard let schemaHandler = onSchemaDiagnostic else { return }
-        let document = ProseDocument.from(storage: textStorage, schema: compiler.schema)
+        let document = ProseDocument.from(storage: proseStorage.contents, schema: compiler.schema)
         for diagnostic in SchemaValidator.validate(document) {
             schemaHandler(diagnostic)
         }
@@ -1415,11 +1419,11 @@ public final class EditorController {
             let safe = range.clamped(to: self.textStorage.length)
             let redoContent = self.textStorage.attributedSubstring(from: safe)
             let redoSelection = self.currentSelection
-            self.applyingMarkdown = true
-            self.textStorage.beginEditing()
-            self.textStorage.replaceCharacters(in: safe, with: content)
-            self.textStorage.endEditing()
-            self.applyingMarkdown = false
+            self.proseStorage.withOrigin(.history) {
+                self.textStorage.beginEditing()
+                self.textStorage.replaceCharacters(in: safe, with: content)
+                self.textStorage.endEditing()
+            }
             self.setHostSelection(selection)
             self.refreshTypingAttributes(at: selection.location)
             self.resegment()
@@ -1438,16 +1442,16 @@ public final class EditorController {
             let safe = range.clamped(to: self.textStorage.length)
             let redoRuns = self.captureAttributeRuns(in: safe)
             let redoSelection = self.currentSelection
-            self.applyingMarkdown = true
-            self.textStorage.beginEditing()
-            for run in runs {
-                let runSafe = run.range.clamped(to: self.textStorage.length)
-                if runSafe.length > 0 {
-                    self.textStorage.setAttributes(run.attrs, range: runSafe)
+            self.proseStorage.withOrigin(.history) {
+                self.textStorage.beginEditing()
+                for run in runs {
+                    let runSafe = run.range.clamped(to: self.textStorage.length)
+                    if runSafe.length > 0 {
+                        self.textStorage.setAttributes(run.attrs, range: runSafe)
+                    }
                 }
+                self.textStorage.endEditing()
             }
-            self.textStorage.endEditing()
-            self.applyingMarkdown = false
             self.setHostSelection(selection)
             self.refreshTypingAttributes(at: selection.location)
             self.resegment()
@@ -1606,11 +1610,11 @@ public final class EditorController {
             landing = blockEnd
         }
         withCharacterMutation(range: mutationRange) {
-            applyingMarkdown = true
-            textStorage.beginEditing()
-            textStorage.replaceCharacters(in: mutationRange, with: blank)
-            textStorage.endEditing()
-            applyingMarkdown = false
+            proseStorage.withOrigin(.transaction) {
+                textStorage.beginEditing()
+                textStorage.replaceCharacters(in: mutationRange, with: blank)
+                textStorage.endEditing()
+            }
             resegment()
             intrinsicSizeInvalidator?()
         }
@@ -1636,15 +1640,15 @@ public final class EditorController {
             if isListItem {
                 var resulting: NSRange?
                 withCharacterMutation(range: lineRange) {
-                    applyingMarkdown = true
-                    resulting = InsertNewline.handle(
-                        in: textStorage,
-                        cursor: cursor,
-                        compiler: compiler,
-                        serializer: serializer,
-                        theme: theme
-                    )
-                    applyingMarkdown = false
+                    proseStorage.withOrigin(.transaction) {
+                        resulting = InsertNewline.handle(
+                            in: textStorage,
+                            cursor: cursor,
+                            compiler: compiler,
+                            serializer: serializer,
+                            theme: theme
+                        )
+                    }
                     resegment()
                     intrinsicSizeInvalidator?()
                 }
@@ -1683,11 +1687,11 @@ public final class EditorController {
             let plainAttrs = theme.plainParagraphAttributes()
             let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
             withCharacterMutation(range: lineRange) {
-                applyingMarkdown = true
-                textStorage.beginEditing()
-                textStorage.replaceCharacters(in: lineRange, with: blank)
-                textStorage.endEditing()
-                applyingMarkdown = false
+                proseStorage.withOrigin(.transaction) {
+                    textStorage.beginEditing()
+                    textStorage.replaceCharacters(in: lineRange, with: blank)
+                    textStorage.endEditing()
+                }
                 resegment()
                 intrinsicSizeInvalidator?()
             }
@@ -1698,11 +1702,11 @@ public final class EditorController {
         let nextLine = compiler.makeBlockquoteLine(depth: depth, theme: theme)
         let insertLocation = lineRange.location + lineRange.length
         withCharacterMutation(range: NSRange(location: insertLocation, length: 0)) {
-            applyingMarkdown = true
-            textStorage.beginEditing()
-            textStorage.replaceCharacters(in: NSRange(location: insertLocation, length: 0), with: nextLine)
-            textStorage.endEditing()
-            applyingMarkdown = false
+            proseStorage.withOrigin(.transaction) {
+                textStorage.beginEditing()
+                textStorage.replaceCharacters(in: NSRange(location: insertLocation, length: 0), with: nextLine)
+                textStorage.endEditing()
+            }
             resegment()
             intrinsicSizeInvalidator?()
         }
@@ -1739,11 +1743,11 @@ public final class EditorController {
         let plainAttrs = theme.plainParagraphAttributes()
         let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
         withCharacterMutation(range: lineRange) {
-            applyingMarkdown = true
-            textStorage.beginEditing()
-            textStorage.replaceCharacters(in: lineRange, with: blank)
-            textStorage.endEditing()
-            applyingMarkdown = false
+            proseStorage.withOrigin(.transaction) {
+                textStorage.beginEditing()
+                textStorage.replaceCharacters(in: lineRange, with: blank)
+                textStorage.endEditing()
+            }
             resegment()
             intrinsicSizeInvalidator?()
         }
@@ -1789,15 +1793,15 @@ public final class EditorController {
         let plainAttrs = theme.plainParagraphAttributes()
         let bodyRange = NSRange(location: bodyStart, length: lineRange.length - markerRange.length)
         withCharacterMutation(range: lineRange) {
-            applyingMarkdown = true
-            textStorage.beginEditing()
-            textStorage.replaceCharacters(in: markerRange, with: "")
-            let demoteRange = NSRange(location: lineRange.location, length: bodyRange.length)
-            if demoteRange.length > 0 {
-                textStorage.setAttributes(plainAttrs, range: demoteRange)
+            proseStorage.withOrigin(.transaction) {
+                textStorage.beginEditing()
+                textStorage.replaceCharacters(in: markerRange, with: "")
+                let demoteRange = NSRange(location: lineRange.location, length: bodyRange.length)
+                if demoteRange.length > 0 {
+                    textStorage.setAttributes(plainAttrs, range: demoteRange)
+                }
+                textStorage.endEditing()
             }
-            textStorage.endEditing()
-            applyingMarkdown = false
             resegment()
         }
         setHostSelection(NSRange(location: lineRange.location, length: 0))
@@ -1844,11 +1848,11 @@ public final class EditorController {
             .isEmpty
         guard isEmpty else { return false }
         withCharacterMutation(range: blockRange) {
-            applyingMarkdown = true
-            textStorage.beginEditing()
-            textStorage.replaceCharacters(in: blockRange, with: "")
-            textStorage.endEditing()
-            applyingMarkdown = false
+            proseStorage.withOrigin(.transaction) {
+                textStorage.beginEditing()
+                textStorage.replaceCharacters(in: blockRange, with: "")
+                textStorage.endEditing()
+            }
             resegment()
             intrinsicSizeInvalidator?()
         }
@@ -2054,12 +2058,12 @@ public final class EditorController {
                          "replaceStorage must be called on the main thread when a host text view is attached")
         }
         let priorSelection = currentSelection
-        applyingMarkdown = true
-        let total = NSRange(location: 0, length: textStorage.length)
-        textStorage.beginEditing()
-        textStorage.replaceCharacters(in: total, with: attributed)
-        textStorage.endEditing()
-        applyingMarkdown = false
+        proseStorage.withOrigin(.load) {
+            let total = NSRange(location: 0, length: textStorage.length)
+            textStorage.beginEditing()
+            textStorage.replaceCharacters(in: total, with: attributed)
+            textStorage.endEditing()
+        }
         ensureTrailingParagraph()
         resegment()
         // Replacing all characters resets the host text view's caret to the
@@ -2088,11 +2092,11 @@ public final class EditorController {
         guard isAtomic else { return }
         let plainAttrs = theme.plainParagraphAttributes()
         let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
-        applyingMarkdown = true
-        textStorage.beginEditing()
-        textStorage.replaceCharacters(in: NSRange(location: total, length: 0), with: blank)
-        textStorage.endEditing()
-        applyingMarkdown = false
+        proseStorage.withOrigin(.normalize) {
+            textStorage.beginEditing()
+            textStorage.replaceCharacters(in: NSRange(location: total, length: 0), with: blank)
+            textStorage.endEditing()
+        }
     }
 
     /// Test-only invocation counter; bumped at the start of every
@@ -2109,7 +2113,7 @@ public final class EditorController {
             self.pendingHighlightRange = nil
             return
         }
-        textStorage.enumerateBlockSpecs { range, spec in
+        proseStorage.contents.enumerateBlockSpecs { range, spec in
             segs.append(BlockSegment(
                 range: range,
                 tag: tagFor(spec: spec),
@@ -2177,15 +2181,15 @@ public final class EditorController {
             // Intersect with `safe`.
             if runStart < safeEnd, safe.location < runEnd {
                 let language = blocks[i].language ?? blocks[j].language
-                applyingMarkdown = true
-                compiler.rehighlightCodeBlock(
-                    in: textStorage,
-                    blockRange: NSRange(location: runStart, length: runEnd - runStart),
-                    language: language,
-                    isFenced: tag == .fencedCode,
-                    theme: theme
-                )
-                applyingMarkdown = false
+                proseStorage.withOrigin(.normalize) {
+                    compiler.rehighlightCodeBlock(
+                        in: textStorage,
+                        blockRange: NSRange(location: runStart, length: runEnd - runStart),
+                        language: language,
+                        isFenced: tag == .fencedCode,
+                        theme: theme
+                    )
+                }
             }
             i = j + 1
         }

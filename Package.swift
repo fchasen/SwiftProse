@@ -41,7 +41,8 @@ let package = Package(
         ),
         .testTarget(
             name: "SwiftProseViewTests",
-            dependencies: ["SwiftProseView", "SwiftProseSyntax"]
+            dependencies: ["SwiftProseView", "SwiftProseSyntax"],
+            exclude: ["Benchmarks/BASELINE.md"]
         ),
         .testTarget(
             name: "SwiftProseTests",

@@ -59,3 +59,47 @@ installed. `DocumentChangeLazinessTests` pins that.
 `markdown()` at ~47 ms is the binding-push cost; hosts that bind `text`
 pay it on the 80 ms `scheduleTextPush` timer, not per keystroke. That is
 the binding contract, not a scan to remove.
+
+
+---
+
+## After Stage 3.1 (`ProseTextStorage`)
+
+Same machine, same fixtures. `StoragePrimitiveBench` (also gated on
+`SWIFTPROSE_BENCH`) compares `ProseTextStorage` against a plain
+`NSTextStorage` holding identical content, which is how the numbers below
+were attributed.
+
+| case | Stage 0/2 median µs | after 3.1 | delta |
+|---|---:|---:|---:|
+| keystroke — mixed (5 positions) | 2832–2875 | 2953–3030 | +3% |
+| transaction — replaceText | 2708 | 2882 | +6% |
+| markdown() — mixed | 47412 | 50789 | +7% |
+| document (cold) — mixed | 26337 | 29815 | +13% (Stage 2 span stamping) |
+| keystroke — inside 3000-line fence | 47.8 | 63.5 | +33% |
+
+Three findings from the subclass, each of which cost 5-150x before it was
+fixed, kept here so they are not rediscovered:
+
+1. **Read paths must be forwarded.** `NSAttributedString` implements
+   `enumerateAttribute`, `attribute(_:at:…)`, and friends on top of the
+   `attributes(at:effectiveRange:)` primitive, allocating a bridged Swift
+   dictionary per run. Leaving them to the default cost **6x** on
+   keystrokes and **11x** on `ProseDocument.from`. They now forward to the
+   backing store directly.
+2. **The backing store must be a concrete `NSTextStorage`, not an
+   `NSMutableAttributedString`.** The latter's `replaceCharacters` is linear
+   in attribute-run count — ~250 µs per keystroke on the syntax-highlighted
+   3000-line fence, and growing. Its `string` also copies the whole buffer
+   on every read, where `NSTextStorage.string` hands back the live one.
+3. **Whole-document walks bypass the overrides** via `proseStorage.contents`.
+   `ProseDocument.from` does two attribute lookups *per character*, so a
+   76 KB document is 150k forwarded ObjC calls — worth ~4 ms and 31k
+   allocations on `markdown()` alone.
+
+Attribute fixing stays **eager** (`fixesAttributesLazily == false`, the
+default for a subclass). Making it lazy is worth ~0 on the keystroke path
+and breaks `editedRange` bookkeeping — edits accumulate instead of
+resetting, which surfaces as a wrong `Step.replaceText` range in
+`onDocumentChange`. Eager fixing also does the `.attachment`-on-non-FFFC
+cleanup that `scrubTypedAttributes` does by hand.
