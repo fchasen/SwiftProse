@@ -530,6 +530,32 @@ The editor holds a single TextKit 2 stack — there's no separate model document
 open Examples/SwiftProseDemo/SwiftProseDemo.xcodeproj
 ```
 
+## API documentation
+
+This README is the guide; DocC is the reference. In Xcode, **Product → Build
+Documentation** — no setup needed. From the command line the plugin is opt-in,
+so apps depending on SwiftProse never resolve it:
+
+```sh
+SWIFTPROSE_DOCS=1 swift package generate-documentation --target SwiftProse
+```
+
+Four targets are documented separately, since `SwiftProse` re-exports the other
+three rather than redeclaring their symbols:
+
+| Target | Reference covers |
+|---|---|
+| `SwiftProse` | `SwiftProseEditor`, configuration, toolbar and status items, completion |
+| `SwiftProseView` | `EditorController`, `Step`, `Transaction`, commands, input rules, plugins |
+| `SwiftProseSyntax` | `Schema`, `ProseDocument`, `ResolvedPos`, parsers, codecs |
+| `SwiftProseRendering` | attachments and layout fragments |
+
+To preview one in a browser:
+
+```sh
+SWIFTPROSE_DOCS=1 swift package --disable-sandbox preview-documentation --target SwiftProseView
+```
+
 ## Testing
 
 Unit tests cover the parser, segmenter, classifier, schema, document tree, ProseMirror JSON, controller integration, every command and input rule, and undo / redo flows.

@@ -13,6 +13,17 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter Swi
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter SwiftProseViewTests.StepInverseRoundTripTests/replaceTextRoundTrips
 ```
 
+DocC is opt-in so downstream apps don't resolve the plugin:
+
+```sh
+SWIFTPROSE_DOCS=1 swift package generate-documentation --target SwiftProseView
+```
+
+Landing pages live in `Sources/<Target>/<Target>.docc/`. Keep them building
+without warnings — a symbol link that no longer resolves is a stale doc.
+Platform-conditional types (`ProseTextViewIOS`) can't be curated, since the
+reference is built per-platform.
+
 End-to-end XCUITests live in a separate Xcode project (`Examples/SwiftProseDemo/`) and require `xcodebuild`:
 
 ```sh

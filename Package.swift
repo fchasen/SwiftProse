@@ -1,5 +1,6 @@
 // swift-tools-version: 5.10
 import PackageDescription
+import Foundation
 
 let package = Package(
     name: "SwiftProse",
@@ -50,3 +51,15 @@ let package = Package(
         )
     ]
 )
+
+// DocC is opt-in so apps that depend on SwiftProse don't resolve a plugin
+// they will never build with. Generate the reference with:
+//
+//   SWIFTPROSE_DOCS=1 swift package generate-documentation
+//
+// Xcode's Product > Build Documentation needs none of this.
+if ProcessInfo.processInfo.environment["SWIFTPROSE_DOCS"] != nil {
+    package.dependencies.append(
+        .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.3.0")
+    )
+}
