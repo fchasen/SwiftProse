@@ -724,7 +724,6 @@ public final class EditorController {
             inverses.append(contentsOf: inverseSteps(from: record))
         }
         guard !inverses.isEmpty else { return }
-
         let coalescing: Bool
         switch editClass {
         case .typing, .deletion, .correction: coalescing = true
@@ -806,7 +805,19 @@ public final class EditorController {
                 unstamped.append(runRange)
             }
         }
-        guard let winner = tally.values.max(by: { $0.weight < $1.weight })?.box else {
+        // Ties are broken by the line terminator's node. A character
+        // inserted into a line carries the *insertion point's* node
+        // forward, which may belong to the block before it; the newline
+        // that ends the line never does. Without a deterministic rule here
+        // `Dictionary` iteration order decides, and a one-character line
+        // resolves differently from run to run.
+        let terminator = terminatorBox(of: line)
+        guard let winner = tally.values.max(by: { lhs, rhs in
+            if lhs.weight != rhs.weight { return lhs.weight < rhs.weight }
+            let lhsIsTerminator = terminator.map { $0 === lhs.box } ?? false
+            let rhsIsTerminator = terminator.map { $0 === rhs.box } ?? false
+            return !lhsIsTerminator && rhsIsTerminator
+        })?.box else {
             // Nothing on this line carries structure — content injected
             // straight into storage, or the first character of an empty
             // document. There is no identity to preserve, so minting one
@@ -844,6 +855,12 @@ public final class EditorController {
         if textStorage.blockSpec(at: line.location)?.isListItem != true {
             textStorage.removeAttribute(.proseListMarker, range: line)
         }
+    }
+
+    private func terminatorBox(of line: NSRange) -> NodePathBox? {
+        let last = line.location + line.length - 1
+        guard last >= 0, last < textStorage.length else { return nil }
+        return textStorage.attribute(.proseNodePath, at: last, effectiveRange: nil) as? NodePathBox
     }
 
     /// True when `box` already covers a line before this one and its block
