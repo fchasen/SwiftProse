@@ -272,14 +272,43 @@ public struct ProseTextViewMac: NSViewRepresentable {
         public func textView(_ textView: NSTextView,
                              shouldChangeTextIn affectedCharRange: NSRange,
                              replacementString: String?) -> Bool {
-            // Plugins get first crack at every text-input event.
             let controller = parent.controller
-            guard let text = replacementString else { return true }
+            controller.nextEditHint = nil
+
+            // Attribute-only edits (Font panel, Format menu) arrive with a
+            // nil replacement. Stamp before the early return so the drain
+            // sees them for what they are.
+            guard let text = replacementString else {
+                controller.nextEditHint = .attributeOnly
+                return true
+            }
+
+            // Plugins get first crack at every text-input event.
             for plugin in controller.plugins {
                 if plugin.props.handleTextInput?(controller, affectedCharRange, text) == true {
+                    controller.nextEditHint = nil
                     return false
                 }
             }
+
+            // The selection as it stands *before* the edit is what separates
+            // a correction from typing: autocorrect and text replacement
+            // rewrite a range the user has not selected.
+            let selection = textView.selectedRange()
+            let hint: EditHint
+            if textView.hasMarkedText() {
+                hint = .composition
+            } else if text.isEmpty {
+                hint = .deletion
+            } else if affectedCharRange.length > 0, affectedCharRange != selection {
+                hint = .correction
+            } else if text.utf16.count == 1 {
+                hint = .typing
+            } else {
+                hint = .bulk
+            }
+            controller.nextEditHint = hint
+
             // macOS has no public dictation callback. Multi-character non-IME
             // insertions are structurally a bulk text drop — route them
             // through the paste pipeline so dictation / smart-substitution
@@ -290,13 +319,19 @@ public struct ProseTextViewMac: NSViewRepresentable {
             //   2. !hasMarkedText (skip IME composition)
             //   3. !isPasting (Cmd-V already routed itself through the
             //      pipeline; don't double-dispatch)
-            //   4. contains whitespace or newline (pure tokens are likely
+            //   4. the affected range IS the selection — a correction
+            //      rewrites text the user didn't select, and routing it
+            //      through paste would make "teh " → "the " a separate undo
+            //      step landing at the wrong place
+            //   5. contains whitespace or newline (pure tokens are likely
             //      IME-finalized; only structurally-bulky text routes)
             if controller.useStructuredBulkInsert,
                text.count > 1,
                !textView.hasMarkedText(),
                (textView as? ProseNSTextView)?.isPasting != true,
+               affectedCharRange == selection,
                text.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }) {
+                controller.nextEditHint = nil
                 let event = PasteEvent(
                     text: text,
                     plainText: true,

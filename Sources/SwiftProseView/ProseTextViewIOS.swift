@@ -262,6 +262,7 @@ public struct ProseTextViewIOS: UIViewRepresentable {
             // Plugins get first crack at every text-input event. Returning
             // true from `handleTextInput` consumes the input.
             let controller = parent.controller
+            controller.nextEditHint = nil
             if !controller.plugins.isEmpty {
                 for plugin in controller.plugins {
                     if plugin.props.handleTextInput?(controller, range, text) == true {
@@ -284,6 +285,21 @@ public struct ProseTextViewIOS: UIViewRepresentable {
                 parent.controller.perform(.indent)
                 pushTextNow()
                 return false
+            }
+            // The selection as it stands *before* the edit is what separates
+            // a correction from typing: autocorrect and the predictive bar
+            // rewrite a range the user has not selected.
+            let selection = textView.selectedRange
+            if textView.markedTextRange != nil {
+                controller.nextEditHint = .composition
+            } else if text.isEmpty {
+                controller.nextEditHint = .deletion
+            } else if range.length > 0, range != selection {
+                controller.nextEditHint = .correction
+            } else if text.utf16.count == 1 {
+                controller.nextEditHint = .typing
+            } else {
+                controller.nextEditHint = .bulk
             }
             return true
         }
@@ -406,6 +422,19 @@ final class ProseUITextView: UITextView {
         let bundle = serializer.serializeForClipboard(controller: controller, slice: slice)
         Clipboard.write(text: bundle.text, html: bundle.html)
         return true
+    }
+
+    /// Interim dictation writes placeholder text straight into storage.
+    /// Flagging it lets the drain drop those envelopes — the real phrase
+    /// arrives through `insertDictationResult` below.
+    override func insertDictationResultPlaceholder() -> Any {
+        proseController?.dictationPlaceholderActive = true
+        return super.insertDictationResultPlaceholder()
+    }
+
+    override func removeDictationResultPlaceholder(_ placeholder: Any, willInsertResult: Bool) {
+        proseController?.dictationPlaceholderActive = false
+        super.removeDictationResultPlaceholder(placeholder, willInsertResult: willInsertResult)
     }
 
     /// iOS dictation finalization delivers the recognized phrase as one

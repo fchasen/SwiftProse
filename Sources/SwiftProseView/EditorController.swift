@@ -454,11 +454,45 @@ public final class EditorController {
 
     private func closeEnvelope(_ envelope: PendingEnvelope) {
         let record = envelope.record
-        let changeInLength = record.changeInLength
         let userEditedRange = record.editedRange
-        let step = derivedStep(from: record)
+        let editClass = classify(record)
+        classificationProbe?(editClass)
 
         accumulateHighlightRange(userEditedRange)
+
+        switch editClass {
+        case .compositionInterim, .dictationInterim:
+            // Not content yet. Keep the cache and highlight bookkeeping the
+            // caller already did, and stop — no normalization, no publish,
+            // no input rules, no undo entry.
+            if hostTextView != nil { scheduleResegment() } else { resegment() }
+            return
+        case .attributeOnly:
+            if hostTextView != nil { scheduleResegment() } else { resegment() }
+            return
+        default:
+            break
+        }
+
+        let step: Step
+        if editClass == .compositionCommit, let baseline = compositionBaseline {
+            compositionBaseline = nil
+            let end = max(baseline.range.location, userEditedRange.location + userEditedRange.length)
+            let span = NSRange(
+                location: baseline.range.location,
+                length: min(end - baseline.range.location, max(0, textStorage.length - baseline.range.location))
+            )
+            let post = textStorage.attributedSubstring(from: span.clamped(to: textStorage.length))
+            // Esc mid-composition puts the pre-image back; nothing happened.
+            if post.isEqual(to: baseline.preImage) {
+                if hostTextView != nil { scheduleResegment() } else { resegment() }
+                return
+            }
+            step = .replaceText(range: baseline.range, with: post)
+        } else {
+            step = derivedStep(from: record)
+        }
+
         scrubTypedAttributes(in: userEditedRange)
         repairEditedLine(in: userEditedRange)
         demoteEmptyStyledLines(in: userEditedRange)
@@ -486,11 +520,12 @@ public final class EditorController {
 
         fanoutDocumentChange(DocumentChange(step: step, controller: self))
 
-        // Input rules: only on a single typed character — paste, cut,
-        // multi-char inserts, undo/redo, programmatic edits all skip.
-        // Composition (CJK / dictation) skips too.
+        // Input rules fire only for a typed character. Paste, deletion,
+        // autocorrect, composition, and undo/redo all skip: a rule that
+        // rewrites what autocorrect just produced is the classic
+        // double-transform bug.
         var inputRuleFired = false
-        if changeInLength == 1, !isComposingIME {
+        if editClass == .typing {
             inputRuleFired = evaluateInputRules()
         } else {
             lastInputRule = nil
@@ -498,6 +533,99 @@ public final class EditorController {
         }
         if !inputRuleFired {
             runAppendTransactions(after: [Transaction(steps: [step])])
+        }
+    }
+
+    /// What a platform edit group turned out to be, decided at drain with
+    /// the delegate's hint as a starting point and storage as the truth.
+    enum EditClass: Equatable {
+        /// Undo or redo replay.
+        case history
+        /// Interim IME composition — marked text, not content yet.
+        case compositionInterim
+        /// Marked text resolved. The whole composition collapses to one
+        /// edit against the state before it started.
+        case compositionCommit
+        /// iOS dictation placeholder text. Dropped; the final phrase
+        /// arrives through `insertDictationResult` as a paste.
+        case dictationInterim
+        /// One character at the caret.
+        case typing
+        /// Backspace / forward-delete / delete selection.
+        case deletion
+        /// Autocorrect, text replacement, Edit > Find > Replace, smart
+        /// substitution — the affected range is not the selection.
+        case correction
+        /// Paste, drag-move, multi-character insert, Replace All.
+        case bulk
+        /// Font panel, Format menu — no character change.
+        case attributeOnly
+    }
+
+    /// State captured when a composition started, so the commit can be
+    /// expressed as one edit against the pre-composition document.
+    struct CompositionBaseline {
+        let range: NSRange
+        let preImage: NSAttributedString
+        let selectionBefore: NSRange
+        let timestamp: TimeInterval
+    }
+
+    private(set) var compositionBaseline: CompositionBaseline?
+
+    /// Test seam: fires with the class every closed platform envelope was
+    /// assigned.
+    var classificationProbe: ((EditClass) -> Void)?
+
+    /// Decide what `record` was. First match wins.
+    func classify(_ record: EditRecord) -> EditClass {
+        if undoManager.isUndoing || undoManager.isRedoing { return .history }
+        if dictationPlaceholderActive { return .dictationInterim }
+
+        let composingNow = isComposingIME
+        let context = record.context
+        if composingNow {
+            if context?.markedTextActive == false || compositionBaseline == nil {
+                let first = record.captures.first
+                compositionBaseline = CompositionBaseline(
+                    range: first?.range ?? record.editedRange,
+                    preImage: first?.preImage ?? NSAttributedString(),
+                    selectionBefore: context?.selectionBefore ?? currentSelection,
+                    timestamp: context?.timestamp ?? historyClock()
+                )
+            }
+            return .compositionInterim
+        }
+        if compositionBaseline != nil { return .compositionCommit }
+
+        // A single bracket holding several mutations is structurally bulk —
+        // a drag-move, Replace All, or an NSTextFinder pass.
+        if record.captures.count > 1 { return .bulk }
+
+        switch context?.hint {
+        case .attributeOnly:
+            return .attributeOnly
+        case .correction:
+            return .correction
+        case .deletion:
+            return .deletion
+        case .typing:
+            // Storage is the truth: a hint that says typing but a record
+            // that grew by more than one character is bulk.
+            return record.changeInLength == 1 ? .typing : .bulk
+        case .bulk, .composition:
+            return .bulk
+        case nil:
+            // No hint — a host wrote storage directly, or a test did.
+            let inserted: Int
+            if case .characters(let n)? = record.captures.first?.kind {
+                inserted = n
+            } else {
+                inserted = max(0, record.changeInLength)
+            }
+            if inserted == 1, record.changeInLength == 1 { return .typing }
+            if inserted == 0 { return .deletion }
+            return .bulk
         }
     }
 
@@ -761,6 +889,9 @@ public final class EditorController {
     }
 
     var testSelection: NSRange?
+    /// Test seam next to `testSelection` — lets headless classification
+    /// tests drive the composition path without an input system.
+    var testMarkedText: Bool?
 
     public var currentSelection: NSRange {
         if let testSelection { return testSelection }
@@ -1385,7 +1516,8 @@ public final class EditorController {
         }
     }
 
-    private var isComposingIME: Bool {
+    var isComposingIME: Bool {
+        if let testMarkedText { return testMarkedText }
         #if canImport(AppKit) && os(macOS)
         if let tv = hostTextView as? NSTextView { return tv.hasMarkedText() }
         #elseif canImport(UIKit)
@@ -1393,6 +1525,11 @@ public final class EditorController {
         #endif
         return false
     }
+
+    /// Set by `ProseUITextView` between `insertDictationResultPlaceholder`
+    /// and `removeDictationResultPlaceholder`. Interim dictation writes
+    /// placeholder text into storage; none of it is real content.
+    var dictationPlaceholderActive = false
 
     @discardableResult
     func evaluateInputRules() -> Bool {
