@@ -44,22 +44,31 @@ import UIKit
         #expect(diagnostics.isEmpty, "compiled storage should be valid; got \(diagnostics)")
     }
 
-    @Test func repairFillsMissingSpecFromLine() throws {
+    @Test func missingSpecIsReported() throws {
         let env = try env()
         let storage = NSTextStorage(attributedString: env.compiler.compile("hello world\n", theme: .default))
         storage.removeAttribute(.proseNodePath, range: NSRange(location: 0, length: 5))
-        SpecValidator.repair(in: storage, range: NSRange(location: 0, length: storage.length))
         let diagnostics = SpecValidator.validate(in: storage, range: NSRange(location: 0, length: storage.length))
-        #expect(diagnostics.isEmpty, "repair should restore consistency, got \(diagnostics)")
+        #expect(diagnostics.contains { if case .missingSpec = $0.issue { return true } else { return false } },
+                "got \(diagnostics)")
     }
 
-    @Test func repairResolvesInconsistentSpec() throws {
+    @Test func inconsistentSpecIsReported() throws {
         let env = try env()
         let storage = NSTextStorage(attributedString: env.compiler.compile("hello world\n", theme: .default))
         storage.setBlockSpec(BlockSpec(kind: .heading(level: 2)), in: NSRange(location: 0, length: 1))
-        SpecValidator.repair(in: storage, range: NSRange(location: 0, length: storage.length))
         let diagnostics = SpecValidator.validate(in: storage, range: NSRange(location: 0, length: storage.length))
-        #expect(diagnostics.isEmpty, "repair should resolve inconsistency, got \(diagnostics)")
+        #expect(diagnostics.contains { if case .inconsistentSpec = $0.issue { return true } else { return false } },
+                "got \(diagnostics)")
+    }
+
+    @Test func isolatingLinesAreNotReportedAsMissingSpec() throws {
+        // `BlockSpec` has no case for a table, so every character of one
+        // has a nil spec. That is not a violation.
+        let controller = try EditorController(initialMarkdown: "| a | b |\n| --- | --- |\n| 1 | 2 |\n")
+        let storage = controller.textStorage
+        let diagnostics = SpecValidator.validate(in: storage, range: NSRange(location: 0, length: storage.length))
+        #expect(diagnostics.isEmpty, "got \(diagnostics)")
     }
 
     @Test func transactionApplyLeavesValidStorage() throws {

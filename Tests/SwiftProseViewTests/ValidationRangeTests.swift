@@ -51,11 +51,11 @@ import UIKit
                 "the diagnostic must come from step 1's range, not just the last step's")
     }
 
-    @Test func multiLineStorageEditRepairsAllAffectedLines() throws {
+    @Test func multiLineStorageEditNormalizesAllAffectedLines() throws {
         let controller = try EditorController(initialMarkdown: "")
-        // Inject a 3-line block of unspec'd text directly into storage —
-        // this fires the storage observer, which must repair every line
-        // covered by editedRange, not just the line at editedRange.location.
+        // Inject a 3-line block of unspec'd text directly into storage.
+        // Normalization must reach every line the edit covered, not just
+        // the line at editedRange.location.
         let injected = NSAttributedString(string: "one\ntwo\nthree\n")
         controller.textStorage.beginEditing()
         controller.textStorage.replaceCharacters(
@@ -77,6 +77,6 @@ import UIKit
             }
         }
         #expect(missingByLine.isEmpty,
-                "expected every line repaired by the observer, got missing-spec counts \(missingByLine)")
+                "expected every line normalized, got missing-spec counts \(missingByLine)")
     }
 }

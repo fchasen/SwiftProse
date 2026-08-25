@@ -64,22 +64,6 @@ public enum SpecValidator {
         return out
     }
 
-    /// Restore invariants by enforcing the most common BlockSpec across
-    /// each paragraph (or `paragraph` if none is present), and stripping
-    /// marker flags off chars whose paragraph isn't a list item. Lines
-    /// whose leaf is an isolating node are skipped — `BlockSpec` can't
-    /// represent their ancestor chain.
-    public static func repair(
-        in storage: NSTextStorage,
-        range: NSRange
-    ) {
-        forEachLine(in: storage, range: range) { lineRange in
-            if lineHasIsolatingLeaf(in: storage, lineRange: lineRange) { return }
-            let canonical = canonicalSpec(in: storage, lineRange: lineRange) ?? .paragraph
-            applyCanonical(canonical, to: storage, lineRange: lineRange)
-        }
-    }
-
     static func lineHasIsolatingLeaf(
         in storage: NSAttributedString,
         lineRange: NSRange
@@ -91,34 +75,6 @@ public enum SpecValidator {
             if path.leaf?.type == "table" { found = true }
         }
         return found
-    }
-
-    /// Pick the spec value the largest portion of the line agrees on.
-    /// Returns nil if no character carries a spec.
-    private static func canonicalSpec(
-        in storage: NSAttributedString,
-        lineRange: NSRange
-    ) -> BlockSpec? {
-        var counts: [BlockSpec: Int] = [:]
-        storage.enumerateBlockSpecs(in: lineRange) { subRange, spec in
-            counts[spec, default: 0] += subRange.length
-        }
-        return counts.max(by: { $0.value < $1.value })?.key
-    }
-
-    private static func applyCanonical(
-        _ spec: BlockSpec,
-        to storage: NSTextStorage,
-        lineRange: NSRange
-    ) {
-        guard lineRange.length > 0,
-              lineRange.location + lineRange.length <= storage.length else { return }
-        storage.beginEditing()
-        storage.setBlockSpec(spec, in: lineRange)
-        if !spec.isListItem {
-            storage.removeAttribute(.proseListMarker, range: lineRange)
-        }
-        storage.endEditing()
     }
 
     private static func forEachLine(
