@@ -212,9 +212,8 @@ private final class StubHighlighter: CodeBlockHighlighter {
     /// Typing into a fenced code block re-runs the highlighter so freshly
     /// typed code picks up token coloring. Before the fix the highlighter
     /// only ran at compile time, so the post-typing body was uncolored.
-    /// Tests drive the headless path (no host text view) so `resegment()`
-    /// — and the rehighlight pass it kicks off — runs synchronously after
-    /// each typed character.
+    /// Tests drive the headless path (no host text view) so the
+    /// rehighlight pass runs synchronously after each typed character.
     @Test func typingInsideFencedBlockReinvokesHighlighter() throws {
         let stub = StubHighlighter(response: [])
         let controller = try EditorController(

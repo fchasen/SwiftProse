@@ -45,9 +45,9 @@ the user types. The undo that restores the fixture runs outside the timer.
 
 Keystroke cost tracks **block count**, not document length: 1200 blocks
 costs ~2.9 ms per character, while a 169 KB document that is almost
-entirely one code fence costs ~48 µs. That is `resegment()` —
-`enumerateBlockSpecs` over the whole storage on every edit, rebuilding
-`blocks` — and it is Stage 4's target. Position within the document does
+entirely one code fence costs ~48 µs. That is the whole-document
+`resegment()` pass — `enumerateBlockSpecs` over the whole storage on every
+edit, rebuilding `blocks` — and it is Stage 4's target (removed there). Position within the document does
 not matter, which is the signature of a whole-document scan.
 
 `ProseDocument.from` (the `document (cold)` row) is ~26 ms on the mixed

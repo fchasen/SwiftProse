@@ -108,7 +108,8 @@ public struct EditRecord {
 ///   mechanism.
 /// - **Origin.** `withOrigin(_:)` brackets the controller's own writes so
 ///   the drain can tell a keystroke from a transaction, an undo replay, or
-///   a normalization pass. Replaces the single `applyingMarkdown` flag.
+///   a normalization pass. Replaces the single boolean flag the
+///   controller used to carry for this.
 ///
 /// Attribute fixing runs inside `super.processEditing()` and calls the
 /// `setAttributes` primitive; captures are suppressed for the duration.
