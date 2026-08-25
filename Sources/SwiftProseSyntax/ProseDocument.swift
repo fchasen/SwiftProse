@@ -41,22 +41,29 @@ public extension TreeNode {
         return []
     }
 
-    /// Number of UTF-16 code units this subtree contributes to a flattened
-    /// `NSAttributedString` projection. Used by callers that want to map
-    /// tree positions to storage offsets without doing a full projection.
+    /// UTF-16 span this subtree occupies.
+    ///
+    /// For a tree projected by `ProseDocument.from(storage:)` this is the
+    /// **storage footprint** — exactly the number of characters the node
+    /// covers in the `NSTextStorage`, including presentation markers, the
+    /// block's terminating newline, and blank separator lines. That makes
+    /// `document.contentLength == textStorage.length` and lets
+    /// `document.resolve(_:)` take a raw storage offset.
+    ///
+    /// For a hand-built tree (no `StorageLayout`) it is the length of the
+    /// flattened `project()` output: inline text plus one newline between
+    /// block-shaped siblings.
     var contentLength: Int {
         switch self {
         case .inline(let text, _):
             return (text as NSString).length
-        case .leaf:
-            return 1
-        case .structural(_, let kids):
-            // Block-level children are joined by newline, mirroring how
-            // `MarkdownAttributedCompiler.appendStyled` writes paragraphs.
-            // Inline children concatenate without separators.
+        case .leaf(let node, _):
+            return node.layout.storageLength ?? 1
+        case .structural(let node, let kids):
+            if let span = node.layout.storageLength { return span }
             var total = 0
             for (i, child) in kids.enumerated() {
-                if i > 0, isBlockLike(child) {
+                if i > 0, TreeNode.needsSeparator(before: child) {
                     total += 1 // newline separator
                 }
                 total += child.contentLength
@@ -65,13 +72,18 @@ public extension TreeNode {
         }
     }
 
-    private func isBlockLike(_ child: TreeNode) -> Bool {
+    /// Whether a synthetic newline separator precedes `child` when summing
+    /// sibling lengths. A child that knows its own storage span already
+    /// covers its terminator, so no separator is synthesized in front of
+    /// it; hand-built block-shaped children still get one.
+    static func needsSeparator(before child: TreeNode) -> Bool {
         switch child {
         case .inline: return false
         case .leaf(let node, _):
             // Inline leaves (hard_break) don't insert paragraph separators.
-            return node.type != "hard_break"
-        case .structural: return true
+            return node.layout.storageLength == nil && node.type != "hard_break"
+        case .structural(let node, _):
+            return node.layout.storageLength == nil
         }
     }
 }
@@ -98,6 +110,10 @@ public struct ProseDocument: Sendable, Equatable {
             )
         )
     }
+
+    /// Span of the whole document. For a tree projected from storage this
+    /// equals `textStorage.length` exactly.
+    public var contentLength: Int { root.contentLength }
 
     public static func make(
         schema: Schema,
@@ -267,8 +283,15 @@ public extension ProseDocument {
         // open the run's missing ancestors. The doc root is treated as
         // always shared so a freshly-minted target doc still aligns to the
         // existing root.
+        //
+        // Alongside the tree, `starts` mirrors it with the storage offset
+        // where each node begins. A second pass turns those into exact
+        // spans (`StorageLayout.storageLength`) — a node ends where its
+        // next sibling starts, which is what makes blank separator lines
+        // and dropped runs land inside the block that precedes them.
         let docNode = ProseNode(type: schema.topNodeName, attrs: schema.topNode.defaultAttrs())
-        var stack: [(node: ProseNode, kids: [TreeNode])] = [(docNode, [])]
+        let rootStarts = StartNode(start: scanRange.location)
+        var stack: [(node: ProseNode, kids: [TreeNode], starts: StartNode)] = [(docNode, [], rootStarts)]
         var openPath: NodePath = NodePath([docNode])
 
         storage.enumerateNodePaths(in: scanRange) { blockRange, blockPath in
@@ -287,9 +310,9 @@ public extension ProseDocument {
                 // call sites below still consult `isPresentationMarker`
                 // because they're skipping chars during text aggregation,
                 // not skipping leaf appends.
-                openTo(parent: blockPath.droppingLast(), stack: &stack, openPath: &openPath)
+                openTo(parent: blockPath.droppingLast(), at: blockRange.location, stack: &stack, openPath: &openPath)
                 let marks = storage.markSet(at: blockRange.location) ?? MarkSet()
-                stack[stack.count - 1].kids.append(.leaf(leaf, marks))
+                append(.leaf(leaf, marks), startingAt: blockRange.location, to: &stack)
                 return
             }
             // When the leaf is an `isolating`-flagged structural node
@@ -300,11 +323,13 @@ public extension ProseDocument {
             if let leaf = blockPath.leaf,
                schema.nodeType(leaf.type)?.isolating == true,
                let attachment = subtreeAttachment(in: storage, at: blockRange.location) {
-                openTo(parent: blockPath.droppingLast(), stack: &stack, openPath: &openPath)
+                openTo(parent: blockPath.droppingLast(), at: blockRange.location, stack: &stack, openPath: &openPath)
+                var lifted = leaf
+                lifted.layout.isAttachmentBacked = true
                 if case .structural(_, let kids) = attachment.subtree {
-                    stack[stack.count - 1].kids.append(.structural(leaf, kids))
+                    append(.structural(lifted, kids), startingAt: blockRange.location, to: &stack)
                 } else {
-                    stack[stack.count - 1].kids.append(.structural(leaf, []))
+                    append(.structural(lifted, []), startingAt: blockRange.location, to: &stack)
                 }
                 return
             }
@@ -326,13 +351,14 @@ public extension ProseDocument {
                 || hasIsolatingAncestor
                 || rangeHasPresentationMarker(in: storage, range: blockRange)
             if openEvenWhenEmpty {
-                openTo(parent: blockPath, stack: &stack, openPath: &openPath)
+                openTo(parent: blockPath, at: blockRange.location, stack: &stack, openPath: &openPath)
             }
             storage.enumerateAttribute(.proseMarks, in: blockRange) { value, runRange, _ in
                 guard runRange.length > 0 else { return }
                 let marks = (value as? MarkSetBox)?.marks ?? MarkSet()
                 let ns = storage.string as NSString
                 var accumulated = ""
+                var firstRetained: Int?
                 var cursor = runRange.location
                 let runEnd = runRange.location + runRange.length
                 while cursor < runEnd {
@@ -345,13 +371,18 @@ public extension ProseDocument {
                           !isPresentationMarker(in: storage, at: segEnd) {
                         segEnd += 1
                     }
+                    if firstRetained == nil { firstRetained = cursor }
                     accumulated.append(ns.substring(with: NSRange(location: cursor, length: segEnd - cursor)))
                     cursor = segEnd
                 }
                 let text = stripTrailingNewlines(accumulated)
                 if text.isEmpty { return }
-                openTo(parent: blockPath, stack: &stack, openPath: &openPath)
-                stack[stack.count - 1].kids.append(.inline(text: text, marks: marks))
+                openTo(parent: blockPath, at: blockRange.location, stack: &stack, openPath: &openPath)
+                append(
+                    .inline(text: text, marks: marks),
+                    startingAt: firstRetained ?? runRange.location,
+                    to: &stack
+                )
             }
         }
 
@@ -359,8 +390,65 @@ public extension ProseDocument {
         while stack.count > 1 {
             popOne(stack: &stack, openPath: &openPath)
         }
-        let root: TreeNode = .structural(stack[0].node, stack[0].kids)
+        let raw: TreeNode = .structural(stack[0].node, stack[0].kids)
+        let scanEnd = scanRange.location + scanRange.length
+        let root = stampLayout(raw, starts: rootStarts, end: scanEnd)
         return ProseDocument(schema: schema, root: root)
+    }
+
+    /// Mirror of the tree under construction, holding the storage offset
+    /// where each node begins. A class so a frame can hand its node to its
+    /// parent before the frame's own children are complete.
+    private final class StartNode {
+        let start: Int
+        var kids: [StartNode] = []
+        init(start: Int) { self.start = start }
+    }
+
+    private static func append(
+        _ node: TreeNode,
+        startingAt start: Int,
+        to stack: inout [(node: ProseNode, kids: [TreeNode], starts: StartNode)]
+    ) {
+        let top = stack.count - 1
+        stack[top].kids.append(node)
+        stack[top].starts.kids.append(StartNode(start: start))
+    }
+
+    /// Second pass: turn recorded starts into exact spans. A node ends
+    /// where its next sibling starts (or where its parent ends), so runs
+    /// the first pass dropped — blank separator lines, empty paragraphs,
+    /// the trailing paragraph after an atomic block — are absorbed by the
+    /// block that precedes them instead of vanishing from the offset space.
+    private static func stampLayout(_ node: TreeNode, starts: StartNode, end: Int) -> TreeNode {
+        switch node {
+        case .inline:
+            return node
+        case .leaf(let n, let marks):
+            var stamped = n
+            stamped.layout.storageLength = max(0, end - starts.start)
+            return .leaf(stamped, marks)
+        case .structural(let n, let kids):
+            var stamped = n
+            stamped.layout.storageLength = max(0, end - starts.start)
+            if n.layout.isAttachmentBacked {
+                // Cell content lives off-buffer; its children keep the
+                // projection-length semantics.
+                return .structural(stamped, kids)
+            }
+            stamped.layout.presentationPrefix = max(0, (starts.kids.first?.start ?? starts.start) - starts.start)
+            var newKids: [TreeNode] = []
+            newKids.reserveCapacity(kids.count)
+            for (i, kid) in kids.enumerated() {
+                guard i < starts.kids.count else {
+                    newKids.append(kid)
+                    continue
+                }
+                let kidEnd = (i + 1 < starts.kids.count) ? starts.kids[i + 1].start : end
+                newKids.append(stampLayout(kid, starts: starts.kids[i], end: kidEnd))
+            }
+            return .structural(stamped, newKids)
+        }
     }
 
     private static func isLeafType(_ name: NodeType.Name, schema: Schema) -> Bool {
@@ -374,7 +462,8 @@ public extension ProseDocument {
     /// original id, but downstream nodes match `target` by id).
     private static func openTo(
         parent target: NodePath,
-        stack: inout [(node: ProseNode, kids: [TreeNode])],
+        at start: Int,
+        stack: inout [(node: ProseNode, kids: [TreeNode], starts: StartNode)],
         openPath: inout NodePath
     ) {
         let common = openCommonDepth(open: openPath, target: target)
@@ -384,7 +473,9 @@ public extension ProseDocument {
         var i = common
         while i < target.nodes.count {
             let ancestor = target.nodes[i]
-            stack.append((ancestor, []))
+            let starts = StartNode(start: start)
+            stack[stack.count - 1].starts.kids.append(starts)
+            stack.append((ancestor, [], starts))
             openPath = openPath.appending(ancestor)
             i += 1
         }
@@ -405,13 +496,14 @@ public extension ProseDocument {
     }
 
     private static func popOne(
-        stack: inout [(node: ProseNode, kids: [TreeNode])],
+        stack: inout [(node: ProseNode, kids: [TreeNode], starts: StartNode)],
         openPath: inout NodePath
     ) {
         guard stack.count > 1 else { return }
         let popped = stack.removeLast()
-        let folded: TreeNode = .structural(popped.node, popped.kids)
-        stack[stack.count - 1].kids.append(folded)
+        // The frame's `starts` node was already attached to its parent when
+        // the frame opened, so only the tree side needs folding here.
+        stack[stack.count - 1].kids.append(.structural(popped.node, popped.kids))
         openPath = openPath.droppingLast()
     }
 

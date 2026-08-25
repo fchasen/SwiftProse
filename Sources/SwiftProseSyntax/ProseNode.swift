@@ -61,13 +61,53 @@ public indirect enum ProseAttrValue: Sendable, Equatable, Hashable {
     }
 }
 
-/// One structural node along a `NodePath`. Value-typed and immutable; carries
-/// type, per-instance ID, and a small attribute bag. The attribute bag is
+/// Storage-layout facts about a node — how much of the `NSTextStorage` it
+/// occupies and how much of that is presentation rather than content.
+///
+/// Set only by `ProseDocument.from(storage:)`. Ignored by `==`, `hash`,
+/// codecs, and the markdown serializer, so a hand-built tree behaves
+/// exactly as it did before this existed.
+public struct StorageLayout: Sendable, Equatable, Hashable {
+    /// Exact UTF-16 span this node's subtree occupies in storage, or `nil`
+    /// for a hand-built node. When present it is authoritative: it already
+    /// includes `presentationPrefix`, every child, the block's terminating
+    /// newline, and any blank separator lines that follow before the next
+    /// sibling.
+    public var storageLength: Int?
+
+    /// Leading storage characters that carry presentation only — a list
+    /// bullet glyph and its tab, an ordered marker like `"12. "`, a task
+    /// checkbox. They count toward offsets but never toward text.
+    public var presentationPrefix: Int
+
+    /// The whole subtree lives inside one `NSTextAttachment` (today:
+    /// `table`). Its storage footprint is the attachment glyph; the
+    /// children are off-buffer, so position resolution stops here.
+    public var isAttachmentBacked: Bool
+
+    public init(
+        storageLength: Int? = nil,
+        presentationPrefix: Int = 0,
+        isAttachmentBacked: Bool = false
+    ) {
+        self.storageLength = storageLength
+        self.presentationPrefix = presentationPrefix
+        self.isAttachmentBacked = isAttachmentBacked
+    }
+}
+
+/// One structural node along a `NodePath`. Value-typed; carries type,
+/// per-instance ID, and a small attribute bag. The attribute bag is
 /// type-specific (e.g. heading carries `level`, table_cell carries `align`).
+///
+/// `layout` is a side channel, not part of the node's identity — see
+/// `StorageLayout`. `==` and `hash(into:)` are written by hand to exclude
+/// it.
 public struct ProseNode: Sendable, Equatable, Hashable {
     public let id: NodeID
     public let type: NodeType.Name
     public let attrs: [String: ProseAttrValue]
+    public var layout: StorageLayout
 
     public init(
         id: NodeID = NodeID(),
@@ -77,6 +117,24 @@ public struct ProseNode: Sendable, Equatable, Hashable {
         self.id = id
         self.type = type
         self.attrs = attrs
+        self.layout = StorageLayout()
+    }
+
+    public static func == (lhs: ProseNode, rhs: ProseNode) -> Bool {
+        lhs.id == rhs.id && lhs.type == rhs.type && lhs.attrs == rhs.attrs
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(type)
+        hasher.combine(attrs)
+    }
+
+    /// Copy carrying `layout`.
+    public func withLayout(_ layout: StorageLayout) -> ProseNode {
+        var copy = self
+        copy.layout = layout
+        return copy
     }
 
     /// Equality ignoring the per-instance ID — useful for fixture assertions

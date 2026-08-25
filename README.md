@@ -454,10 +454,18 @@ Behind the rendered storage is a typed tree mirroring ProseMirror's data model. 
 - Validating content against a stricter shape.
 
 ```swift
-let document = controller.document        // typed ProseDocument mirror
-let resolved = document.resolve(cursor)   // PM-style ResolvedPos
+let document = controller.document                          // typed ProseDocument mirror
+let resolved = document.resolve(controller.currentSelection.location)
 let marks = resolved?.marks() ?? MarkSet()
 ```
+
+**Positions are storage UTF-16 offsets.** `document.resolve(_:)` takes a raw `controller.currentSelection.location` — no conversion, no correction — and `document.contentLength == controller.textStorage.length`. Three rules make that exact:
+
+- Structural nodes have **openness 0**. Unlike ProseMirror, entering and leaving a node costs nothing; a position is inside a node iff it falls in that node's storage span.
+- **Presentation markers** — a list bullet glyph and its tab, an ordered marker like `"12. "`, a task checkbox — count toward offsets but never toward text. A position inside one resolves to the owning paragraph with `textOffset == 0`.
+- **Attachment-backed nodes** (today: `table`) are opaque. Their storage footprint is the attachment glyph; cell content lives off-buffer and is addressed by `Step.replaceCellInline`, not by offset. `resolve` never descends into one.
+
+Each node projected from storage records these facts in a non-serialized `ProseNode.layout` (`StorageLayout`). It is excluded from `==`, `hash`, the codecs, and the serializer, so hand-built trees (`ProseDocument.make`) keep the older projection-length semantics.
 
 The model:
 
@@ -466,6 +474,7 @@ The model:
 - **`MarkType`** — declares attrs, `excludes` set, `excludesAll` (PM `"_"`), `inclusive`. `MarkSet.adding(_:in:)` enforces excludes (e.g. adding `code` over a `strong em` span drops both).
 - **`ContentExpression`** — content rules parse to a `ContentMatch` automaton with `matchType` / `matchFragment` / `validEnd` / `defaultType`, so multi-element rules like `paragraph block*` validate correctly.
 - **`ProseDocument`** — typed tree whose nodes carry text and `MarkSet`s on inline runs. `document.resolve(_:)` returns a `ResolvedPos` exposing `depth`, `parent(at:)`, `node(at:)`, `index(at:)`, `start(at:)` / `end(at:)` / `before(at:)` / `after(at:)`, `textOffset`, `marks()`, `marksAcross(_:)`, `blockRange(_:pred:)`. `NodeRange` represents a contiguous child range under one parent.
+- **`StorageLayout`** — per-node side channel set by `ProseDocument.from(storage:)`: `storageLength` (exact UTF-16 span), `presentationPrefix` (leading marker characters), `isAttachmentBacked`. Not part of node identity.
 - **`MarkSet`** — ordered, deduplicated marks with stable schema-ranked sorting.
 
 ### Steps and transforms

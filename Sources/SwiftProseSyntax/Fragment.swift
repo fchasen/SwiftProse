@@ -27,11 +27,13 @@ public struct Fragment: Sendable, Equatable {
     }
 
     /// Total content-length of this fragment, mirroring `TreeNode.contentLength`
-    /// — `\n` separators between block-shaped siblings, inline runs concatenated.
+    /// — `\n` separators between block-shaped siblings, inline runs
+    /// concatenated. Children carrying a storage span already include their
+    /// terminator, so no separator is synthesized in front of them.
     public var size: Int {
         var total = 0
         for (i, kid) in children.enumerated() {
-            if i > 0, isBlockLike(kid) { total += 1 }
+            if i > 0, TreeNode.needsSeparator(before: kid) { total += 1 }
             total += kid.contentLength
         }
         return total
@@ -63,13 +65,5 @@ public struct Fragment: Sendable, Equatable {
         let lo = max(0, min(from, children.count))
         let hi = max(lo, min(upper, children.count))
         return Fragment(Array(children[lo..<hi]))
-    }
-
-    private func isBlockLike(_ child: TreeNode) -> Bool {
-        switch child {
-        case .inline: return false
-        case .leaf(let node, _): return node.type != "hard_break"
-        case .structural: return true
-        }
     }
 }
