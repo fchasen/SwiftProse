@@ -418,6 +418,8 @@ SwiftProseEditor(text: $text)
     }
 ```
 
+`controller.document` reuses the tree it projected last time, re-projecting only the blocks an edit touched. `controller.blocks` is a flat `[BlockSegment]` outline derived on read (O(document); nothing in the editor uses it).
+
 `onDocumentChange` fires once per edit group with a `DocumentChange`: `change.step` is a `Step.replaceText` describing the edit, and `change.document` projects the typed tree **on read**. Subscribers that never touch `document` cost nothing beyond the callback. The single-callback properties coexist with multi-subscriber registration:
 
 ```swift
@@ -503,6 +505,8 @@ A `Step` is a typed, undoable edit:
 
 Each step's `apply` returns a typed inverse. Undo and redo replay those inverses through `Transaction.apply(..., sequential: true)` — unmapped, because each inverse is already expressed in the state its forward step produced. Every edit goes through this one path, typing included, so identity-addressed steps (`replaceCellInline`, `setTableSubtree`) reverse correctly and `NodeID`s survive. `Step.canApply(to:)` probes legality without mutating storage; `Transaction.apply` skips illegal steps cleanly. `Step.merge(_:)` coalesces adjacent typing into one step (collab prerequisite).
 
+`StepEnvironment` carries `(compiler, serializer, theme)` into every `Step.apply`, plus `isHistoryReplay` — set while undo / redo replays an inverse, which turns off the node re-stamping `replaceText` normally does so the pre-image's `NodeID`s survive.
+
 Position mapping is preserved across transactions. `StepMap.mapResult(_:bias:)` returns a `MapResult { pos, deleted, deletedBefore, deletedAfter, deletedAcross }`. `Mapping` tracks mirror pairs (`appendMap(_:mirrors:)`, `getMirror(_:)`, `invert()`, `appendMappingInverted(_:)`).
 
 ## Architecture
@@ -544,6 +548,27 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
   -scheme SwiftProseDemo \
   -destination 'platform=macOS'
 ```
+
+## Upgrading
+
+Changes on this branch that affect existing code:
+
+| Was | Now |
+|---|---|
+| `onDocumentChange = { doc, step in }` | `onDocumentChange = { change in }` — `change.step` is free, `change.document` projects on read |
+| `addOnDocumentChange { doc, step in }` | `addOnDocumentChange { change in }` |
+| `Transforms.lift` / `.wrap` / `.split` / … | removed. `Transforms.replaceRange(from:to:slice:)` was the one function with a body; it forwarded to `Step.replaceRange(from:to:slice:)`, which is unchanged |
+| PM command stubs (`selectAll`, `splitBlock`, `joinBackward`, …) | removed — every one returned `nil` and had no callers. `chainCommands(_:)` stays |
+| `SpecValidator.repair(in:range:)` | removed. Normalization runs before validation now, so there is nothing left to repair; `SpecValidator.validate(in:range:)` is unchanged |
+| `MarkdownParser.applyEdit(replacing:with:newSource:)`, `.tree`, `.rootNode` | removed. `parse(_:)` returns the tree and refreshes `mapping` |
+| `TreeSitterMapping.makeInputEdit(replacing:with:)` | removed |
+| `controller.blocks` (cached array) | same type, computed on read |
+
+Behavior changes without an API change:
+
+- **Raw writes to `controller.textStorage` are undoable.** They are the platform's own typing path, so they register a typed inverse like everything else. Code that wrote to storage directly to avoid the undo stack now needs `controller.apply(_:)` with `meta["addToHistory"] = false`.
+- **`undoManager.groupsByEvent` is off.** The controller does its own grouping, one entry per edit unit.
+- **Tree positions are storage offsets.** `document.resolve(_:)` used to need a correction for list markers; it doesn't any more. Remove any adjustment you were applying.
 
 ## License
 

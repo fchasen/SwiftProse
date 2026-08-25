@@ -42,7 +42,7 @@ SwiftProse  ← SwiftUI surface (`SwiftProseEditor`), env modifiers, toolbar, st
 
 ### Input pipeline (envelopes)
 
-Platform edits do not reach the controller as notifications. `ProseTextStorage` (a `NSTextStorage` subclass) captures the pre-image of every mutation and tags it with an `EditOrigin` — `.platform`, `.transaction`, `.history`, `.normalize`, `.load` — pushed by `withOrigin(_:capturing:)` scopes around the controller's own writes (it replaced the single `applyingMarkdown` flag).
+Platform edits do not reach the controller as notifications. `ProseTextStorage` (a `NSTextStorage` subclass) captures the pre-image of every mutation and tags it with an `EditOrigin` — `.platform`, `.transaction`, `.history`, `.normalize`, `.load` — pushed by `withOrigin(_:capturing:)` scopes around the controller's own writes.
 
 ```
 text view mutates storage

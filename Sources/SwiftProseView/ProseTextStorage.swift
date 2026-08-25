@@ -12,7 +12,7 @@ import UIKit
 /// directly) does on the user's behalf. The rest are scopes the controller
 /// opens around its own writes so the drain can tell a keystroke from a
 /// transaction from a normalization pass.
-public enum EditOrigin: Sendable, Equatable {
+enum EditOrigin: Sendable, Equatable {
     /// The text view, the input system, or a host writing storage directly.
     case platform
     /// Inside `Transaction.apply` or `EditorController.applyCore`.
@@ -29,7 +29,7 @@ public enum EditOrigin: Sendable, Equatable {
 /// How the platform described the edit it is about to make. Stamped by the
 /// text-view delegates before they return `true`, read once when the first
 /// capture of a group lands.
-public enum EditHint: Sendable, Equatable {
+enum EditHint: Sendable, Equatable {
     case typing
     case deletion
     case correction
@@ -40,13 +40,13 @@ public enum EditHint: Sendable, Equatable {
 
 /// State captured at the first mutation of a platform edit group, before
 /// the text view has moved the caret or updated its typing attributes.
-public struct CaptureContext: Sendable {
-    public var selectionBefore: NSRange
-    public var markedTextActive: Bool
-    public var hint: EditHint?
-    public var timestamp: TimeInterval
+struct CaptureContext: Sendable {
+    var selectionBefore: NSRange
+    var markedTextActive: Bool
+    var hint: EditHint?
+    var timestamp: TimeInterval
 
-    public init(
+    init(
         selectionBefore: NSRange,
         markedTextActive: Bool,
         hint: EditHint?,
@@ -62,20 +62,20 @@ public struct CaptureContext: Sendable {
 /// One primitive mutation, with the content it displaced. A single platform
 /// edit group can produce several — a drag-move is a delete plus an insert
 /// inside one `beginEditing`/`endEditing` bracket.
-public struct EditCapture {
-    public enum Kind: Equatable {
+struct EditCapture {
+    enum Kind: Equatable {
         case characters(insertedLength: Int)
         case attributes
     }
 
-    public let kind: Kind
+    let kind: Kind
     /// Range in the **pre-edit** buffer that this mutation replaced.
-    public let range: NSRange
+    let range: NSRange
     /// Exactly what was there before, attributes included. This is the
     /// inverse; nothing else needs reconstructing.
-    public let preImage: NSAttributedString
+    let preImage: NSAttributedString
 
-    public init(kind: Kind, range: NSRange, preImage: NSAttributedString) {
+    init(kind: Kind, range: NSRange, preImage: NSAttributedString) {
         self.kind = kind
         self.range = range
         self.preImage = preImage
@@ -84,17 +84,17 @@ public struct EditCapture {
 
 /// Everything one `processEditing` pass knows about the edit that produced
 /// it. Handed to `editObserver` after `super.processEditing()` has run.
-public struct EditRecord {
-    public let origin: EditOrigin
-    public let editedMask: NSTextStorageEditActions
+struct EditRecord {
+    let origin: EditOrigin
+    let editedMask: NSTextStorageEditActions
     /// Post-edit union of everything the group touched, snapshotted before
     /// `super.processEditing()` clears it.
-    public let editedRange: NSRange
-    public let changeInLength: Int
-    public let captures: [EditCapture]
-    public let context: CaptureContext?
+    let editedRange: NSRange
+    let changeInLength: Int
+    let captures: [EditCapture]
+    let context: CaptureContext?
 
-    public var isCharacterEdit: Bool { editedMask.contains(.editedCharacters) }
+    var isCharacterEdit: Bool { editedMask.contains(.editedCharacters) }
 }
 
 /// `NSTextStorage` subclass that records what every mutation displaced.
@@ -113,7 +113,7 @@ public struct EditRecord {
 ///
 /// Attribute fixing runs inside `super.processEditing()` and calls the
 /// `setAttributes` primitive; captures are suppressed for the duration.
-public final class ProseTextStorage: NSTextStorage {
+final class ProseTextStorage: NSTextStorage {
 
     /// The concrete `NSTextStorage`, used purely as a store.
     ///
@@ -186,16 +186,16 @@ public final class ProseTextStorage: NSTextStorage {
 
     /// The live characters, matching `NSTextStorage`'s own contract:
     /// callers must not hold the result across an edit.
-    public override var string: String {
+    override var string: String {
         if let cachedString { return cachedString }
         let s = backing.string
         cachedString = s
         return s
     }
 
-    public override var length: Int { backing.length }
+    override var length: Int { backing.length }
 
-    public override func attributes(
+    override func attributes(
         at location: Int,
         effectiveRange range: NSRangePointer?
     ) -> [NSAttributedString.Key: Any] {
@@ -221,7 +221,7 @@ public final class ProseTextStorage: NSTextStorage {
     // / `enumerateBlockSpecs`. Forwarding straight to the backing store
     // keeps `NSMutableAttributedString`'s native run-walking.
 
-    public override func attribute(
+    override func attribute(
         _ attrName: NSAttributedString.Key,
         at location: Int,
         effectiveRange range: NSRangePointer?
@@ -229,7 +229,7 @@ public final class ProseTextStorage: NSTextStorage {
         backing.attribute(attrName, at: location, effectiveRange: range)
     }
 
-    public override func attribute(
+    override func attribute(
         _ attrName: NSAttributedString.Key,
         at location: Int,
         longestEffectiveRange range: NSRangePointer?,
@@ -238,7 +238,7 @@ public final class ProseTextStorage: NSTextStorage {
         backing.attribute(attrName, at: location, longestEffectiveRange: range, in: rangeLimit)
     }
 
-    public override func attributes(
+    override func attributes(
         at location: Int,
         longestEffectiveRange range: NSRangePointer?,
         in rangeLimit: NSRange
@@ -246,7 +246,7 @@ public final class ProseTextStorage: NSTextStorage {
         backing.attributes(at: location, longestEffectiveRange: range, in: rangeLimit)
     }
 
-    public override func enumerateAttribute(
+    override func enumerateAttribute(
         _ attrName: NSAttributedString.Key,
         in enumerationRange: NSRange,
         options opts: NSAttributedString.EnumerationOptions = [],
@@ -255,7 +255,7 @@ public final class ProseTextStorage: NSTextStorage {
         backing.enumerateAttribute(attrName, in: enumerationRange, options: opts, using: block)
     }
 
-    public override func enumerateAttributes(
+    override func enumerateAttributes(
         in enumerationRange: NSRange,
         options opts: NSAttributedString.EnumerationOptions = [],
         using block: ([NSAttributedString.Key: Any], NSRange, UnsafeMutablePointer<ObjCBool>) -> Void
@@ -263,15 +263,15 @@ public final class ProseTextStorage: NSTextStorage {
         backing.enumerateAttributes(in: enumerationRange, options: opts, using: block)
     }
 
-    public override func attributedSubstring(from range: NSRange) -> NSAttributedString {
+    override func attributedSubstring(from range: NSRange) -> NSAttributedString {
         backing.attributedSubstring(from: range)
     }
 
-    public override func isEqual(to other: NSAttributedString) -> Bool {
+    override func isEqual(to other: NSAttributedString) -> Bool {
         backing.isEqual(to: other)
     }
 
-    public override func replaceCharacters(in range: NSRange, with str: String) {
+    override func replaceCharacters(in range: NSRange, with str: String) {
         capture(.characters(insertedLength: (str as NSString).length), replacing: range)
         cachedString = nil
         backing.replaceCharacters(in: range, with: str)
@@ -287,7 +287,7 @@ public final class ProseTextStorage: NSTextStorage {
     /// inherited implementation would decompose into a string replacement
     /// plus a `setAttributes` per run, each of which the capture hook would
     /// record separately.
-    public override func replaceCharacters(in range: NSRange, with attrString: NSAttributedString) {
+    override func replaceCharacters(in range: NSRange, with attrString: NSAttributedString) {
         capture(.characters(insertedLength: attrString.length), replacing: range)
         cachedString = nil
         backing.replaceCharacters(in: range, with: attrString)
@@ -299,28 +299,28 @@ public final class ProseTextStorage: NSTextStorage {
         flushRecordsIfSettled()
     }
 
-    public override func setAttributes(_ attrs: [NSAttributedString.Key: Any]?, range: NSRange) {
+    override func setAttributes(_ attrs: [NSAttributedString.Key: Any]?, range: NSRange) {
         capture(.attributes, replacing: range)
         backing.setAttributes(attrs, range: range)
         edited(.editedAttributes, range: range, changeInLength: 0)
         flushRecordsIfSettled()
     }
 
-    public override func addAttribute(_ name: NSAttributedString.Key, value: Any, range: NSRange) {
+    override func addAttribute(_ name: NSAttributedString.Key, value: Any, range: NSRange) {
         capture(.attributes, replacing: range)
         backing.addAttribute(name, value: value, range: range)
         edited(.editedAttributes, range: range, changeInLength: 0)
         flushRecordsIfSettled()
     }
 
-    public override func addAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSRange) {
+    override func addAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSRange) {
         capture(.attributes, replacing: range)
         backing.addAttributes(attrs, range: range)
         edited(.editedAttributes, range: range, changeInLength: 0)
         flushRecordsIfSettled()
     }
 
-    public override func removeAttribute(_ name: NSAttributedString.Key, range: NSRange) {
+    override func removeAttribute(_ name: NSAttributedString.Key, range: NSRange) {
         capture(.attributes, replacing: range)
         backing.removeAttribute(name, range: range)
         edited(.editedAttributes, range: range, changeInLength: 0)
@@ -335,7 +335,7 @@ public final class ProseTextStorage: NSTextStorage {
     /// `fixParagraphStyleAttribute` reads `string` to find paragraph
     /// bounds. TextKit calls `ensureAttributesAreFixed(in:)` before it
     /// lays anything out, which is early enough.
-    public override var fixesAttributesLazily: Bool { false }
+    override var fixesAttributesLazily: Bool { false }
 
     /// Union of every range edited since the last fix. Kept as one range
     /// rather than a list so a headless controller — which never gets an
@@ -343,7 +343,7 @@ public final class ProseTextStorage: NSTextStorage {
     /// accumulate one entry per keystroke.
     private var unfixedRange: NSRange?
 
-    public override func ensureAttributesAreFixed(in range: NSRange) {
+    override func ensureAttributesAreFixed(in range: NSRange) {
         guard let pending = unfixedRange else { return }
         unfixedRange = nil
         let safe = pending.clamped(to: backing.length)
@@ -364,7 +364,7 @@ public final class ProseTextStorage: NSTextStorage {
         unfixedRange = NSRange(location: lo, length: hi - lo)
     }
 
-    public override func processEditing() {
+    override func processEditing() {
         let record = EditRecord(
             origin: recordOrigin,
             editedMask: editedMask,
@@ -398,12 +398,12 @@ public final class ProseTextStorage: NSTextStorage {
         queuedRecords.append(record)
     }
 
-    public override func beginEditing() {
+    override func beginEditing() {
         editingDepth += 1
         super.beginEditing()
     }
 
-    public override func endEditing() {
+    override func endEditing() {
         super.endEditing()
         editingDepth = max(0, editingDepth - 1)
         flushRecordsIfSettled()
