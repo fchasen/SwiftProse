@@ -24,13 +24,20 @@ public final class EditorController {
         }
     }
 
-    public private(set) var blocks: [BlockSegment] = []
+    private var storedBlocks: [BlockSegment] = []
+
+    /// Line-level segmentation of the current storage.
+    public var blocks: [BlockSegment] {
+        drainPendingEnvelopes()
+        return storedBlocks
+    }
 
     /// Tree view of the current storage. Cached between accesses and
     /// invalidated by the storage observer on every edit, so repeated reads
     /// hand back the same `ProseDocument` instance until the user (or a
     /// step) mutates the storage.
     public var document: ProseDocument {
+        drainPendingEnvelopes()
         if let cached = cachedDocument { return cached }
         projectionRunCount += 1
         let fresh = ProseDocument.from(storage: proseStorage.contents, schema: compiler.schema)
@@ -135,12 +142,17 @@ public final class EditorController {
     /// sync without polling. Forwarded by the platform coordinators in
     /// `ProseTextViewMac` / `ProseTextViewIOS`.
     public var onSelectionChanged: ((NSRange) -> Void)?
-    /// Fires after each character edit with a `DocumentChange` carrying a
+    /// Fires once per edit group with a `DocumentChange` carrying a
     /// `Step.replaceText` describing the storage edit and a lazily-projected
     /// `document`. Wire this to maintain a tree mirror, drive collaborative-
-    /// editing transport, or react to document changes in general. Skipped
-    /// for attribute-only edits (font traits etc.) since those don't have
-    /// a clean `replaceText` mapping; the cache still invalidates.
+    /// editing transport, or react to document changes in general.
+    ///
+    /// One publish per group, not per storage write: an N-step transaction
+    /// fires once, and the normalization the controller runs on its own
+    /// edits (attribute scrubbing, the trailing paragraph, code-block
+    /// rehighlighting) does not fire separately. Attribute-only edits are
+    /// skipped since they have no clean `replaceText` mapping; the cache
+    /// still invalidates.
     public var onDocumentChange: ((DocumentChange) -> Void)?
 
     public let commands: CommandRegistry
@@ -208,6 +220,7 @@ public final class EditorController {
     /// Force the next transaction into a fresh undo group. Mirrors PM's
     /// `closeHistory(tr)`.
     public func closeHistoryGroup() {
+        drainPendingEnvelopes()
         if undoManager.groupingLevel > 0 {
             undoManager.endUndoGrouping()
             undoManager.beginUndoGrouping()
@@ -243,7 +256,6 @@ public final class EditorController {
         .proseNodePath, .proseMarks
     ]
     private let layoutDelegate: LayoutManagerDelegate
-    private var storageObserver: NSObjectProtocol?
 
     /// Marks queued for the next typed character. ProseMirror's storedMarks:
     /// click bold with no selection, then the next char you type is bold.
@@ -338,98 +350,171 @@ public final class EditorController {
             self?.invalidateTableAttachmentLayout(att)
         }
 
-        storageObserver = NotificationCenter.default.addObserver(
-            forName: NSTextStorage.didProcessEditingNotification,
-            object: textStorage,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            // Cache invalidation runs even during programmatic loads so that
-            // the next `document` read after `setMarkdown` / `replaceStorage`
-            // re-derives from the new content.
-            if !self.textStorage.editedMask.isEmpty {
-                self.cachedDocument = nil
-                self.layoutDelegate.decorationProvider.invalidate(
-                    editedRange: self.textStorage.editedRange,
-                    changeInLength: self.textStorage.changeInLength
+        proseStorage.captureContextProvider = { [weak self] in
+            guard let self else {
+                return CaptureContext(
+                    selectionBefore: NSRange(location: 0, length: 0),
+                    markedTextActive: false,
+                    hint: nil,
+                    timestamp: 0
                 )
             }
-            var derivedTransaction: Transaction?
-            if self.textStorage.editedMask.contains(.editedCharacters) {
-                let derived = self.deriveReplaceTextStep()
-                derivedTransaction = Transaction(steps: [derived])
-                self.fanoutDocumentChange(DocumentChange(step: derived, controller: self))
-            }
-            guard self.proseStorage.currentRecord?.origin ?? .platform == .platform else { return }
-            if self.textStorage.editedMask.contains(.editedCharacters) {
-                let changeInLength = self.textStorage.changeInLength
-                // Capture the user's edit before the attribute repairs below
-                // overwrite `editedRange` with their own (length-preserving) edits.
-                let userEditedRange = self.textStorage.editedRange
-                self.accumulateHighlightRange(userEditedRange)
-                self.scrubTypedAttributes()
-                self.repairEditedLine()
-                self.demoteEmptyStyledLines()
-                // Defer `resegment()` to the next runloop tick when a host
-                // text view is attached so rapid typing rebuilds `blocks`
-                // once instead of per character. Headless callers (tests,
-                // programmatic users) keep the synchronous path so reads of
-                // `controller.blocks` after a storage edit see fresh data.
-                if self.hostTextView != nil {
-                    self.scheduleResegment()
-                } else {
-                    self.resegment()
-                }
-                // Reconcile the trailing paragraph only when the edit reached
-                // the document end. A mid-document keystroke can't change which
-                // block is last, so this avoids a per-keystroke storage mutation
-                // (and caret nudge) at the tail for the common typing case.
-                if userEditedRange.location + userEditedRange.length >= self.textStorage.length {
-                    self.ensureTrailingParagraph()
-                }
-                self.intrinsicSizeInvalidator?()
-                // The typed character already received our storedMarks via
-                // typingAttributes; further typing should inherit naturally
-                // from the new cursor position, not from the storedMark set.
-                self.clearStoredInlineMarks()
-                // Input rules: only on a single typed character — paste,
-                // cut, multi-char inserts, undo/redo, programmatic edits all
-                // skip. Composition (CJK / dictation) skips too.
-                //
-                // When a host text view is attached, defer to the next
-                // runloop tick: running synchronously here re-enters
-                // NSTextView/UITextView while it's still completing its
-                // post-edit work, which clobbered host selection updates
-                // and caused stale-range crashes in the text system
-                // ("Range {10,1} out of bounds; string length 9"). With no
-                // host (unit tests, headless use), run synchronously —
-                // there's no run loop to defer onto.
-                let runInputRulesAndAppend = { [weak self] in
-                    guard let self else { return }
-                    var inputRuleFired = false
-                    if changeInLength == 1, !self.isComposingIME {
-                        inputRuleFired = self.evaluateInputRules()
-                    } else {
-                        self.lastInputRule = nil
-                        self.inputRules.clearLastFiredRule()
-                    }
-                    if !inputRuleFired, let derivedTransaction {
-                        self.runAppendTransactions(after: [derivedTransaction])
-                    }
-                }
-                if self.hostTextView != nil {
-                    DispatchQueue.main.async(execute: runInputRulesAndAppend)
-                } else {
-                    runInputRulesAndAppend()
-                }
+            let hint = self.nextEditHint
+            self.nextEditHint = nil
+            return CaptureContext(
+                selectionBefore: self.currentSelection,
+                markedTextActive: self.isComposingIME,
+                hint: hint,
+                timestamp: self.historyClock()
+            )
+        }
+        proseStorage.editObserver = { [weak self] record in
+            self?.storageDidProcessEditing(record)
+        }
+    }
+
+    // MARK: - envelopes
+
+    /// One platform edit group, held from `processEditing` until the drain
+    /// closes it. Deferring lets the text view finish its own post-edit
+    /// work (selection, typing attributes) before we normalize, validate,
+    /// and publish.
+    struct PendingEnvelope {
+        var record: EditRecord
+    }
+
+    private(set) var pendingEnvelopes: [PendingEnvelope] = []
+    private var drainScheduled = false
+    private var isDraining = false
+
+    /// Hint stamped by the platform delegate for the edit it is about to
+    /// allow. Consumed by `captureContextProvider` at the first capture.
+    var nextEditHint: EditHint?
+
+    /// Monotonic clock for edit timestamps. A test seam so undo-grouping
+    /// tests can drive `newGroupDelay` without sleeping.
+    var historyClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+
+    private func storageDidProcessEditing(_ record: EditRecord) {
+        // Cache invalidation runs for every origin so the next `document`
+        // read after `setMarkdown` / `replaceStorage` re-derives.
+        if !record.editedMask.isEmpty {
+            cachedDocument = nil
+            layoutDelegate.decorationProvider.invalidate(
+                editedRange: record.editedRange,
+                changeInLength: record.changeInLength
+            )
+        }
+        guard record.isCharacterEdit else { return }
+
+        switch record.origin {
+        case .normalize:
+            // A side effect of an edit that is publishing on its own
+            // behalf. Nothing further to do.
+            return
+        case .transaction, .history, .load:
+            accumulateHighlightRange(record.editedRange)
+            fanoutDocumentChange(DocumentChange(step: derivedStep(from: record), controller: self))
+        case .platform:
+            pendingEnvelopes.append(PendingEnvelope(record: record))
+            if hostTextView == nil {
+                drainPendingEnvelopes()
+            } else {
+                scheduleDrain()
             }
         }
     }
 
-    private func repairEditedLine() {
+    /// Coalesce envelope closes onto the next main-runloop tick when a host
+    /// text view is attached. Headless controllers close synchronously so a
+    /// read right after a storage write sees settled state.
+    private func scheduleDrain() {
+        guard !drainScheduled else { return }
+        drainScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.drainScheduled = false
+            self.drainPendingEnvelopes()
+        }
+    }
+
+    /// Close every queued platform envelope, in order. Idempotent and
+    /// re-entrancy guarded — closing an envelope runs input rules and
+    /// append transactions, which call back into `apply`, which drains.
+    func drainPendingEnvelopes() {
+        guard !isDraining else { return }
+        guard !pendingEnvelopes.isEmpty else { return }
+        isDraining = true
+        defer { isDraining = false }
+        while !pendingEnvelopes.isEmpty {
+            let envelope = pendingEnvelopes.removeFirst()
+            closeEnvelope(envelope)
+        }
+    }
+
+    private func closeEnvelope(_ envelope: PendingEnvelope) {
+        let record = envelope.record
+        let changeInLength = record.changeInLength
+        let userEditedRange = record.editedRange
+        let step = derivedStep(from: record)
+
+        accumulateHighlightRange(userEditedRange)
+        scrubTypedAttributes(in: userEditedRange)
+        repairEditedLine(in: userEditedRange)
+        demoteEmptyStyledLines(in: userEditedRange)
+        // Defer `resegment()` to the next runloop tick when a host text
+        // view is attached so rapid typing rebuilds `blocks` once instead
+        // of per character. Headless callers keep the synchronous path so
+        // reads of `controller.blocks` after a storage edit see fresh data.
+        if hostTextView != nil {
+            scheduleResegment()
+        } else {
+            resegment()
+        }
+        // Reconcile the trailing paragraph only when the edit reached the
+        // document end. A mid-document keystroke can't change which block
+        // is last, so this avoids a per-keystroke storage mutation (and
+        // caret nudge) at the tail for the common typing case.
+        if userEditedRange.location + userEditedRange.length >= textStorage.length {
+            ensureTrailingParagraph()
+        }
+        intrinsicSizeInvalidator?()
+        // The typed character already received our storedMarks via
+        // typingAttributes; further typing should inherit naturally from
+        // the new cursor position, not from the storedMark set.
+        clearStoredInlineMarks()
+
+        fanoutDocumentChange(DocumentChange(step: step, controller: self))
+
+        // Input rules: only on a single typed character — paste, cut,
+        // multi-char inserts, undo/redo, programmatic edits all skip.
+        // Composition (CJK / dictation) skips too.
+        var inputRuleFired = false
+        if changeInLength == 1, !isComposingIME {
+            inputRuleFired = evaluateInputRules()
+        } else {
+            lastInputRule = nil
+            inputRules.clearLastFiredRule()
+        }
+        if !inputRuleFired {
+            runAppendTransactions(after: [Transaction(steps: [step])])
+        }
+    }
+
+    /// Forward-only `Step.replaceText` describing `record`. The pre-edit
+    /// range is reconstructed by subtracting `changeInLength`; the post-edit
+    /// content is read from current storage.
+    private func derivedStep(from record: EditRecord) -> Step {
+        let editedRange = record.editedRange
+        let preLength = max(0, editedRange.length - record.changeInLength)
+        let preRange = NSRange(location: editedRange.location, length: preLength)
+        let safeEdited = editedRange.clamped(to: textStorage.length)
+        return .replaceText(range: preRange, with: textStorage.attributedSubstring(from: safeEdited))
+    }
+
+    private func repairEditedLine(in edited: NSRange) {
         let total = textStorage.length
         guard total > 0 else { return }
-        let edited = textStorage.editedRange
         guard edited.location >= 0,
               edited.location <= total,
               edited.location + edited.length <= total else { return }
@@ -445,8 +530,7 @@ public final class EditorController {
     }
 
 
-    private func scrubTypedAttributes() {
-        let editedRange = textStorage.editedRange
+    private func scrubTypedAttributes(in editedRange: NSRange) {
         guard editedRange.length > 0 else { return }
         let safe = editedRange.clamped(to: textStorage.length)
         guard safe.length > 0 else { return }
@@ -513,13 +597,12 @@ public final class EditorController {
     /// - fenced/indented code and pipe tables: structural multi-line
     ///   blocks. Demoting one body line would split the surrounding
     ///   fence/table apart.
-    private func demoteEmptyStyledLines() {
+    private func demoteEmptyStyledLines(in editedRange: NSRange) {
         let plainAttrs = theme.plainParagraphAttributes()
         if textStorage.length == 0 {
             applyTypingAttributes(plainAttrs)
             return
         }
-        let editedRange = textStorage.editedRange
         let ns = textStorage.string as NSString
         guard editedRange.length >= 0, editedRange.location >= 0 else { return }
         let scanRange = editedRange.clamped(to: ns.length)
@@ -600,12 +683,6 @@ public final class EditorController {
         }
     }
 
-    deinit {
-        if let storageObserver {
-            NotificationCenter.default.removeObserver(storageObserver)
-        }
-    }
-
     /// Replace the document with `markdown`. When a host text view is
     /// attached we compile off the main thread on `compileQueue` and apply
     /// the result back on main; the latest-wins generation counter discards
@@ -614,6 +691,7 @@ public final class EditorController {
     /// existing tests reading `markdown()` immediately after `setMarkdown`
     /// see the new content on return.
     public func setMarkdown(_ markdown: String, async: Bool = true) {
+        drainPendingEnvelopes()
         if async, hostTextView != nil {
             setMarkdownAsync(markdown)
         } else {
@@ -648,6 +726,7 @@ public final class EditorController {
     }
 
     public func markdown() -> String {
+        drainPendingEnvelopes()
         let md = serializer.serializeFromTree(proseStorage.contents)
         // Public document text matches prosemirror-markdown: blocks are
         // separated by blank lines but the document carries no terminal
@@ -657,18 +736,21 @@ public final class EditorController {
     }
 
     public func loadProseMirrorJSON(_ json: String, schemaMap: SchemaMap = .basic) throws {
+        drainPendingEnvelopes()
         let codec = ProseMirrorCodec(schemaMap: schemaMap, theme: theme)
         let compiled = try codec.decode(json)
         replaceStorage(with: compiled)
     }
 
     public func loadProseMirrorJSON(_ data: Data, schemaMap: SchemaMap = .basic) throws {
+        drainPendingEnvelopes()
         let codec = ProseMirrorCodec(schemaMap: schemaMap, theme: theme)
         let compiled = try codec.decode(data)
         replaceStorage(with: compiled)
     }
 
     public func exportProseMirrorJSON(schemaMap: SchemaMap = .basic) throws -> Data {
+        drainPendingEnvelopes()
         let codec = ProseMirrorCodec(schemaMap: schemaMap, theme: theme)
         return try codec.encodeToJSON(textStorage)
     }
@@ -706,6 +788,7 @@ public final class EditorController {
     /// selection). Cursor lands after the inserted text.
     @discardableResult
     public func insert(text: String) -> NSRange {
+        drainPendingEnvelopes()
         let selection = currentSelection
         var result = NSRange(location: 0, length: 0)
         withCharacterMutation(range: selection) {
@@ -753,6 +836,7 @@ public final class EditorController {
     /// so dictation and paste become one undo step.
     @discardableResult
     public func dispatchPaste(_ event: PasteEvent) -> Bool {
+        drainPendingEnvelopes()
         var current = event
         if current.source == .dictation {
             for plugin in plugins {
@@ -845,6 +929,7 @@ public final class EditorController {
     /// so they merge into surrounding context on paste; multi-block
     /// selections stay closed so each top-level block survives.
     public func sliceForRange(_ range: NSRange) -> Slice {
+        drainPendingEnvelopes()
         let total = textStorage.length
         guard total > 0 else { return .empty }
         let safe = range.clamped(to: total)
@@ -940,6 +1025,7 @@ public final class EditorController {
     /// (the host text view's selection lands there).
     @discardableResult
     public func apply(_ transaction: Transaction) -> NSRange {
+        drainPendingEnvelopes()
         lastInputRule = nil
         guard let resultRange = applyCore(transaction) else { return currentSelection }
         runAppendTransactions(after: [transaction])
@@ -1193,6 +1279,7 @@ public final class EditorController {
     @discardableResult
     public func perform(_ action: EditorAction) -> NSRange {
         guard isEditable else { return currentSelection }
+        drainPendingEnvelopes()
         defer { refreshTypingAttributes(at: currentSelection.location) }
         if case .link(let url, let label) = action {
             return performLink(url: url, label: label)
@@ -1360,6 +1447,7 @@ public final class EditorController {
     /// rides on a `.link` attribute and round-trips as `[label](url)`.
     @discardableResult
     public func insertLink(label: String, url: String) -> NSRange {
+        drainPendingEnvelopes()
         let selection = currentSelection
         var actualLabel = label
         if selection.length > 0,
@@ -1544,6 +1632,7 @@ public final class EditorController {
     @discardableResult
     public func toggleCheckbox(at location: Int) -> Bool {
         guard isEditable || allowsCheckboxToggle else { return false }
+        drainPendingEnvelopes()
         let total = textStorage.length
         guard location >= 0, location < total else { return false }
         guard let existing = textStorage.safeAttribute(.attachment, at: location) as? CheckboxAttachment,
@@ -1574,6 +1663,7 @@ public final class EditorController {
     /// a code block. Wired to `Mod-Enter` (PM convention) by the host.
     @discardableResult
     public func exitCodeBlock() -> Bool {
+        drainPendingEnvelopes()
         let total = textStorage.length
         guard total > 0 else { return false }
         let cursor = currentSelection.location
@@ -1627,6 +1717,7 @@ public final class EditorController {
 
     @discardableResult
     public func handleNewline() -> Bool {
+        drainPendingEnvelopes()
         let cursor = currentSelection.location
         let ns = textStorage.string as NSString
         if textStorage.length > 0 {
@@ -1757,6 +1848,7 @@ public final class EditorController {
 
     @discardableResult
     public func handleBackspace() -> Bool {
+        drainPendingEnvelopes()
         // PM convention: Backspace right after an input rule fired undoes
         // the rule rather than deleting a character.
         if undoInputRule() { return true }
@@ -1814,6 +1906,7 @@ public final class EditorController {
     /// Wired to the host's `deleteForward:` command.
     @discardableResult
     public func handleForwardDelete() -> Bool {
+        drainPendingEnvelopes()
         let selection = currentSelection
         guard selection.length == 0 else { return false }
         return deleteEmptyCodeBlockAtCursor(cursor: selection.location)
@@ -1907,22 +2000,6 @@ public final class EditorController {
     /// text view ended up reporting.
     public func setSelection(_ range: NSRange) {
         setHostSelection(range)
-    }
-
-    /// Build a `Step.replaceText` describing the most recent storage edit,
-    /// using `editedRange` and `changeInLength` from the in-flight notification.
-    /// The pre-edit range is reconstructed by subtracting `changeInLength`;
-    /// the post-edit content is read from current storage. The returned step
-    /// is forward-only — callers that want an inverse must capture pre-edit
-    /// content separately.
-    private func deriveReplaceTextStep() -> Step {
-        let editedRange = textStorage.editedRange
-        let changeInLength = textStorage.changeInLength
-        let preLength = max(0, editedRange.length - changeInLength)
-        let preRange = NSRange(location: editedRange.location, length: preLength)
-        let safeEdited = editedRange.clamped(to: textStorage.length)
-        let content = textStorage.attributedSubstring(from: safeEdited)
-        return .replaceText(range: preRange, with: content)
     }
 
     // MARK: - private
@@ -2109,7 +2186,7 @@ public final class EditorController {
         var segs: [BlockSegment] = []
         let total = textStorage.length
         if total == 0 {
-            self.blocks = []
+            self.storedBlocks = []
             self.pendingHighlightRange = nil
             return
         }
@@ -2126,7 +2203,7 @@ public final class EditorController {
                 firstInListItem: false
             ))
         }
-        self.blocks = segs
+        self.storedBlocks = segs
 
         if let pending = pendingHighlightRange {
             rehighlightCodeBlocks(intersecting: pending)
@@ -2162,8 +2239,8 @@ public final class EditorController {
         let safeEnd = safe.location + safe.length
 
         var i = 0
-        while i < blocks.count {
-            let tag = blocks[i].tag
+        while i < storedBlocks.count {
+            let tag = storedBlocks[i].tag
             guard tag == .fencedCode || tag == .indentedCode else {
                 i += 1
                 continue
@@ -2171,16 +2248,16 @@ public final class EditorController {
             // Greedy-extend through adjacent same-tag segments to recover
             // the full code block.
             var j = i
-            while j + 1 < blocks.count,
-                  blocks[j + 1].tag == tag,
-                  blocks[j].range.location + blocks[j].range.length == blocks[j + 1].range.location {
+            while j + 1 < storedBlocks.count,
+                  storedBlocks[j + 1].tag == tag,
+                  storedBlocks[j].range.location + storedBlocks[j].range.length == storedBlocks[j + 1].range.location {
                 j += 1
             }
-            let runStart = blocks[i].range.location
-            let runEnd = blocks[j].range.location + blocks[j].range.length
+            let runStart = storedBlocks[i].range.location
+            let runEnd = storedBlocks[j].range.location + storedBlocks[j].range.length
             // Intersect with `safe`.
             if runStart < safeEnd, safe.location < runEnd {
-                let language = blocks[i].language ?? blocks[j].language
+                let language = storedBlocks[i].language ?? storedBlocks[j].language
                 proseStorage.withOrigin(.normalize) {
                     compiler.rehighlightCodeBlock(
                         in: textStorage,

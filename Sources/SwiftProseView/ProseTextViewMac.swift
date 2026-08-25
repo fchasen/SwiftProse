@@ -621,6 +621,10 @@ final class ProseNSTextView: NSTextView {
 
     override func didChangeText() {
         super.didChangeText()
+        // Earliest safe post-edit point: the view has finished its own
+        // selection and typing-attribute work, so closing the envelope here
+        // lands normalization before display and before the binding push.
+        proseController?.drainPendingEnvelopes()
         if fitsContent { invalidateIntrinsicContentSize() }
         scheduleCodeBlockBgUpdate()
     }

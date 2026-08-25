@@ -412,7 +412,7 @@ SwiftProseEditor(text: $text)
     }
 ```
 
-`onDocumentChange` fires after every character edit with a `DocumentChange`: `change.step` is a `Step.replaceText` describing the edit, and `change.document` projects the typed tree **on read**. Subscribers that never touch `document` cost nothing beyond the callback. The single-callback properties coexist with multi-subscriber registration:
+`onDocumentChange` fires once per edit group with a `DocumentChange`: `change.step` is a `Step.replaceText` describing the edit, and `change.document` projects the typed tree **on read**. Subscribers that never touch `document` cost nothing beyond the callback. The single-callback properties coexist with multi-subscriber registration:
 
 ```swift
 let token = controller.addOnDocumentChange { change in
@@ -421,6 +421,8 @@ let token = controller.addOnDocumentChange { change in
 }
 controller.removeObserver(token)
 ```
+
+One publish per group, not per storage write: an N-step transaction fires once, and normalization the controller runs on its own edits (attribute scrubbing, the trailing paragraph, code-block rehighlighting) doesn't fire separately.
 
 `addOnDiagnostic(_:)` and `addOnSelectionChanged(_:)` follow the same pattern.
 

@@ -159,6 +159,11 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         }
 
         public func textViewDidChange(_ textView: UITextView) {
+            // Earliest safe post-edit point: the view has finished its own
+            // selection and typing-attribute work, so closing the envelope
+            // here lands normalization before display and before the
+            // binding push.
+            parent.controller.drainPendingEnvelopes()
             scheduleTextPush()
             (textView as? ProseUITextView)?.notifyTextChanged()
         }
