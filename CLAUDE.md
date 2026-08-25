@@ -165,6 +165,14 @@ One path for everything. Every edit — a keystroke, a command, a paste, a table
 
 `EditorController.undoInputRule()` runs at the head of the Backspace chain — when the most recently fired input rule is still on the cursor, Backspace undoes the rule rather than deleting a character. `inputRules.lastFiredRule` is set by `InputRuleRunner.evaluate` after a successful match.
 
+### Incremental tree projection
+
+`controller.document` reuses the tree it projected last time. `IncrementalProjection` (`SwiftProseView/IncrementalProjection.swift`) records every storage edit since as a `Mapping`, maps the dirty range back into the cached tree's coordinates, re-projects only the top-level blocks it covers (plus one of slack on each side, since an edit at a boundary can merge or split blocks), and splices the result over the stale children. Exact block boundaries come free from `ProseNode.layout.storageLength` (Stage 2).
+
+It is a pure optimization: `spliced(...)` returns nil whenever anything is uncertain — a child with no recorded span, a total that doesn't tile the buffer, a `.load` — and `document` falls back to a full projection. The one visible difference is that the doc root keeps its `NodeID` across edits instead of being re-minted.
+
+`splicedProjectionRunCount` / `projectionRunCount` are test counters for which path served a read.
+
 ### Decorations
 
 `SwiftProseView/DecorationProvider.swift`. The bundled `BlockSpecDecorationProvider` derives blockquote bars / code backgrounds / HRs from `proseNodePath`. `DecorationSet([...])` aggregates multiple providers; downstream consumers sort by `zIndex` when painting.

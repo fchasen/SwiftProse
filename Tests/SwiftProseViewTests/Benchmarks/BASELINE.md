@@ -132,11 +132,16 @@ against ~86 µs elsewhere) but the whole-document term is gone.
 
 ### The gate for 4b
 
-| case | µs |
-|---|---:|
-| keystroke — no tree subscriber | 86 |
-| keystroke — subscriber reads `change.document` | 31355 |
+| case | after 4a | after 4b |
+|---|---:|---:|
+| keystroke — no tree subscriber | 86 | 86 |
+| keystroke — subscriber reads `change.document` | 31355 | **391** |
 
-A host that mirrors the typed tree pays a full `ProseDocument.from` per
-keystroke — 365x the cost of one that doesn't, and essentially all of that
-host's keystroke budget. That is the condition Stage 4b was gated on.
+A host that mirrors the typed tree was paying a full `ProseDocument.from`
+per keystroke — 365x the cost of one that doesn't, and essentially all of
+that host's keystroke budget. That was the condition Stage 4b was gated on,
+and it is met: the splice re-projects only the top-level blocks the edit
+touched (plus one of slack on each side) and reuses the rest, an 80x
+improvement. `IncrementalProjectionTests` compares the spliced tree against
+a full re-projection — node ids and storage spans included — after every
+edit of 60 randomized sequences.

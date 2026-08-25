@@ -56,13 +56,28 @@ public final class EditorController {
     public var document: ProseDocument {
         drainPendingEnvelopes()
         if let cached = cachedDocument { return cached }
+        if let spliced = projection.spliced(
+            storage: proseStorage.contents,
+            schema: compiler.schema
+        ) {
+            splicedProjectionRunCount += 1
+            cachedDocument = spliced
+            projection.adopt(spliced)
+            return spliced
+        }
         projectionRunCount += 1
         let fresh = ProseDocument.from(storage: proseStorage.contents, schema: compiler.schema)
         cachedDocument = fresh
+        projection.adopt(fresh)
         return fresh
     }
 
     private var cachedDocument: ProseDocument?
+    private var projection = IncrementalProjection()
+
+    /// Test-only counter; bumped when `document` was rebuilt by splicing
+    /// rather than re-projecting the whole storage.
+    var splicedProjectionRunCount: Int = 0
 
     /// Test-only invocation counter; bumped whenever `document` misses the
     /// cache and re-projects the storage. Lets tests assert that a
@@ -72,6 +87,7 @@ public final class EditorController {
     /// Test seam: drop the projected-tree cache without mutating storage.
     func invalidateDocumentCacheForBenchmark() {
         cachedDocument = nil
+        projection.reset()
     }
 
     /// The controller does its own grouping — one `HistoryRecord` per
@@ -427,6 +443,19 @@ public final class EditorController {
         // read after `setMarkdown` / `replaceStorage` re-derives.
         if !record.editedMask.isEmpty {
             cachedDocument = nil
+            if record.origin == .load {
+                // A load replaces the document; there is nothing to reuse.
+                projection.reset()
+            } else {
+                // Attribute-only edits count too: re-stamping a node path
+                // restructures the tree without moving a character. They
+                // dirty the range they touched, which is all the splice
+                // needs.
+                projection.record(
+                    editedRange: record.editedRange,
+                    changeInLength: record.isCharacterEdit ? record.changeInLength : 0
+                )
+            }
             layoutDelegate.decorationProvider.invalidate(
                 editedRange: record.editedRange,
                 changeInLength: record.changeInLength
@@ -772,8 +801,23 @@ public final class EditorController {
         guard edited.location >= 0, edited.location <= total else { return }
         let ns = textStorage.string as NSString
         let probe = edited.clamped(to: total)
-        let union = ns.paragraphRange(for: probe)
+        var union = ns.paragraphRange(for: probe)
         guard union.length > 0 else { return }
+        // An edit that inserted a line break split one block into two, and
+        // the second half sits *after* the edited paragraph — a newline
+        // terminates the paragraph it belongs to, so `paragraphRange` alone
+        // never reaches the new block. Without this the two halves keep one
+        // node and serialize as a single paragraph containing a newline.
+        if editedRangeIntroducedALineBreak(probe, in: ns),
+           union.location + union.length < total {
+            let next = ns.paragraphRange(
+                for: NSRange(location: union.location + union.length, length: 0)
+            )
+            union = NSRange(
+                location: union.location,
+                length: next.location + next.length - union.location
+            )
+        }
 
         proseStorage.withOrigin(.normalize, capturing: true) {
             textStorage.beginEditing()
@@ -789,6 +833,17 @@ public final class EditorController {
             }
             textStorage.endEditing()
         }
+    }
+
+    private func editedRangeIntroducedALineBreak(_ range: NSRange, in ns: NSString) -> Bool {
+        guard range.length > 0 else { return false }
+        let end = min(range.location + range.length, ns.length)
+        var i = max(0, range.location)
+        while i < end {
+            if ns.character(at: i) == 0x0A { return true }
+            i += 1
+        }
+        return false
     }
 
     /// One line: every character carries the same `proseNodePath` box, and

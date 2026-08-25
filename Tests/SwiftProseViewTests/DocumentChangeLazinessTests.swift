@@ -41,8 +41,12 @@ import SwiftProseSyntax
         }
 
         #expect(seen.count == 10)
-        #expect(controller.projectionRunCount == 10,
-                "one projection per change when the subscriber reads it")
+        // One rebuild per change, but only the first is a full projection:
+        // the rest are splices over the block the keystroke touched.
+        #expect(controller.projectionRunCount + controller.splicedProjectionRunCount == 10,
+                "one tree rebuild per change when the subscriber reads it")
+        #expect(controller.projectionRunCount == 1,
+                "only the first read projects the whole document")
     }
 
     @Test func repeatedDocumentReadsWithinOneChangeProjectOnce() throws {
@@ -53,8 +57,9 @@ import SwiftProseSyntax
             _ = change.document
         }
         controller.projectionRunCount = 0
+        controller.splicedProjectionRunCount = 0
         type(controller, "a", at: 5)
-        #expect(controller.projectionRunCount == 1)
+        #expect(controller.projectionRunCount + controller.splicedProjectionRunCount == 1)
     }
 
     @Test func noSubscribersMeansNoProjection() throws {

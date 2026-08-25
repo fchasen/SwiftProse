@@ -111,7 +111,8 @@ import SwiftProseSyntax
         _ = controller.document
         var published = 0
         controller.onDocumentChange = { _ in published += 1 }
-        let before = controller.document.root.node?.id
+        controller.projectionRunCount = 0
+        controller.splicedProjectionRunCount = 0
 
         let storage = controller.textStorage
         storage.beginEditing()
@@ -119,7 +120,9 @@ import SwiftProseSyntax
         storage.endEditing()
 
         #expect(published == 0, "attribute-only edits have no clean replaceText mapping")
-        #expect(controller.document.root.node?.id != before, "but the cache still invalidates")
+        _ = controller.document
+        #expect(controller.projectionRunCount + controller.splicedProjectionRunCount == 1,
+                "but the cache still invalidates and the tree is rebuilt")
     }
 
     @Test func loadPublishesWholeDocumentChange() throws {
