@@ -25,12 +25,18 @@ public enum SpecValidator {
     /// violations: every char must carry a spec, all chars in a paragraph
     /// must agree on the spec, marker-flagged chars must align with a
     /// list-item paragraph.
+    ///
+    /// Lines whose leaf is an isolating node are skipped, as in `repair`:
+    /// `BlockSpec` has no case for them, so `blockSpec(at:)` is nil for
+    /// every character of a table and reporting that as a missing spec
+    /// says nothing about the buffer's health.
     public static func validate(
         in storage: NSAttributedString,
         range: NSRange
     ) -> [SpecDiagnostic] {
         var out: [SpecDiagnostic] = []
         forEachLine(in: storage, range: range) { lineRange in
+            if lineHasIsolatingLeaf(in: storage, lineRange: lineRange) { return }
             var sawSpec = false
             var seenSpecs: [BlockSpec] = []
             for i in lineRange.location..<(lineRange.location + lineRange.length) {
@@ -74,7 +80,7 @@ public enum SpecValidator {
         }
     }
 
-    private static func lineHasIsolatingLeaf(
+    static func lineHasIsolatingLeaf(
         in storage: NSAttributedString,
         lineRange: NSRange
     ) -> Bool {

@@ -541,6 +541,7 @@ public enum Step {
         if env.isHistoryReplay {
             Step.unifyLineNodePaths(in: storage, range: mappedRange)
         } else {
+            Step.fillMissingNodePaths(in: storage, range: mappedRange)
             Step.restampPredecessorContext(in: storage, range: mappedRange)
         }
         storage.endEditing()
@@ -567,6 +568,43 @@ public enum Step {
         }
         for (runRange, spec) in pairs {
             storage.setBlockSpec(spec, in: runRange)
+        }
+    }
+
+    /// Give characters in `range` that carry no `proseNodePath` the one
+    /// their line already uses.
+    ///
+    /// A `replaceText` built from a bare `NSAttributedString` — which is
+    /// what a command or an input rule produces — has no structure on it.
+    /// Without this the inserted characters have no block spec at all, and
+    /// the post-edit validator is right to complain.
+    static func fillMissingNodePaths(in storage: NSTextStorage, range: NSRange) {
+        let safe = range.clamped(to: storage.length)
+        guard safe.length > 0 else { return }
+        var gaps: [NSRange] = []
+        storage.enumerateAttribute(.proseNodePath, in: safe) { value, runRange, _ in
+            if value == nil, runRange.length > 0 { gaps.append(runRange) }
+        }
+        guard !gaps.isEmpty else { return }
+        let ns = storage.string as NSString
+        for gap in gaps {
+            let line = ns.paragraphRange(for: NSRange(location: gap.location, length: 0))
+            var donor: NodePathBox?
+            if gap.location > line.location {
+                donor = storage.attribute(.proseNodePath, at: gap.location - 1, effectiveRange: nil) as? NodePathBox
+            }
+            let after = gap.location + gap.length
+            if donor == nil, after < line.location + line.length, after < storage.length {
+                donor = storage.attribute(.proseNodePath, at: after, effectiveRange: nil) as? NodePathBox
+            }
+            if let donor {
+                storage.addAttribute(.proseNodePath, value: donor, range: gap)
+            } else {
+                storage.setBlockSpec(BlockSpec(kind: .paragraph), in: gap)
+            }
+            if storage.attribute(.proseMarks, at: gap.location, effectiveRange: nil) == nil {
+                storage.addAttribute(.proseMarks, value: MarkSetBox(MarkSet()), range: gap)
+            }
         }
     }
 

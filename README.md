@@ -404,7 +404,9 @@ SwiftProseEditor(text: $text)
             // the tree on read.
         }
         controller.onDiagnostic = { diagnostic in
-            // Block-level invariant violations (auto-repaired).
+            // Block-level invariant violations. Not auto-repaired:
+            // normalization already ran, so one of these means a bug
+            // (DEBUG builds assert).
         }
         controller.onSchemaDiagnostic = { diagnostic in
             // Schema-level violations: unknown node/mark types,

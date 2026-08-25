@@ -142,12 +142,14 @@ These are nested, not parallel — pick the highest layer that gets the job done
 
 Single-callback observers on `EditorController` (`onDocumentChange`, `onDiagnostic`, `onSchemaDiagnostic`, `onSelectionChanged`) coexist with multi-subscriber registration: `addOnDocumentChange(_:)` / `addOnDiagnostic(_:)` / `addOnSelectionChanged(_:)` return an `ObserverToken` for `removeObserver(_:)`. Internal callsites use the `fanoutDocumentChange(_:_:)` / `fanoutDiagnostic(_:)` / `fanoutSelectionChanged(_:)` helpers.
 
-### Validation
+### Normalization and validation
 
-After every transaction, `EditorController.validateAndRepair(in:)` runs:
+Normalization runs first and the validator only checks. Nothing on the live path repairs.
 
-1. `SpecValidator.validate(in:range:)` — line-level structural invariants. `SpecValidator.repair(in:range:)` is invoked when diagnostics fire. Surfaces through `onDiagnostic`.
-2. Project storage to `ProseDocument`, then `SchemaValidator.validate(_:)` — typed-tree-level checks (unknown node / mark types, content-rule mismatches, marks on disallowed parents). Reports through `onSchemaDiagnostic`; no auto-repair.
+- **`normalizeInsertedAttributes`** — every character in an edited line carries that line's `proseNodePath`, reusing the box already there rather than minting one. Minting is what used to split a list in two when you deleted its first item. Two exceptions where it does mint: a line with no structure at all (content written straight into storage), and a line whose node is already claimed by an earlier line — typed and pasted characters carry the insertion point's node forward, so a multi-line paste arrives as one paragraph spanning every line it created. Code fences and tables are exempt from that split; one node over many lines is what they are.
+- **`Step.fillMissingNodePaths`** — the same job for transaction content, at insert time. A `replaceText` built from a bare `NSAttributedString` carries no structure.
+- **`DocumentInvariants.enforce`** (`SwiftProseView/DocumentInvariants.swift`) — the rules that span a **structural run**, which a line-local pass cannot see: ordered-list renumbering, `listLevel` clamping (no jump greater than one past the item above), blockquote continuity. Runs under `withOrigin(.normalize, capturing: true)` so the fix-up joins the undo unit of the edit that caused it. The first line of a run establishes its own depth — a document may legitimately open at `> > `.
+- **`EditorController.validate(in:)`** — `SpecValidator.validate` (line-level invariants; lines whose leaf is isolating are skipped, since `BlockSpec` cannot describe them) plus, when `onSchemaDiagnostic` is installed, `SchemaValidator.validate` over the projected tree. Diagnostics surface through `onDiagnostic` / `onSchemaDiagnostic`; in DEBUG a spec diagnostic trips an assertion, because reaching it means normalization has a bug. `SpecValidator.repair` survives for callers that explicitly want it, not on the edit path.
 
 ### History
 

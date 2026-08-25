@@ -582,6 +582,10 @@ public final class EditorController {
 
     private(set) var compositionBaseline: CompositionBaseline?
 
+    /// DEBUG-only: turn the post-edit spec assertion off. Tests that
+    /// deliberately corrupt storage set this.
+    var assertsOnDiagnostics = true
+
     /// Test seam: fires with the class every closed platform envelope was
     /// assigned.
     var classificationProbe: ((EditClass) -> Void)?
@@ -643,6 +647,19 @@ public final class EditorController {
         }
     }
 
+    /// Run the run-scoped structural invariants — ordered-list
+    /// renumbering, list-level clamping, blockquote continuity — over the
+    /// structural run the edit landed in.
+    ///
+    /// `capturing: true` so the fix-up joins the undo unit of the edit that
+    /// caused it: one undo of the deletion also puts the numbering back.
+    private func enforceDocumentInvariants(around editedRange: NSRange) {
+        let env = makeStepEnvironment()
+        proseStorage.withOrigin(.normalize, capturing: true) {
+            DocumentInvariants.enforce(in: textStorage, around: editedRange, env: env)
+        }
+    }
+
     /// Bring storage back to its invariants after an edit touched
     /// `editedRange`. Shared by the platform envelope close and the direct
     /// mutators so both leave the buffer in the same state.
@@ -657,8 +674,9 @@ public final class EditorController {
     ) {
         if accumulateHighlight { accumulateHighlightRange(editedRange) }
         if scrub { scrubTypedAttributes(in: editedRange) }
-        repairEditedLine(in: editedRange)
+        normalizeInsertedAttributes(in: editedRange)
         demoteEmptyStyledLines(in: editedRange)
+        enforceDocumentInvariants(around: editedRange)
         // Defer `resegment()` to the next runloop tick when a host text
         // view is attached so rapid typing rebuilds `blocks` once instead
         // of per character. Headless callers keep the synchronous path so
@@ -734,23 +752,122 @@ public final class EditorController {
         return .replaceText(range: preRange, with: textStorage.attributedSubstring(from: safeEdited))
     }
 
-    private func repairEditedLine(in edited: NSRange) {
+    /// Give characters an edit just inserted the structure of the line
+    /// they landed in, without minting anything.
+    ///
+    /// Replaces the old repair pass. That one derived a `BlockSpec` from
+    /// the line and re-stamped it, which mints fresh `ProseNode`s — so
+    /// deleting the first item of a list gave the surviving items a brand
+    /// new list ancestor, splitting one list into two and losing the
+    /// numbering. Here the line's dominant existing `NodePathBox` is
+    /// reused, so identity survives every edit.
+    private func normalizeInsertedAttributes(in edited: NSRange) {
         let total = textStorage.length
         guard total > 0 else { return }
-        guard edited.location >= 0,
-              edited.location <= total,
-              edited.location + edited.length <= total else { return }
-        // paragraphRange(for:) on the full edit range gives the union of
-        // every paragraph the edit overlaps. Repairing only the line at
-        // editedRange.location would miss multi-line pastes.
+        guard edited.location >= 0, edited.location <= total else { return }
         let ns = textStorage.string as NSString
         let probe = edited.clamped(to: total)
-        let lineRange = ns.paragraphRange(for: probe)
+        let union = ns.paragraphRange(for: probe)
+        guard union.length > 0 else { return }
+
         proseStorage.withOrigin(.normalize, capturing: true) {
-            SpecValidator.repair(in: textStorage, range: lineRange)
+            textStorage.beginEditing()
+            var cursor = union.location
+            let end = union.location + union.length
+            var claimed: Set<ObjectIdentifier> = []
+            while cursor < end, cursor < textStorage.length {
+                let line = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
+                guard line.length > 0 else { break }
+                normalizeLineAttributes(line, claimed: &claimed)
+                let next = line.location + line.length
+                cursor = next > cursor ? next : cursor + 1
+            }
+            textStorage.endEditing()
         }
     }
 
+    /// One line: every character carries the same `proseNodePath` box, and
+    /// characters that carry none inherit it. A list marker flag on a line
+    /// that isn't a list item is dropped.
+    ///
+    /// A single-line block's node may not span a newline. Typed and pasted
+    /// characters carry the insertion point's node forward, so a multi-line
+    /// paste arrives as one paragraph covering every line it created; each
+    /// line after the first gets a node of its own here. Multi-line blocks
+    /// — code fences, tables — are exempt: one node covering many lines is
+    /// exactly what they are.
+    private func normalizeLineAttributes(_ line: NSRange, claimed: inout Set<ObjectIdentifier>) {
+        var tally: [ObjectIdentifier: (box: NodePathBox, weight: Int)] = [:]
+        var unstamped: [NSRange] = []
+        textStorage.enumerateAttribute(.proseNodePath, in: line) { value, runRange, _ in
+            if let box = value as? NodePathBox {
+                tally[ObjectIdentifier(box), default: (box, 0)].weight += runRange.length
+            } else {
+                unstamped.append(runRange)
+            }
+        }
+        guard let winner = tally.values.max(by: { $0.weight < $1.weight })?.box else {
+            // Nothing on this line carries structure — content injected
+            // straight into storage, or the first character of an empty
+            // document. There is no identity to preserve, so minting one
+            // is safe. `setBlockSpec` reuses the predecessor's list and
+            // blockquote ancestors.
+            textStorage.setBlockSpec(BlockSpec(kind: .paragraph), in: line)
+            textStorage.addAttribute(.proseMarks, value: MarkSetBox(MarkSet()), range: line)
+            if let minted = textStorage.attribute(.proseNodePath, at: line.location, effectiveRange: nil) as? NodePathBox {
+                claimed.insert(ObjectIdentifier(minted))
+            }
+            return
+        }
+        let key = ObjectIdentifier(winner)
+        if claimed.contains(key) || spansAnEarlierLine(winner, line: line) {
+            textStorage.setBlockSpec(
+                BlockSpec.fromNodePath(winner.path) ?? BlockSpec(kind: .paragraph),
+                in: line
+            )
+            if let minted = textStorage.attribute(.proseNodePath, at: line.location, effectiveRange: nil) as? NodePathBox {
+                claimed.insert(ObjectIdentifier(minted))
+            }
+        } else {
+            claimed.insert(key)
+            if tally.count > 1 || !unstamped.isEmpty {
+                textStorage.addAttribute(.proseNodePath, value: winner, range: line)
+            }
+        }
+        // Inserted characters inherit the marks of the run before them;
+        // there is nothing else they could reasonably belong to.
+        for gap in unstamped where gap.length > 0 {
+            let donor = gap.location > line.location ? gap.location - 1 : gap.location + gap.length
+            let marks = donor < textStorage.length ? textStorage.markSet(at: donor) : nil
+            textStorage.addAttribute(.proseMarks, value: MarkSetBox(marks ?? MarkSet()), range: gap)
+        }
+        if textStorage.blockSpec(at: line.location)?.isListItem != true {
+            textStorage.removeAttribute(.proseListMarker, range: line)
+        }
+    }
+
+    /// True when `box` already covers a line before this one and its block
+    /// is single-line, so this line needs a node of its own.
+    private func spansAnEarlierLine(_ box: NodePathBox, line: NSRange) -> Bool {
+        guard line.location > 0 else { return false }
+        if isMultiLineBlock(box.path) { return false }
+        let full = NSRange(location: 0, length: textStorage.length)
+        var effective = NSRange(location: 0, length: 0)
+        _ = textStorage.safeAttribute(
+            .proseNodePath,
+            at: line.location,
+            longestEffectiveRange: &effective,
+            in: full
+        )
+        return effective.location < line.location
+    }
+
+    private func isMultiLineBlock(_ path: NodePath) -> Bool {
+        if let leaf = path.leaf, ["code_block", "html_block", "table"].contains(leaf.type) {
+            return true
+        }
+        return path.nodes.contains { $0.type == "table" }
+    }
 
     private func scrubTypedAttributes(in editedRange: NSRange) {
         guard editedRange.length > 0 else { return }
@@ -1292,7 +1409,7 @@ public final class EditorController {
                 location: min(preMutationRange.location, max(0, self.textStorage.length)),
                 length: min(unionLength, self.textStorage.length - min(preMutationRange.location, max(0, self.textStorage.length)))
             )
-            self.validateAndRepair(in: validationRange)
+            self.validate(in: validationRange)
         }
         ensureTrailingParagraph()
         resegment()
@@ -1389,25 +1506,33 @@ public final class EditorController {
         #endif
     }
 
-    /// Validate the spec invariants in `range`, repair drift, and forward
-    /// any diagnostics. Called after every transaction so corrupted state
-    /// auto-heals before the user sees it.
+    /// Check the spec invariants in `range` and forward any diagnostics.
+    ///
+    /// Validation only — nothing is repaired. Normalization already ran
+    /// (`normalizeInsertedAttributes`, `DocumentInvariants`), so a
+    /// diagnostic here means one of those has a bug, and silently patching
+    /// the buffer would hide it. In DEBUG it trips an assertion.
     ///
     /// Two validators run sequentially:
-    /// 1. `SpecValidator` — line-level structural invariants (the
-    ///    historical SwiftProse spec layer); has both `validate` and
-    ///    `repair` paths.
+    /// 1. `SpecValidator` — line-level structural invariants.
     /// 2. `SchemaValidator` — typed-tree-level checks (unknown node /
     ///    mark types, content-rule mismatches, marks on disallowed
-    ///    parents). Reports diagnostics; repair is left to `SpecValidator`.
-    func validateAndRepair(in range: NSRange) {
+    ///    parents), gated on a handler being installed.
+    func validate(in range: NSRange) {
         let specDiagnostics = SpecValidator.validate(in: textStorage, range: range)
         for diagnostic in specDiagnostics {
             fanoutDiagnostic(diagnostic)
         }
-        if !specDiagnostics.isEmpty {
-            SpecValidator.repair(in: textStorage, range: range)
+        #if DEBUG
+        // Reaching here means normalization left the buffer inconsistent.
+        // Repairing would hide the bug; assert instead so it surfaces in
+        // the suite and in the demo app.
+        if !specDiagnostics.isEmpty, assertsOnDiagnostics {
+            assertionFailure(
+                "spec invariants violated after an edit: \(specDiagnostics)"
+            )
         }
+        #endif
         // Project the live storage to a typed tree and run the schema-level
         // validator. Diagnostics surface through onSchemaDiagnostic so hosts
         // can wire them into the same surface as block-spec diagnostics.
@@ -1841,7 +1966,7 @@ public final class EditorController {
         var applied: AppliedTransaction!
         proseStorage.withOrigin(.history) {
             applied = transaction.apply(to: textStorage, env: env, sequential: true)
-            validateAndRepair(in: applied.mappedRange.clamped(to: textStorage.length))
+            validate(in: applied.mappedRange.clamped(to: textStorage.length))
         }
         ensureTrailingParagraph()
         accumulateHighlightRange(applied.mappedRange)

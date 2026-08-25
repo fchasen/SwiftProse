@@ -25,10 +25,21 @@ import UIKit
         let line0 = NSRange(location: 0, length: 6)
         let line1 = NSRange(location: 6, length: 5)
 
-        // Replace line 0 with raw text that has no BlockSpec; then
-        // setSpec on line 1. The union [0, end-of-line1] must be the
-        // validation range so the corruption on line 0 surfaces.
-        let corrupted = NSAttributedString(string: "gamma\n")
+        // Replace line 0 with text carrying two *different* structural
+        // nodes on one line — normalization fills a missing node path but
+        // deliberately does not silently pick a winner here — then setSpec
+        // on line 1. The union [0, end-of-line1] must be the validation
+        // range so the corruption on line 0 surfaces.
+        controller.assertsOnDiagnostics = false
+        let corrupted = NSMutableAttributedString(string: "gamma\n")
+        corrupted.setNodePath(
+            NodePath.fromBlockSpec(BlockSpec(kind: .heading(level: 2))),
+            in: NSRange(location: 0, length: 3)
+        )
+        corrupted.setNodePath(
+            NodePath.fromBlockSpec(BlockSpec(kind: .paragraph)),
+            in: NSRange(location: 3, length: 3)
+        )
         controller.apply(Transaction(steps: [
             .replaceText(range: line0, with: corrupted),
             .setSpec(lineRange: line1, BlockSpec(kind: .heading(level: 1)))
@@ -36,6 +47,8 @@ import UIKit
 
         #expect(!captured.isEmpty,
                 "expected at least one diagnostic for corruption on line 0, got \(captured)")
+        #expect(captured.contains { $0.lineRange.location < line1.location },
+                "the diagnostic must come from step 1's range, not just the last step's")
     }
 
     @Test func multiLineStorageEditRepairsAllAffectedLines() throws {
