@@ -103,3 +103,40 @@ and breaks `editedRange` bookkeeping — edits accumulate instead of
 resetting, which surfaces as a wrong `Step.replaceText` range in
 `onDocumentChange`. Eager fixing also does the `.attachment`-on-non-FFFC
 cleanup that `scrubTypedAttributes` does by hand.
+
+
+---
+
+## After Stage 4a (`resegment` removed)
+
+| case | Stage 0 | after 3.1 | after 4a | vs Stage 0 |
+|---|---:|---:|---:|---:|
+| keystroke — doc start | 2832 | 2953 | 125.5 | **23x** |
+| keystroke — mid paragraph | 2875 | 2979 | 86.2 | **33x** |
+| keystroke — nested list item | 2852 | 2985 | 87.4 | **33x** |
+| keystroke — inside fence | 2861 | 3030 | 134.9 | **21x** |
+| keystroke — tail | 2868 | 2961 | 86.9 | **33x** |
+| transaction — replaceText | 2708 | 2882 | 233.4 | **12x** |
+| markdown() | 47412 | 50789 | 52602 | — |
+| document (cold) | 26337 | 29815 | 31449 | — |
+| keystroke — inside 3000-line fence | 47.8 | 63.5 | 53.9 | ~1x |
+
+Every keystroke used to rebuild a whole-document `[BlockSegment]` list, which
+is why cost tracked block count and not edit size. `blocks` is now derived on
+read, and the only per-keystroke work left is a code-block rehighlight scoped
+to the fence the edit landed in — nothing at all for an edit outside a fence.
+Position still shows in the numbers (doc start and inside-fence are ~130 µs
+against ~86 µs elsewhere) but the whole-document term is gone.
+
+`markdown()` and `document` are unchanged: neither runs per keystroke.
+
+### The gate for 4b
+
+| case | µs |
+|---|---:|
+| keystroke — no tree subscriber | 86 |
+| keystroke — subscriber reads `change.document` | 31355 |
+
+A host that mirrors the typed tree pays a full `ProseDocument.from` per
+keystroke — 365x the cost of one that doesn't, and essentially all of that
+host's keystroke budget. That is the condition Stage 4b was gated on.

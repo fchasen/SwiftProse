@@ -147,6 +147,26 @@ struct KeystrokeBenchmarkTests {
             })
         }
 
+        // (a2) same keystroke with a subscriber that reads the tree —
+        // the gate for incremental projection.
+        do {
+            var sink = 0
+            let token = controller.addOnDocumentChange { change in
+                sink &+= change.document.contentLength
+            }
+            let offset = controller.textStorage.length / 2
+            samples.append(Self.measure(
+                "keystroke — tree subscriber",
+                iterations: 20,
+                setup: { controller.testSelection = NSRange(location: offset, length: 0) },
+                teardown: { Self.undoKeystroke(controller, at: offset) }
+            ) { _ in
+                Self.keystroke(controller, at: offset)
+            })
+            controller.removeObserver(token)
+            precondition(sink >= 0)
+        }
+
         // (c) command path.
         let mid = controller.textStorage.length / 2
         samples.append(Self.measure(

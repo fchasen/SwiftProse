@@ -24,12 +24,29 @@ public final class EditorController {
         }
     }
 
-    private var storedBlocks: [BlockSegment] = []
-
-    /// Line-level segmentation of the current storage.
+    /// Line-level segmentation of the current storage, derived on demand.
+    ///
+    /// O(document). Nothing in the editor reads this — it exists for hosts
+    /// that want a flat outline. It used to be a cached array rebuilt on
+    /// every keystroke, which was the single largest per-character cost in
+    /// the editor.
     public var blocks: [BlockSegment] {
         drainPendingEnvelopes()
-        return storedBlocks
+        var segs: [BlockSegment] = []
+        proseStorage.contents.enumerateBlockSpecs { range, spec in
+            segs.append(BlockSegment(
+                range: range,
+                tag: tagFor(spec: spec),
+                level: levelFor(spec: spec),
+                blockquoteDepth: spec.blockquoteDepth,
+                language: languageFor(spec: spec),
+                listLevel: spec.listLevel,
+                orderedIndex: orderedIndexFor(spec: spec),
+                isChecked: isCheckedFor(spec: spec),
+                firstInListItem: false
+            ))
+        }
+        return segs
     }
 
     /// Tree view of the current storage. Cached between accesses and
@@ -274,15 +291,12 @@ public final class EditorController {
     private(set) var storedInlineMarks: Set<InlineMark> = []
     private(set) var storedMarksAnchor: Int? = nil
 
-    /// Single-flight flag for the keystroke-path `resegment()` deferral. We
-    /// rebuild `blocks` on every typed character; coalescing rapid bursts to
-    /// one rebuild per main-runloop tick is a real win on long documents.
-    private var resegmentScheduled = false
+    /// Single-flight flag for the deferred code-block rehighlight.
+    private var rehighlightScheduled = false
 
-    /// Union of `editedRange` values seen by the storage observer since the
-    /// last `resegment()` ran. Used by `resegment()` to find code-block runs
-    /// that were touched and re-stamp syntax highlight colors on their body
-    /// text. Cleared after the rehighlight pass.
+    /// Union of `editedRange` values seen since the last rehighlight ran.
+    /// Used to find the code blocks that were touched and re-stamp syntax
+    /// highlight colors on their body text. Cleared after the pass.
     private var pendingHighlightRange: NSRange?
 
     /// Generation counter for `setMarkdown(_:async:)`. Each call bumps this
@@ -344,7 +358,7 @@ public final class EditorController {
             textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: initial)
         }
         ensureTrailingParagraph()
-        resegment()
+        scheduleCodeBlockRehighlight()
 
         // Wire the table view provider's dispatch back into this
         // controller now that `self` is fully initialized.
@@ -489,10 +503,10 @@ public final class EditorController {
             // Not content yet. Keep the cache and highlight bookkeeping the
             // caller already did, and stop — no normalization, no publish,
             // no input rules, no undo entry.
-            if hostTextView != nil { scheduleResegment() } else { resegment() }
+            scheduleCodeBlockRehighlight()
             return
         case .attributeOnly:
-            if hostTextView != nil { scheduleResegment() } else { resegment() }
+            scheduleCodeBlockRehighlight()
             return
         default:
             break
@@ -510,7 +524,7 @@ public final class EditorController {
             let post = textStorage.attributedSubstring(from: span.clamped(to: textStorage.length))
             // Esc mid-composition puts the pre-image back; nothing happened.
             if post.isEqual(to: baseline.preImage) {
-                if hostTextView != nil { scheduleResegment() } else { resegment() }
+                scheduleCodeBlockRehighlight()
                 return
             }
             committedCompositionLength = post.length
@@ -677,15 +691,7 @@ public final class EditorController {
         normalizeInsertedAttributes(in: editedRange)
         demoteEmptyStyledLines(in: editedRange)
         enforceDocumentInvariants(around: editedRange)
-        // Defer `resegment()` to the next runloop tick when a host text
-        // view is attached so rapid typing rebuilds `blocks` once instead
-        // of per character. Headless callers keep the synchronous path so
-        // reads of `controller.blocks` after a storage edit see fresh data.
-        if hostTextView != nil {
-            scheduleResegment()
-        } else {
-            resegment()
-        }
+        scheduleCodeBlockRehighlight()
         // Reconcile the trailing paragraph only when the edit reached the
         // document end. A mid-document keystroke can't change which block
         // is last, so this avoids a per-keystroke storage mutation (and
@@ -1429,7 +1435,7 @@ public final class EditorController {
             self.validate(in: validationRange)
         }
         ensureTrailingParagraph()
-        resegment()
+        scheduleCodeBlockRehighlight()
         intrinsicSizeInvalidator?()
         let normalizationInverses = collectingInverses ?? []
         collectingInverses = outerCollecting
@@ -1752,20 +1758,40 @@ public final class EditorController {
         storedMarksAnchor = nil
     }
 
-    /// Coalesce rapid keystroke-path resegment requests onto the next main-
-    /// runloop tick. Multiple keystrokes within a tick share one rebuild.
-    /// Internal (not private) so tests can drive it directly without going
-    /// through the storage-observer flow, which has its own repair-induced
-    /// amplification of resegment counts.
-    func scheduleResegment() {
-        guard !resegmentScheduled else { return }
-        resegmentScheduled = true
+    /// Re-stamp syntax colors on the code blocks the pending edits touched.
+    ///
+    /// Coalesced onto the next main-runloop tick when a host text view is
+    /// attached, so a burst of keystrokes rehighlights once. Headless
+    /// callers run synchronously so a read right after an edit sees settled
+    /// colors.
+    func scheduleCodeBlockRehighlight() {
+        guard pendingHighlightRange != nil else { return }
+        guard hostTextView != nil else {
+            flushCodeBlockRehighlight()
+            return
+        }
+        guard !rehighlightScheduled else { return }
+        rehighlightScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.resegmentScheduled = false
-            self.resegment()
+            self.rehighlightScheduled = false
+            self.flushCodeBlockRehighlight()
         }
     }
+
+    private func flushCodeBlockRehighlight() {
+        guard let pending = pendingHighlightRange else { return }
+        pendingHighlightRange = nil
+        rehighlightRunCount += 1
+        rehighlightCodeBlocks(intersecting: pending)
+    }
+
+    /// Test-only counter, bumped at the start of every rehighlight pass so
+    /// tests can verify coalescing without stubbing out the work.
+    var rehighlightRunCount: Int = 0
+
+    /// Test seam: fires with the range of each code block recolored.
+    var rehighlightProbe: ((NSRange) -> Void)?
 
     var isComposingIME: Bool {
         if let testMarkedText { return testMarkedText }
@@ -1987,7 +2013,7 @@ public final class EditorController {
         }
         ensureTrailingParagraph()
         accumulateHighlightRange(applied.mappedRange)
-        resegment()
+        scheduleCodeBlockRehighlight()
         intrinsicSizeInvalidator?()
         return applied
     }
@@ -2198,7 +2224,7 @@ public final class EditorController {
                 textStorage.replaceCharacters(in: mutationRange, with: blank)
                 textStorage.endEditing()
             }
-            resegment()
+            scheduleCodeBlockRehighlight()
             intrinsicSizeInvalidator?()
         }
         let landingRange = NSRange(location: landing, length: 0)
@@ -2233,7 +2259,7 @@ public final class EditorController {
                             theme: theme
                         )
                     }
-                    resegment()
+                    scheduleCodeBlockRehighlight()
                     intrinsicSizeInvalidator?()
                 }
                 if let result = resulting {
@@ -2276,7 +2302,7 @@ public final class EditorController {
                     textStorage.replaceCharacters(in: lineRange, with: blank)
                     textStorage.endEditing()
                 }
-                resegment()
+                scheduleCodeBlockRehighlight()
                 intrinsicSizeInvalidator?()
             }
             applyTypingAttributes(plainAttrs)
@@ -2291,7 +2317,7 @@ public final class EditorController {
                 textStorage.replaceCharacters(in: NSRange(location: insertLocation, length: 0), with: nextLine)
                 textStorage.endEditing()
             }
-            resegment()
+            scheduleCodeBlockRehighlight()
             intrinsicSizeInvalidator?()
         }
         let cursor = insertLocation + nextLine.length - 1
@@ -2332,7 +2358,7 @@ public final class EditorController {
                 textStorage.replaceCharacters(in: lineRange, with: blank)
                 textStorage.endEditing()
             }
-            resegment()
+            scheduleCodeBlockRehighlight()
             intrinsicSizeInvalidator?()
         }
         applyTypingAttributes(plainAttrs)
@@ -2387,7 +2413,7 @@ public final class EditorController {
                 }
                 textStorage.endEditing()
             }
-            resegment()
+            scheduleCodeBlockRehighlight()
         }
         setHostSelection(NSRange(location: lineRange.location, length: 0))
         applyTypingAttributes(plainAttrs)
@@ -2439,7 +2465,7 @@ public final class EditorController {
                 textStorage.replaceCharacters(in: blockRange, with: "")
                 textStorage.endEditing()
             }
-            resegment()
+            scheduleCodeBlockRehighlight()
             intrinsicSizeInvalidator?()
         }
         setHostSelection(NSRange(location: blockStart, length: 0))
@@ -2635,7 +2661,7 @@ public final class EditorController {
             textStorage.endEditing()
         }
         ensureTrailingParagraph()
-        resegment()
+        scheduleCodeBlockRehighlight()
         // Replacing all characters resets the host text view's caret to the
         // document end; restore the prior offset (clamped) so an external
         // setMarkdown / recompile / theme change doesn't move the cursor.
@@ -2669,44 +2695,8 @@ public final class EditorController {
         }
     }
 
-    /// Test-only invocation counter; bumped at the start of every
-    /// resegmentation pass so tests can verify coalescing behavior without
-    /// stubbing out the work itself.
-    var resegmentRunCount: Int = 0
-
-    private func resegment() {
-        resegmentRunCount += 1
-        var segs: [BlockSegment] = []
-        let total = textStorage.length
-        if total == 0 {
-            self.storedBlocks = []
-            self.pendingHighlightRange = nil
-            return
-        }
-        proseStorage.contents.enumerateBlockSpecs { range, spec in
-            segs.append(BlockSegment(
-                range: range,
-                tag: tagFor(spec: spec),
-                level: levelFor(spec: spec),
-                blockquoteDepth: spec.blockquoteDepth,
-                language: languageFor(spec: spec),
-                listLevel: spec.listLevel,
-                orderedIndex: orderedIndexFor(spec: spec),
-                isChecked: isCheckedFor(spec: spec),
-                firstInListItem: false
-            ))
-        }
-        self.storedBlocks = segs
-
-        if let pending = pendingHighlightRange {
-            rehighlightCodeBlocks(intersecting: pending)
-            pendingHighlightRange = nil
-        }
-    }
-
-    /// Union the freshly-edited range into `pendingHighlightRange` so that
-    /// the next deferred `resegment()` knows which code blocks to re-color.
-    /// Clamped to current storage length on read.
+    /// Union the freshly-edited range into `pendingHighlightRange` so the
+    /// next rehighlight pass knows which code blocks to re-color.
     private func accumulateHighlightRange(_ range: NSRange) {
         guard range.location != NSNotFound else { return }
         if let existing = pendingHighlightRange {
@@ -2718,51 +2708,102 @@ public final class EditorController {
         }
     }
 
-    /// Walk `blocks` for fenced/indented code runs overlapping `range` and
-    /// ask the compiler to re-stamp syntax-highlight colors on their
-    /// bodies. Adjacent same-tag segments are merged into one logical block
-    /// — `NodePathBox` uses reference equality so each compiler-emitted
-    /// line is its own attribute run, and the highlighter needs the full
-    /// fence-body-fence span to peel the fences from the body. Recompile-
-    /// free path — the parser doesn't run, so the spec attribution is
-    /// trusted from the previous compile and only the colors refresh.
+    /// Re-stamp syntax-highlight colors on every code block overlapping
+    /// `range`.
+    ///
+    /// The fence run comes from storage, not from a cached segment list:
+    /// the compiler stamps one `code_block` node across a whole fence, so
+    /// walking `proseNodePath` runs by node identity recovers the full
+    /// fence-body-fence span the highlighter needs. Recompile-free — the
+    /// parser doesn't run, only the colors refresh.
     private func rehighlightCodeBlocks(intersecting range: NSRange) {
         let total = textStorage.length
+        guard total > 0 else { return }
         let safe = range.clamped(to: total)
-        let safeEnd = safe.location + safe.length
-
-        var i = 0
-        while i < storedBlocks.count {
-            let tag = storedBlocks[i].tag
-            guard tag == .fencedCode || tag == .indentedCode else {
-                i += 1
+        let ns = textStorage.string as NSString
+        let anchor = min(max(0, safe.location), total - 1)
+        let scan = ns.paragraphRange(
+            for: NSRange(location: anchor, length: min(safe.length, total - anchor))
+        )
+        var cursor = scan.location
+        let end = scan.location + scan.length
+        var done: Set<NodeID> = []
+        while cursor < end, cursor < textStorage.length {
+            guard let path = textStorage.nodePath(at: cursor),
+                  let leaf = path.leaf,
+                  leaf.type == "code_block" else {
+                let line = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
+                cursor = line.length > 0 ? line.location + line.length : cursor + 1
                 continue
             }
-            // Greedy-extend through adjacent same-tag segments to recover
-            // the full code block.
-            var j = i
-            while j + 1 < storedBlocks.count,
-                  storedBlocks[j + 1].tag == tag,
-                  storedBlocks[j].range.location + storedBlocks[j].range.length == storedBlocks[j + 1].range.location {
-                j += 1
+            guard !done.contains(leaf.id) else {
+                cursor += 1
+                continue
             }
-            let runStart = storedBlocks[i].range.location
-            let runEnd = storedBlocks[j].range.location + storedBlocks[j].range.length
-            // Intersect with `safe`.
-            if runStart < safeEnd, safe.location < runEnd {
-                let language = storedBlocks[i].language ?? storedBlocks[j].language
-                proseStorage.withOrigin(.normalize) {
-                    compiler.rehighlightCodeBlock(
-                        in: textStorage,
-                        blockRange: NSRange(location: runStart, length: runEnd - runStart),
-                        language: language,
-                        isFenced: tag == .fencedCode,
-                        theme: theme
-                    )
-                }
+            done.insert(leaf.id)
+            let block = codeBlockRange(ofNode: leaf.id, containing: cursor)
+            guard block.length > 0 else { cursor += 1; continue }
+            let spec = textStorage.blockSpec(at: block.location)
+            let language: String?
+            let isFenced: Bool
+            if case .fencedCode(let lang) = spec?.kind {
+                language = lang
+                isFenced = true
+            } else {
+                language = nil
+                isFenced = false
             }
-            i = j + 1
+            rehighlightProbe?(block)
+            proseStorage.withOrigin(.normalize) {
+                compiler.rehighlightCodeBlock(
+                    in: textStorage,
+                    blockRange: block,
+                    language: language,
+                    isFenced: isFenced,
+                    theme: theme
+                )
+            }
+            cursor = block.location + block.length
         }
+    }
+
+    /// Full storage span of the `code_block` node with `id`, found by
+    /// walking `proseNodePath` runs out from `location` while the leaf
+    /// node id matches.
+    private func codeBlockRange(ofNode id: NodeID, containing location: Int) -> NSRange {
+        let total = textStorage.length
+        var start = location
+        var end = location
+        var probe = NSRange(location: 0, length: 0)
+        _ = textStorage.safeAttribute(
+            .proseNodePath,
+            at: location,
+            longestEffectiveRange: &probe,
+            in: NSRange(location: 0, length: total)
+        )
+        start = probe.location
+        end = probe.location + probe.length
+        while start > 0, textStorage.nodePath(at: start - 1)?.leaf?.id == id {
+            var back = NSRange(location: 0, length: 0)
+            _ = textStorage.safeAttribute(
+                .proseNodePath,
+                at: start - 1,
+                longestEffectiveRange: &back,
+                in: NSRange(location: 0, length: total)
+            )
+            start = back.location
+        }
+        while end < total, textStorage.nodePath(at: end)?.leaf?.id == id {
+            var forward = NSRange(location: 0, length: 0)
+            _ = textStorage.safeAttribute(
+                .proseNodePath,
+                at: end,
+                longestEffectiveRange: &forward,
+                in: NSRange(location: 0, length: total)
+            )
+            end = forward.location + forward.length
+        }
+        return NSRange(location: start, length: max(0, end - start))
     }
 
     private func tagFor(spec: BlockSpec) -> BlockTag {

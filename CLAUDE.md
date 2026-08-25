@@ -72,7 +72,7 @@ text typed
   ↓
 MarkdownParser (tree-sitter, .block + .inline grammars)
   ↓
-BlockSegmenter / BlockClassifier  →  [BlockSegment]
+BlockSegmenter / BlockClassifier  →  [BlockSegment]   (compile only)
   ↓
 MarkdownAttributedCompiler        →  NSAttributedString
    ├─ HighlightApplier             (markdown highlights.scm queries)
