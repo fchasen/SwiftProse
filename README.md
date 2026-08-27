@@ -244,7 +244,7 @@ controller.historyConfig = HistoryConfig(depth: 200, newGroupDelay: 0.5)
 
 One undo path covers everything — typing, commands, paste, table-cell edits — because every edit registers a typed inverse. `newGroupDelay` is the pause after which a typing burst becomes a new undo group; a burst also splits when the caret jumps somewhere non-adjacent, matching ProseMirror. A command always opens its own group, and one undo of a table-cell edit reverts that cell.
 
-The controller owns the `UndoManager` (`groupsByEvent` is off, since it does its own grouping). On macOS the text view's `allowsUndo` is off and `undoManager` resolves to the controller's, so Cmd-Z and the Edit menu reach the same stack; iOS overrides `undoManager` on the text view and adds Cmd-Z / Shift-Cmd-Z.
+The controller owns the `UndoManager` (`groupsByEvent` is off, since it does its own grouping). On macOS the text view's `allowsUndo` is off and the Edit menu's `undo:` / `redo:` actions are routed to the controller, so Cmd-Z and the menu reach the same stack; iOS overrides `undoManager` on the text view and adds Cmd-Z / Shift-Cmd-Z.
 
 `controller.undoDepth` / `redoDepth` are read-only counters. `controller.closeHistoryGroup()` opens a fresh undo group, matched by `meta["closeHistory"] = true` on transactions.
 

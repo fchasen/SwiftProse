@@ -448,12 +448,34 @@ final class ProseNSTextView: NSTextView {
     /// so SwiftUI can tear down the text view without leaking the controller.
     weak var proseController: EditorController?
 
-    /// Menu `undo:` resolves through the responder chain's `undoManager`,
-    /// while `NSTextView`'s own registration consults the delegate's
-    /// `undoManager(for:)`. Override both so Cmd-Z and the Edit menu reach
-    /// the same stack the controller registers on.
-    override var undoManager: UndoManager? {
-        proseController?.undoManager ?? super.undoManager
+    /// The controller owns history, so AppKit must never see an undo
+    /// manager on this view: with `allowsUndo` off, `undoManager` is nil
+    /// and the typing coalescer stays out of the controller's stack.
+    /// Handing it the controller's manager instead makes that coalescer
+    /// register without a group (`groupsByEvent` is off) and throw on
+    /// every keystroke. Menu Undo / Redo reach the controller through
+    /// these actions.
+    @objc func undo(_ sender: Any?) {
+        proseController?.undoManager.undo()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        proseController?.undoManager.redo()
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard let manager = proseController?.undoManager else {
+            return super.validateUserInterfaceItem(item)
+        }
+        if item.action == #selector(undo(_:)) {
+            (item as? NSMenuItem)?.title = manager.undoMenuItemTitle
+            return manager.canUndo
+        }
+        if item.action == #selector(redo(_:)) {
+            (item as? NSMenuItem)?.title = manager.redoMenuItemTitle
+            return manager.canRedo
+        }
+        return super.validateUserInterfaceItem(item)
     }
 
     var onSubmit: (() -> Void)?

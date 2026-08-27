@@ -1,0 +1,153 @@
+import XCTest
+import SwiftUI
+import SwiftProseSyntax
+@testable import SwiftProseView
+
+#if canImport(AppKit) && os(macOS)
+import AppKit
+
+/// Types through `NSTextView.insertText` — AppKit's own input path, undo
+/// coalescing included — instead of writing to storage. Storage writes
+/// skip everything the view does around an edit.
+///
+/// XCTest, not Swift Testing: `swift test` runs this phase serially and
+/// before the parallel Swift Testing phase. Driving AppKit on the main
+/// thread while other suites allocate on background threads trips the
+/// allocator's consistency check on current macOS; this suite needs the
+/// process to itself.
+@MainActor
+final class HostedTypingTests: XCTestCase {
+
+    private struct Host {
+        let controller: EditorController
+        let textView: ProseNSTextView
+        let coordinator: ProseTextViewMac.Coordinator
+    }
+
+    /// Mirrors `ProseTextViewMac.makeNSView`.
+    private func host(_ markdown: String) throws -> Host {
+        let controller = try EditorController(initialMarkdown: markdown, theme: .default)
+        let representable = ProseTextViewMac(controller: controller, text: .constant(markdown))
+        let coordinator = representable.makeCoordinator()
+        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let textView = ProseNSTextView(frame: frame, textContainer: controller.textContainer)
+        textView.delegate = coordinator
+        textView.isRichText = true
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isGrammarCheckingEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.drawsBackground = false
+        textView.textContainerInset = controller.theme.textContainerInset
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.textContainer?.widthTracksTextView = true
+        textView.autoresizingMask = [.width]
+        coordinator.textView = textView
+        controller.hostTextView = textView
+        textView.proseController = controller
+        return Host(controller: controller, textView: textView, coordinator: coordinator)
+    }
+
+    private func type(_ text: String, into textView: NSTextView) async throws {
+        for ch in text {
+            textView.insertText(String(ch), replacementRange: textView.selectedRange())
+        }
+        // Hosted drains run on the next tick.
+        try await Task.sleep(nanoseconds: 100_000_000)
+    }
+
+    /// Characters TextKit 2 has laid out into line fragments — what the
+    /// view will paint.
+    private func laidOutCharacters(_ textView: NSTextView) -> Int {
+        guard let layoutManager = textView.textLayoutManager else { return -1 }
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+        var count = 0
+        layoutManager.enumerateTextLayoutFragments(from: layoutManager.documentRange.location, options: []) { fragment in
+            for line in fragment.textLineFragments where line.typographicBounds.width > 0 {
+                count += line.characterRange.length
+            }
+            return true
+        }
+        return count
+    }
+
+    func testTypedCharactersLandInStorageAndLayout() async throws {
+        let h = try host("")
+        XCTAssertEqual(laidOutCharacters(h.textView), 0)
+        h.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await type("hello", into: h.textView)
+        XCTAssertEqual(h.controller.textStorage.string, "hello")
+        XCTAssertEqual(h.controller.markdown(), "hello")
+        XCTAssertEqual(h.textView.selectedRange(), NSRange(location: 5, length: 0))
+        XCTAssertEqual(laidOutCharacters(h.textView), 5)
+    }
+
+    func testTypingAppendsToAnExistingDocument() async throws {
+        let h = try host("# Hello\n\nType into me.\n")
+        let before = laidOutCharacters(h.textView)
+        let end = h.controller.textStorage.length
+        h.textView.setSelectedRange(NSRange(location: end, length: 0))
+        try await type("new words", into: h.textView)
+        XCTAssertEqual(h.controller.markdown(), "# Hello\n\nType into me.\n\nnew words")
+        XCTAssertEqual(laidOutCharacters(h.textView), before + "new words".count)
+    }
+
+    /// AppKit's `insertText` brackets one character with attribute writes;
+    /// that is still typing, so input rules fire and the burst is one
+    /// undo unit.
+    func testTypedCharactersClassifyAsTyping() async throws {
+        let h = try host("")
+        var classes: [EditorController.EditClass] = []
+        h.controller.classificationProbe = { classes.append($0) }
+        h.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await type("ab", into: h.textView)
+        XCTAssertEqual(classes, [.typing, .typing])
+    }
+
+    func testInputRulesFireForTypedText() async throws {
+        let h = try host("")
+        h.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await type("# Title", into: h.textView)
+        XCTAssertEqual(h.controller.textStorage.blockSpec(at: 0)?.kind, .heading(level: 1))
+        XCTAssertEqual(h.controller.markdown(), "# Title")
+    }
+
+    func testAppKitRegistersNothingOnTheControllersUndoStack() async throws {
+        let h = try host("")
+        XCTAssertNil(h.textView.undoManager)
+        h.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await type("hello", into: h.textView)
+        XCTAssertTrue(h.controller.undoManager.canUndo)
+        // One burst, one unit: a second entry would mean the view
+        // registered its own.
+        h.controller.undoManager.undo()
+        XCTAssertEqual(h.controller.textStorage.string, "")
+        XCTAssertFalse(h.controller.undoManager.canUndo)
+    }
+
+    func testMenuUndoAndRedoReachTheController() async throws {
+        let h = try host("")
+        let undoItem = NSMenuItem(title: "Undo", action: #selector(ProseNSTextView.undo(_:)), keyEquivalent: "z")
+        let redoItem = NSMenuItem(title: "Redo", action: #selector(ProseNSTextView.redo(_:)), keyEquivalent: "Z")
+        XCTAssertFalse(h.textView.validateUserInterfaceItem(undoItem))
+
+        h.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await type("abc", into: h.textView)
+        XCTAssertTrue(h.textView.validateUserInterfaceItem(undoItem))
+        XCTAssertFalse(h.textView.validateUserInterfaceItem(redoItem))
+
+        h.textView.undo(nil)
+        XCTAssertEqual(h.controller.textStorage.string, "")
+        XCTAssertTrue(h.textView.validateUserInterfaceItem(redoItem))
+
+        h.textView.redo(nil)
+        XCTAssertEqual(h.controller.textStorage.string, "abc")
+    }
+}
+#endif

@@ -12,6 +12,10 @@ final class EditorTypingTests: XCTestCase {
         XCTAssertTrue(editor.waitForExistence(timeout: 10))
         editor.tap()
         editor.typeText(" extra")
-        XCTAssertTrue(editor.value as? String != nil)
+        // The value is the rendered text; a keystroke that AppKit dropped
+        // (an exception in the input path) leaves it unchanged.
+        let value = editor.value as? String
+        XCTAssertNotNil(value)
+        XCTAssertTrue(value?.contains("extra") == true, "typed text did not reach the editor: \(value ?? "nil")")
     }
 }

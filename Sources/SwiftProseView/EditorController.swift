@@ -659,9 +659,16 @@ public final class EditorController {
         }
         if compositionBaseline != nil { return .compositionCommit }
 
-        // A single bracket holding several mutations is structurally bulk —
-        // a drag-move, Replace All, or an NSTextFinder pass.
-        if record.captures.count > 1 { return .bulk }
+        // A single bracket holding several character mutations is
+        // structurally bulk — a drag-move, Replace All, or an NSTextFinder
+        // pass. Attribute captures don't count: AppKit's `insertText`
+        // follows the one character it inserts with `setAttributes` for the
+        // typing attributes, in the same bracket.
+        let characterCaptures = record.captures.filter {
+            if case .characters = $0.kind { return true }
+            return false
+        }
+        if characterCaptures.count > 1 { return .bulk }
 
         switch context?.hint {
         case .attributeOnly:
@@ -679,7 +686,7 @@ public final class EditorController {
         case nil:
             // No hint — a host wrote storage directly, or a test did.
             let inserted: Int
-            if case .characters(let n)? = record.captures.first?.kind {
+            if case .characters(let n)? = characterCaptures.first?.kind {
                 inserted = n
             } else {
                 inserted = max(0, record.changeInLength)

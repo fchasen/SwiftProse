@@ -170,7 +170,7 @@ One path for everything. Every edit — a keystroke, a command, a paste, a table
 - **Coalescing** reads `historyConfig.newGroupDelay` for real. A `.typing` / `.deletion` / `.correction` envelope joins the open burst iff it lands within the delay **and** abuts a range the burst already touched. Everything else opens its own unit. `closeHistoryGroup()` and every command entry point close the burst.
 - **`undoManager.groupsByEvent` is off** — the controller does its own grouping, one `HistoryRecord` per group. Left on, a typed character and the input rule it triggered would collapse into one undo.
 - **History replay sets `StepEnvironment.isHistoryReplay`**, which turns off `applyReplaceText`'s node re-stamping (it would discard the identity the pre-image carries) and turns on `Step.unifyLineNodePaths` (a restored run whose neighbours were re-stamped meanwhile would otherwise split one line into two blocks).
-- Platform undo routing: macOS sets `allowsUndo = false` and overrides `ProseNSTextView.undoManager`; iOS overrides `ProseUITextView.undoManager` and adds Cmd-Z / Shift-Cmd-Z key commands.
+- Platform undo routing: macOS sets `allowsUndo = false` (so `NSTextView.undoManager` is nil and AppKit's typing coalescer never registers) and routes the `undo:` / `redo:` menu actions to the controller from `ProseNSTextView`. Never override `undoManager` on the text view — AppKit registers into whatever it returns, without a group, and throws. iOS overrides `ProseUITextView.undoManager` and adds Cmd-Z / Shift-Cmd-Z key commands.
 
 `controller.undoDepth` / `redoDepth` / `isHistoryTransaction(_:)` are read-only accessors.
 
