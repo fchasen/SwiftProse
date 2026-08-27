@@ -102,7 +102,7 @@ Two `MarkdownParser` instances run side-by-side: one with the `.block` grammar, 
 Two reference-typed attributes are canonical on storage:
 
 - **`.proseNodePath`** (declared in `SwiftProseSyntax/AttributeKeys.swift`, value type `NodePathBox`) — the chain of structural ancestors for this character (e.g. `[doc, blockquote, paragraph]`). Carries node identity (`NodeID`) so adjacent runs with the same logical path don't accidentally fuse. **`BlockSpec` is now derived** from `proseNodePath` at read time via `storage.blockSpec(at:)` — there is no `proseBlockSpec` storage attribute anymore.
-- **`.proseMarks`** (value type `MarkSetBox`) — the `MarkSet` of inline marks (strong, em, code, link, strike) on this character. Supersedes per-attribute font-trait inspection.
+- **`.proseMarks`** (value type `MarkSetBox`) — the `MarkSet` of inline marks (strong, em, code, link, strike) on this character. Supersedes per-attribute font-trait inspection. `MarkSetBox` compares by value, so adjacent characters with equal marks are one attribute run; when stamping inserted characters, reuse the neighbour's box rather than minting one.
 
 **Do not infer block kind from text patterns.** Read `proseNodePath` (or its `BlockSpec` projection). When inserting, carry-forward of attributes is driven by `EditorController.carryForwardAttributeKeys`.
 
@@ -151,7 +151,7 @@ These are nested, not parallel — pick the highest layer that gets the job done
 
 `SwiftProseView/EditorPlugin.swift`. `EditorPlugin` protocol with `filterTransaction(_:controller:)` (veto), `appendTransaction(after:controller:)` (follow-up), and `props: PluginProps` for input-event hooks (`handleClick`, `handlePaste`, `handleDrop`, `handleKeyDown`, `handleTextInput`). Per-plugin state lives behind `PluginKey<State>`: `controller.setPluginState(_:for:)` / `controller.pluginState(for:)`. The macOS click handler consults `plugins[*].props.handleClick` before built-in checkbox handling.
 
-Single-callback observers on `EditorController` (`onDocumentChange`, `onDiagnostic`, `onSchemaDiagnostic`, `onSelectionChanged`) coexist with multi-subscriber registration: `addOnDocumentChange(_:)` / `addOnDiagnostic(_:)` / `addOnSelectionChanged(_:)` return an `ObserverToken` for `removeObserver(_:)`. Internal callsites use the `fanoutDocumentChange(_:_:)` / `fanoutDiagnostic(_:)` / `fanoutSelectionChanged(_:)` helpers.
+`DocumentChange` fires for every platform envelope, transaction, history replay (attribute-only ones included — a mark toggle is a document change), and load; it carries an internal `origin`, which the text-view coordinators use to push the `text` binding after everything except a `.load`. Single-callback observers on `EditorController` (`onDocumentChange`, `onDiagnostic`, `onSchemaDiagnostic`, `onSelectionChanged`) coexist with multi-subscriber registration: `addOnDocumentChange(_:)` / `addOnDiagnostic(_:)` / `addOnSelectionChanged(_:)` return an `ObserverToken` for `removeObserver(_:)`. Internal callsites use the `fanoutDocumentChange(_:_:)` / `fanoutDiagnostic(_:)` / `fanoutSelectionChanged(_:)` helpers.
 
 ### Normalization and validation
 

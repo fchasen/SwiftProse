@@ -21,6 +21,31 @@ unit. Only character mutations count now.
 `HostedTypingTests` types through `NSTextView.insertText` (the AppKit path)
 rather than writing to storage, which is how both went unnoticed.
 
+### Fixed: inline marks over typed text
+
+Every typed character carried its own `MarkSetBox`, and boxes compared by
+identity, so a bold command over a typed word serialized as
+`**u****r****l**`. `MarkSetBox` compares by value now and inserted
+characters share their neighbour's box, so a word is one run and the
+command emits `**url**`.
+
+### Fixed: link insertion
+
+`perform(.link)` replaced the selection with the literal label `"label"`
+and stamped only the legacy rendering attributes, so `linkMark(at:)` could
+not find the link afterwards. The selection is now the label (and the
+destination too when it already reads as a URL; otherwise the placeholder
+`url` for the host's link editor to replace), and the `link` mark is
+stamped on `proseMarks` like every other mark.
+
+### The `text` binding follows commands and undo
+
+Only typing pushed `controller.markdown()` into the SwiftUI binding; a
+toolbar command or Cmd-Z left the host's document stale. Both text-view
+coordinators now push after every `DocumentChange` that isn't a load, and a
+`DocumentChange` is published for attribute-only transactions and history
+replays (a mark toggle), which used to publish nothing.
+
 ### Clipboard carries rendered text
 
 Copy and cut put the text the editor shows on the pasteboard's plain-text
