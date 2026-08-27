@@ -196,13 +196,25 @@ public struct ProseTextViewMac: NSViewRepresentable {
         /// save-on-change observers see a single update per word.
         public static var debounceInterval: DispatchTimeInterval = .milliseconds(80)
 
+        /// Commands, input rules, and undo change storage without a
+        /// `textDidChange`; the binding still has to follow them.
+        private var documentObserver: EditorController.ObserverToken?
+
         init(_ parent: ProseTextViewMac) {
             self.parent = parent
             self.lastAppliedMarkdown = parent.text
+            super.init()
+            documentObserver = parent.controller.addOnDocumentChange { [weak self] change in
+                guard change.origin != .load else { return }
+                self?.scheduleTextPush()
+            }
         }
 
         deinit {
             pendingTextPush?.cancel()
+            if let documentObserver {
+                parent.controller.removeObserver(documentObserver)
+            }
         }
 
         /// Push an external markdown change into the controller (and storage).

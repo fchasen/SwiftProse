@@ -14,9 +14,15 @@ public struct DocumentChange {
 
     unowned let controller: EditorController
 
-    init(step: Step, controller: EditorController) {
+    /// Where the edit came from. A `.load` replaced the whole document
+    /// on the host's behalf; the text-view coordinators don't push that
+    /// back into the binding.
+    let origin: EditOrigin
+
+    init(step: Step, controller: EditorController, origin: EditOrigin = .platform) {
         self.step = step
         self.controller = controller
+        self.origin = origin
     }
 
     /// Tree view of the storage as of this change. Projected on first

@@ -134,6 +134,16 @@ public final class MarkSetBox: NSObject, @unchecked Sendable {
         self.marks = marks
         super.init()
     }
+
+    /// Compares by value: marks carry no identity, and attribute runs
+    /// coalesce on `isEqual`, so two boxes holding the same set must be
+    /// one run — or every typed character becomes its own inline node.
+    public override func isEqual(_ object: Any?) -> Bool {
+        guard let other = object as? MarkSetBox else { return false }
+        return marks == other.marks
+    }
+
+    public override var hash: Int { marks.hashValue }
 }
 
 public extension NSAttributedString {

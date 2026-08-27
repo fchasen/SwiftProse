@@ -138,13 +138,25 @@ public struct ProseTextViewIOS: UIViewRepresentable {
         /// the rationale — same debounce on iOS.
         public static var debounceInterval: DispatchTimeInterval = .milliseconds(80)
 
+        /// Commands, input rules, and undo change storage without a
+        /// `textViewDidChange`; the binding still has to follow them.
+        private var documentObserver: EditorController.ObserverToken?
+
         init(_ parent: ProseTextViewIOS) {
             self.parent = parent
             self.lastAppliedMarkdown = parent.text
+            super.init()
+            documentObserver = parent.controller.addOnDocumentChange { [weak self] change in
+                guard change.origin != .load else { return }
+                self?.scheduleTextPush()
+            }
         }
 
         deinit {
             pendingTextPush?.cancel()
+            if let documentObserver {
+                parent.controller.removeObserver(documentObserver)
+            }
         }
 
         func applyExternalText(_ md: String, to: UITextView) {

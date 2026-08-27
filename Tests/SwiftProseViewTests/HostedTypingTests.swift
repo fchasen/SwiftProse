@@ -131,6 +131,62 @@ final class HostedTypingTests: XCTestCase {
         XCTAssertFalse(h.controller.undoManager.canUndo)
     }
 
+    /// Typed characters share one mark run; a mark command over them
+    /// serializes once, not per character.
+    func testInlineMarkOverTypedTextSerializesOnce() async throws {
+        let h = try host("")
+        h.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await type("this is a url to link to", into: h.textView)
+        h.textView.setSelectedRange(NSRange(location: 10, length: 3))
+        _ = h.controller.perform(.bold)
+        XCTAssertEqual(h.controller.markdown(), "this is a **url** to link to")
+        h.textView.undo(nil)
+        h.textView.setSelectedRange(NSRange(location: 10, length: 3))
+        _ = h.controller.perform(.link)
+        XCTAssertEqual(h.controller.markdown(), "this is a [url](url) to link to")
+        XCTAssertEqual(h.controller.linkMark(at: 11)?.range, NSRange(location: 10, length: 3))
+    }
+
+    /// Commands and undo change storage without a `textDidChange`; the
+    /// binding follows them anyway.
+    func testCommandsAndUndoPushTheTextBinding() async throws {
+        var bound = ""
+        let binding = Binding<String>(get: { bound }, set: { bound = $0 })
+        let controller = try EditorController(initialMarkdown: "", theme: .default)
+        let representable = ProseTextViewMac(controller: controller, text: binding)
+        let coordinator = representable.makeCoordinator()
+        let textView = ProseNSTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), textContainer: controller.textContainer)
+        textView.delegate = coordinator
+        textView.isEditable = true
+        textView.allowsUndo = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        coordinator.textView = textView
+        controller.hostTextView = textView
+        textView.proseController = controller
+        defer { withExtendedLifetime(coordinator) {} }
+
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await type("some url here", into: textView)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(bound, "some url here")
+
+        textView.setSelectedRange(NSRange(location: 5, length: 3))
+        _ = controller.perform(.bold)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(bound, "some **url** here")
+
+        textView.undo(nil)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(bound, "some url here")
+
+        // A load is the host's own write; it must not bounce back.
+        controller.setMarkdown("fresh\n", async: false)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(bound, "some url here")
+    }
+
     func testMenuUndoAndRedoReachTheController() async throws {
         let h = try host("")
         let undoItem = NSMenuItem(title: "Undo", action: #selector(ProseNSTextView.undo(_:)), keyEquivalent: "z")

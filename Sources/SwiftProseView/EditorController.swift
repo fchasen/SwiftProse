@@ -461,7 +461,11 @@ public final class EditorController {
                 changeInLength: record.changeInLength
             )
         }
-        guard record.isCharacterEdit else { return }
+        // A transaction or history replay that only touched attributes — a
+        // mark toggle — still changed the document; platform and
+        // normalization attribute writes are not content.
+        let publishesAttributeOnly = record.origin == .transaction || record.origin == .history
+        guard record.isCharacterEdit || publishesAttributeOnly else { return }
 
         switch record.origin {
         case .normalize:
@@ -473,8 +477,8 @@ public final class EditorController {
             }
             return
         case .transaction, .history, .load:
-            accumulateHighlightRange(record.editedRange)
-            fanoutDocumentChange(DocumentChange(step: derivedStep(from: record), controller: self))
+            if record.isCharacterEdit { accumulateHighlightRange(record.editedRange) }
+            fanoutDocumentChange(DocumentChange(step: derivedStep(from: record), controller: self, origin: record.origin))
         case .platform:
             pendingEnvelopes.append(PendingEnvelope(record: record))
             if hostTextView == nil {
@@ -917,8 +921,10 @@ public final class EditorController {
         // there is nothing else they could reasonably belong to.
         for gap in unstamped where gap.length > 0 {
             let donor = gap.location > line.location ? gap.location - 1 : gap.location + gap.length
-            let marks = donor < textStorage.length ? textStorage.markSet(at: donor) : nil
-            textStorage.addAttribute(.proseMarks, value: MarkSetBox(marks ?? MarkSet()), range: gap)
+            let box = donor < textStorage.length
+                ? textStorage.attribute(.proseMarks, at: donor, effectiveRange: nil) as? MarkSetBox
+                : nil
+            textStorage.addAttribute(.proseMarks, value: box ?? MarkSetBox(MarkSet()), range: gap)
         }
         if textStorage.blockSpec(at: line.location)?.isListItem != true {
             textStorage.removeAttribute(.proseListMarker, range: line)
@@ -1901,38 +1907,25 @@ public final class EditorController {
         return didFire
     }
 
+    /// `.link` without a URL: the selection stays the label, and becomes
+    /// the destination too when it already reads as one. Otherwise the
+    /// destination is the placeholder `"url"` for the host's link editor
+    /// to replace (see `updateLink(in:href:title:)`).
     private func performLink(url: String?, label: String?) -> NSRange {
-        let range = currentSelection
-        var out = NSRange(location: range.location, length: 0)
-        withCharacterMutation(range: range) {
-            out = Operations.insertLink(
-                in: textStorage,
-                replacing: range,
-                label: label ?? "label",
-                url: url ?? "url",
-                theme: theme
-            )
-        }
-        setHostSelection(out)
-        return out
+        let selected = selectedText()
+        let href = url ?? (selected.map(Self.looksLikeURL) == true ? selected! : "url")
+        return insertLink(label: label ?? "link", url: href)
     }
 
     /// Insert a link at the host text view's cursor. If the user has a
     /// non-empty selection, that text becomes the link's display label;
     /// otherwise the supplied `label` (e.g. `"bug 12345"`) is used. The URL
-    /// rides on a `.link` attribute and round-trips as `[label](url)`.
+    /// rides on the `link` mark and round-trips as `[label](url)`.
     @discardableResult
     public func insertLink(label: String, url: String) -> NSRange {
         drainPendingEnvelopes()
         let selection = currentSelection
-        var actualLabel = label
-        if selection.length > 0,
-           selection.location + selection.length <= textStorage.length {
-            let selected = (textStorage.string as NSString).substring(with: selection)
-            if !selected.isEmpty {
-                actualLabel = selected
-            }
-        }
+        let actualLabel = selectedText() ?? label
         var result = NSRange(location: selection.location, length: 0)
         withCharacterMutation(range: selection) {
             result = Operations.insertLink(
@@ -1942,10 +1935,34 @@ public final class EditorController {
                 url: url,
                 theme: theme
             )
+            // `Operations.insertLink` lays down rendering attributes; the
+            // canonical `proseMarks` come from them.
+            let linked = NSRange(location: selection.location, length: (actualLabel as NSString).length)
+            NodePathSynthesizer(schema: compiler.schema)
+                .stampMarks(in: textStorage, range: linked.clamped(to: textStorage.length))
         }
         setHostSelection(result)
         refreshTypingAttributes(at: result.location)
         return result
+    }
+
+    /// The selected text, or nil when the selection is empty.
+    private func selectedText() -> String? {
+        let selection = currentSelection
+        guard selection.length > 0,
+              selection.location + selection.length <= textStorage.length else { return nil }
+        let text = (textStorage.string as NSString).substring(with: selection)
+        return text.isEmpty ? nil : text
+    }
+
+    static func looksLikeURL(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains(" ") else { return false }
+        if let url = URL(string: trimmed), let scheme = url.scheme, !scheme.isEmpty,
+           url.host != nil || scheme == "mailto" {
+            return true
+        }
+        return trimmed.hasPrefix("www.")
     }
 
     // MARK: - undo
