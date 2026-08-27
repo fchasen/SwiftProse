@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProseRendering
 #if canImport(AppKit) && os(macOS)
 import AppKit
 #elseif canImport(UIKit)
@@ -86,7 +87,7 @@ struct EditCapture {
 /// it. Handed to `editObserver` after `super.processEditing()` has run.
 struct EditRecord {
     let origin: EditOrigin
-    let editedMask: NSTextStorageEditActions
+    let editedMask: PlatformTextStorageEditActions
     /// Post-edit union of everything the group touched, snapshotted before
     /// `super.processEditing()` clears it.
     let editedRange: NSRange

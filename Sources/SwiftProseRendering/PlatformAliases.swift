@@ -8,6 +8,7 @@ public typealias PlatformColor = NSColor
 public typealias PlatformFont = NSFont
 public typealias PlatformFontDescriptor = NSFontDescriptor
 public typealias PlatformImage = NSImage
+public typealias PlatformTextStorageEditActions = NSTextStorageEditActions
 #elseif canImport(UIKit)
 import UIKit
 public typealias PlatformView = UIView
@@ -16,6 +17,7 @@ public typealias PlatformColor = UIColor
 public typealias PlatformFont = UIFont
 public typealias PlatformFontDescriptor = UIFontDescriptor
 public typealias PlatformImage = UIImage
+public typealias PlatformTextStorageEditActions = NSTextStorage.EditActions
 #endif
 
 public struct FontTraits: OptionSet, Sendable {

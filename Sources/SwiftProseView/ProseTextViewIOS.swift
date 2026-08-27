@@ -453,9 +453,9 @@ final class ProseUITextView: UITextView {
     /// Interim dictation writes placeholder text straight into storage.
     /// Flagging it lets the drain drop those envelopes — the real phrase
     /// arrives through `insertDictationResult` below.
-    override func insertDictationResultPlaceholder() -> Any {
+    override var insertDictationResultPlaceholder: Any {
         proseController?.dictationPlaceholderActive = true
-        return super.insertDictationResultPlaceholder()
+        return super.insertDictationResultPlaceholder
     }
 
     override func removeDictationResultPlaceholder(_ placeholder: Any, willInsertResult: Bool) {
