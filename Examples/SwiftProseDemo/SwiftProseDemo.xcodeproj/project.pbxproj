@@ -11,7 +11,6 @@
 		33EA192C2FA9203C0083368E /* SwiftProseSyntax in Frameworks */ = {isa = PBXBuildFile; productRef = 33EA192B2FA9203C0083368E /* SwiftProseSyntax */; };
 		B0010001000000000000B001 /* SwiftProseDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020001000000000000B002 /* SwiftProseDemoApp.swift */; };
 		B0010002000000000000B001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020002000000000000B002 /* ContentView.swift */; };
-		B0010003000000000000B001 /* SwiftProse in Frameworks */ = {isa = PBXBuildFile; productRef = B0050001000000000000B005 /* SwiftProse */; };
 		B0010004000000000000B001 /* EditorTypingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020003000000000000B002 /* EditorTypingTests.swift */; };
 		B0010005000000000000B001 /* ToolbarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020004000000000000B002 /* ToolbarTests.swift */; };
 		B0010007000000000000B001 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020006000000000000B002 /* MarkdownDocument.swift */; };
@@ -54,7 +53,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				33EA192A2FA9203C0083368E /* SwiftProse in Frameworks */,
-				B0010003000000000000B001 /* SwiftProse in Frameworks */,
 				B0E30001000000000000B0E3 /* TreeSitterSwift in Frameworks */,
 				33EA192C2FA9203C0083368E /* SwiftProseSyntax in Frameworks */,
 				B0E30002000000000000B0E3 /* TreeSitterJavaScript in Frameworks */,
@@ -131,7 +129,6 @@
 			);
 			name = SwiftProseDemo;
 			packageProductDependencies = (
-				B0050001000000000000B005 /* SwiftProse */,
 				B0E20001000000000000B0E2 /* TreeSitterSwift */,
 				B0E20002000000000000B0E2 /* TreeSitterJavaScript */,
 				B0E20003000000000000B0E2 /* TreeSitterCSS */,
@@ -193,7 +190,7 @@
 				B0E10002000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-javascript" */,
 				B0E10003000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-css" */,
 				B0E10004000000000000B0E1 /* XCRemoteSwiftPackageReference "tree-sitter-html" */,
-				33EA19282FA9203C0083368E /* XCLocalSwiftPackageReference "../../../SwiftProse" */,
+				33EA19282FA9203C0083368E /* XCLocalSwiftPackageReference "../.." */,
 			);
 			productRefGroup = B0060004000000000000B006 /* Products */;
 			projectDirPath = "";
@@ -310,6 +307,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = FKN6VL994M;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = SwiftProseDemo/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -320,7 +318,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.swiftprose.SwiftProseDemo;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fchasen.swiftprose.SwiftProseDemo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
@@ -337,6 +335,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = FKN6VL994M;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = SwiftProseDemo/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -347,7 +346,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.swiftprose.SwiftProseDemo;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fchasen.swiftprose.SwiftProseDemo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
@@ -433,9 +432,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		33EA19282FA9203C0083368E /* XCLocalSwiftPackageReference "../../../SwiftProse" */ = {
+		33EA19282FA9203C0083368E /* XCLocalSwiftPackageReference "../.." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../../SwiftProse;
+			relativePath = ../..;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -477,15 +476,13 @@
 /* Begin XCSwiftPackageProductDependency section */
 		33EA19292FA9203C0083368E /* SwiftProse */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 33EA19282FA9203C0083368E /* XCLocalSwiftPackageReference "../.." */;
 			productName = SwiftProse;
 		};
 		33EA192B2FA9203C0083368E /* SwiftProseSyntax */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 33EA19282FA9203C0083368E /* XCLocalSwiftPackageReference "../.." */;
 			productName = SwiftProseSyntax;
-		};
-		B0050001000000000000B005 /* SwiftProse */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = SwiftProse;
 		};
 		B0E20001000000000000B0E2 /* TreeSitterSwift */ = {
 			isa = XCSwiftPackageProductDependency;
