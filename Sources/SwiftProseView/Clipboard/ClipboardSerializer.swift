@@ -2,14 +2,17 @@ import Foundation
 import SwiftProseSyntax
 
 /// Bundles a `Slice` into the three forms a pasteboard write needs:
-///   - `text`: faithful markdown — what external apps (TextEdit, Notes)
-///     see when no HTML reader is available.
+///   - `text`: the rendered text, exactly what the editor shows — never
+///     markdown. This is what plain-text consumers receive.
 ///   - `html`: structural HTML carrying a `data-pm-slice` attribute on the
 ///     outermost wrapper. Round-trips between SwiftProse instances and
 ///     web ProseMirror without losing block context or open depths.
 ///   - `slice`: the slice itself, returned so callers (today, copy
 ///     overrides on the platform text views) can route it through any
 ///     `clipboardSerializer` plugin hook before writing.
+///
+/// `renderMarkdown(_:)` is for hosts that offer a "copy as markdown"
+/// action; the default copy never puts markdown on the pasteboard.
 public struct ClipboardSerializer {
 
     public let schema: Schema
@@ -25,10 +28,14 @@ public struct ClipboardSerializer {
         controller: EditorController,
         slice: Slice
     ) -> (text: String, html: String?, slice: Slice) {
-        let serializer = MarkdownTreeSerializer(schema: schema)
-        let text = serializer.serializeSlice(slice)
+        let text = PlainTextSerializer(schema: schema).serialize(slice.content)
         let html = renderHTML(slice)
         return (text: text, html: html, slice: slice)
+    }
+
+    /// Markdown for `slice`. Not written by the default copy path.
+    public func renderMarkdown(_ slice: Slice) -> String {
+        MarkdownTreeSerializer(schema: schema).serializeSlice(slice)
     }
 
     /// HTML rendering for `slice` — body produced by `DOMSerializer`,

@@ -108,6 +108,7 @@ up on them (`appendTransaction`), or intercept input events through
 - ``MarkdownTreeSerializer``
 - ``ClipboardParser``
 - ``ClipboardSerializer``
+- ``PlainTextSerializer``
 - ``PasteEvent``
 
 ### ProseMirror interchange

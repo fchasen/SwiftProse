@@ -134,8 +134,8 @@ import SwiftProseSyntax
         let html = try #require(bundle.html)
         #expect(html.contains("<h1>"))
         #expect(html.contains("<p>body</p>"))
-        #expect(bundle.text.contains("# Title"))
-        #expect(bundle.text.contains("body"))
+        #expect(bundle.text == "Title\nbody")
+        #expect(serializer.renderMarkdown(slice).contains("# Title"))
     }
 
     @Test func dataPmSliceMarkerIncludesOpenDepths() throws {
