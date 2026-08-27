@@ -18,6 +18,7 @@ public struct SwiftProseEditor: View {
     @Environment(\.proseInlineContentProvider) private var inlineProvider
     @Environment(\.proseControllerReady) private var onControllerReady
     @Environment(\.proseCodeBlockHighlighter) private var codeBlockHighlighter
+    @Environment(\.isEnabled) private var isEnabled
 
     @AppStorage("swiftprose.toolbarVisible") private var toolbarVisible = true
     @StateObject private var hosting = ProseHosting()
@@ -28,10 +29,9 @@ public struct SwiftProseEditor: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            let showsToolbar = configuration.isEditable && !configuration.toolbar.isEmpty
-            if toolbarVisible, showsToolbar || !configuration.statusItems.isEmpty {
+            if toolbarVisible, Self.showsHeaderRow(for: configuration) {
                 HStack(spacing: 12) {
-                    if showsToolbar {
+                    if Self.showsToolbar(for: configuration) {
                         ProseToolbar(
                             items: configuration.toolbar,
                             perform: { action in
@@ -47,7 +47,8 @@ public struct SwiftProseEditor: View {
                             },
                             isActive: { action in
                                 hosting.activeActionIDs.contains(action.stableID)
-                            }
+                            },
+                            isEnabled: effectiveIsEditable
                         )
                     }
                     if !configuration.statusItems.isEmpty {
@@ -84,6 +85,26 @@ public struct SwiftProseEditor: View {
         }
     }
 
+    // Read-only disables the toolbar in place rather than dropping it, so
+    // toggling `isEditable` mid-session doesn't resize the editor.
+    static func showsToolbar(for configuration: Configuration) -> Bool {
+        !configuration.toolbar.isEmpty
+    }
+
+    static func showsHeaderRow(for configuration: Configuration) -> Bool {
+        showsToolbar(for: configuration) || !configuration.statusItems.isEmpty
+    }
+
+    // `.disabled(_:)` only reaches `EnvironmentValues.isEnabled`; the hosted
+    // text views never see it, so fold it into `isEditable` here.
+    static func effectiveIsEditable(for configuration: Configuration, isEnabled: Bool) -> Bool {
+        configuration.isEditable && isEnabled
+    }
+
+    private var effectiveIsEditable: Bool {
+        Self.effectiveIsEditable(for: configuration, isEnabled: isEnabled)
+    }
+
     @ViewBuilder
     private var editorBody: some View {
         if let controller = hosting.controller {
@@ -95,7 +116,7 @@ public struct SwiftProseEditor: View {
                 minHeight: configuration.minHeight,
                 contextMenuItems: macContextMenuItems(),
                 spellChecking: configuration.spellChecking,
-                isEditable: configuration.isEditable,
+                isEditable: effectiveIsEditable,
                 onSubmit: configuration.onSubmit
             )
             .modifier(SizingFrame(sizing: configuration.sizing))
@@ -107,7 +128,7 @@ public struct SwiftProseEditor: View {
                 minHeight: configuration.minHeight,
                 editMenuBuilder: makeIOSEditMenuBuilder(controller: controller),
                 spellChecking: configuration.spellChecking,
-                isEditable: configuration.isEditable,
+                isEditable: effectiveIsEditable,
                 onSubmit: configuration.onSubmit
             )
             .modifier(SizingFrame(sizing: configuration.sizing))

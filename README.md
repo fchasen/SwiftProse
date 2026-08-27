@@ -73,7 +73,7 @@ SwiftProseEditor(text: $text)
 - **Sizing** — `.fitsContent` (height tracks content from `minHeight`) or `.fillContainer` (fixed height, scrolls internally).
 - **Context menu** — append `ContextMenuItem`s to the platform edit menu.
 - **Spell / grammar / autocorrect** — `spellChecking:` accepts `.off`, `.spelling`, `.spellingAndGrammar`, or `.full` (default). macOS excludes code blocks and inline code automatically; iOS applies the toggle to the whole text view.
-- **Read-only** — `isEditable: false` (or the `.editable(false)` modifier) blocks typing, hides the built-in toolbar slot, and short-circuits checkbox taps; selection and copy still work. Programmatic `apply` / `setMarkdown` calls continue to drive content. Set `allowsCheckboxToggle: true` to keep task-list checkboxes interactive in an otherwise read-only document.
+- **Read-only** — `isEditable: false` (or the `.editable(false)` modifier) blocks typing, greys the built-in toolbar out in place rather than dropping it (it stays laid out, so toggling read-only doesn't resize the editor, and on iOS the toolbar still scrolls horizontally), and short-circuits checkbox taps; selection and copy still work. `SwiftProseEditor` also honors `.disabled(_:)` from the environment: a disabled editor is read-only regardless of `isEditable`. The two combine — `.disabled(true)` can only take editing away, never grant it back to an `isEditable: false` editor. Programmatic `apply` / `setMarkdown` calls continue to drive content. Set `allowsCheckboxToggle: true` to keep task-list checkboxes interactive in an otherwise read-only document.
 
 ```swift
 SwiftProseEditor(text: $text)
@@ -81,6 +81,9 @@ SwiftProseEditor(text: $text)
 // or, with an interactive checkbox opt-in:
 SwiftProseEditor(text: $text)
     .configuration(.init(isEditable: false, allowsCheckboxToggle: true))
+// or from the environment, e.g. while a submit is in flight:
+SwiftProseEditor(text: $text)
+    .disabled(isSubmitting)
 ```
 
 ## Theming

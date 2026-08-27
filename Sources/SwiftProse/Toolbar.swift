@@ -8,6 +8,7 @@ struct ProseToolbar: View {
     let perform: (SwiftProseEditor.Action) -> Void
     var canPerform: (SwiftProseEditor.Action) -> Bool = { _ in true }
     var isActive: (SwiftProseEditor.Action) -> Bool = { _ in false }
+    var isEnabled: Bool = true
 
     var body: some View {
         let groups = makeGroups(from: items)
@@ -18,6 +19,7 @@ struct ProseToolbar: View {
         }
         .buttonStyle(.borderless)
         .controlSize(.small)
+        .disabled(!isEnabled)
         #if os(iOS)
         ScrollView(.horizontal, showsIndicators: false) {
             row

@@ -67,7 +67,10 @@ extension SwiftProseEditor {
         /// short-circuits `perform(_:)` / `canPerform(_:)` / checkbox taps
         /// so the toolbar / keymap / context menu can't mutate the
         /// document. Selection and copy remain enabled. The SwiftUI
-        /// surface also hides the built-in toolbar slot. Defaults to `true`.
+        /// surface keeps the built-in toolbar slot in place and disables
+        /// it, so the editor's height doesn't change. `SwiftProseEditor`
+        /// ANDs this with `EnvironmentValues.isEnabled`, so `.disabled(true)`
+        /// makes the editor read-only too. Defaults to `true`.
         public var isEditable: Bool
         /// Opt-in escape hatch for read-only documents that should still
         /// let the reader tick task-list checkboxes. Has no effect when

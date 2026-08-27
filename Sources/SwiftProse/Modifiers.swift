@@ -89,7 +89,8 @@ extension View {
 
     /// Toggle read-only mode without replacing the whole `Configuration`.
     /// Typing is blocked, the toolbar greys out, and checkbox taps stop
-    /// mutating; selection and copy stay enabled.
+    /// mutating; selection and copy stay enabled. Combines with
+    /// `.disabled(_:)` — either one being off blocks editing.
     public func editable(_ isEditable: Bool = true) -> some View {
         transformEnvironment(\.proseConfiguration) { config in
             config.isEditable = isEditable
