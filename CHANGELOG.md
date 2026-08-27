@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### Fixed: typing on macOS
+
+Every keystroke in a hosted `NSTextView` threw
+`NSInternalInconsistencyException` (“must begin a group before registering
+undo”) and was dropped, so nothing appeared when typing. 0.1.0 overrode
+`ProseNSTextView.undoManager` to return the controller's manager; AppKit's
+typing-undo coalescer registers into whatever that property returns, and the
+controller's manager has `groupsByEvent` off. The override is gone — with
+`allowsUndo` off the property is nil, as intended — and the Edit menu's
+`undo:` / `redo:` actions are routed to the controller instead.
+
+AppKit also brackets each typed character with attribute writes, and the
+envelope classifier counted every capture: real keystrokes classified as
+`.bulk`, so input rules never fired and each character was its own undo
+unit. Only character mutations count now.
+
+`HostedTypingTests` types through `NSTextView.insertText` (the AppKit path)
+rather than writing to storage, which is how both went unnoticed.
+
+### Clipboard carries rendered text
+
+Copy and cut put the text the editor shows on the pasteboard's plain-text
+type — a bold word arrives as the word, a heading as its text, a bullet item
+as `•` plus the item. It used to be markdown, so any plain-text consumer got
+`**bold**` and `# Title`. Structure still travels in the HTML form
+(`data-pm-slice`), which is what a paste back into SwiftProse reads.
+
+`ClipboardSerializer.serializeForClipboard(...).text` is that rendered text;
+`renderMarkdown(_:)` keeps the markdown form for hosts that want a
+"copy as markdown" action. `PlainTextSerializer` is the new renderer.
+
 ## 0.1.0
 
 First tagged release. Notable in this one is a rework of how edits reach the
