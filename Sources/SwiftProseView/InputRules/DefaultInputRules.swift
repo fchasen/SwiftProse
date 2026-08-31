@@ -205,20 +205,12 @@ public extension InputRule {
         recompileLine(match: match, label: "Italic")
     }
 
-    /// Strikethrough is a GFM extension that the CommonMark grammar in this
-    /// codebase doesn't parse natively, so `setSpec` re-rendering won't
-    /// apply the attribute. Apply `toggleInlineMark(.strikethrough)` to the
-    /// inner capture group directly.
     static let strikethrough = InputRule(
         id: "inputRule.strikethrough",
         pattern: "~~([^~\\n]+)~~$",
         inCode: .skip
     ) { match in
-        let innerRange = match.captureRanges.indices.contains(1) ? match.captureRanges[1] : match.matchedRange
-        guard innerRange.location != NSNotFound else { return nil }
-        return Transaction(steps: [
-            .toggleInlineMark(range: innerRange, .strikethrough)
-        ], label: "Strikethrough")
+        recompileLine(match: match, label: "Strikethrough")
     }
 
     static let codeSpan = InputRule(
