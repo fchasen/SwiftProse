@@ -2242,6 +2242,15 @@ public final class EditorController {
         if storedInlineMarks.contains(.strikethrough) {
             attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
         }
+        // The canonical store as well as the rendering one. Projecting only
+        // fonts left typed characters serializing as bold — `markdown()`
+        // re-derives from the font — while `storage.markSet(at:)` saw plain
+        // text. `adding(_:in:)` applies the schema's excludes.
+        var marks = (base[.proseMarks] as? MarkSetBox)?.marks ?? MarkSet()
+        for stored in storedInlineMarks {
+            marks = marks.adding(ProseMark(type: stored.markName), in: Schema.defaultMarkdown)
+        }
+        attrs[.proseMarks] = MarkSetBox(marks)
         return attrs
     }
 
