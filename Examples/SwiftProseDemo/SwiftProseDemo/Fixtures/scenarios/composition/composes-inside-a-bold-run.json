@@ -1,12 +1,31 @@
 {
-  "name" : "composition/composes-inside-a-bold-run",
-  "tags" : ["composition", "ime", "marks"],
-  "intent" : "An IME commit inside a strong run drops the run's marks from the composed text, splitting one bold span into two around an unmarked character and leaving the caret before the composition instead of after it.",
-  "doc" : "a **bo<|>ld** word\n",
-  "ops" : [
-    { "op" : "compose", "interims" : ["n", "ni"], "commit" : "日" }
+  "name": "composition/composes-inside-a-bold-run",
+  "tags": [
+    "composition",
+    "ime",
+    "marks"
   ],
-  "expect" : { "doc" : "a **bo日ld** word\n", "marks" : ["strong"] },
-  "xfail" : "markdown mismatch",
-  "finally" : ["tier0", "projection", "markdownFixpoint"]
+  "intent": "An IME commit inside a strong run drops the run's marks from the composed text, splitting one bold span into two around an unmarked character and leaving the caret before the composition instead of after it.",
+  "doc": "a **bo<|>ld** word\n",
+  "ops": [
+    {
+      "op": "compose",
+      "interims": [
+        "n",
+        "ni"
+      ],
+      "commit": "日"
+    }
+  ],
+  "expect": {
+    "doc": "a **bo日ld** word\n",
+    "marks": [
+      "strong"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
 }

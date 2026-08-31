@@ -205,5 +205,25 @@ final class HostedTypingTests: XCTestCase {
         h.textView.redo(nil)
         XCTAssertEqual(h.controller.textStorage.string, "abc")
     }
+
+    func testTypingAtTheTrailingEdgeExtendsAnInclusiveMark() async throws {
+        let host = try host("turn it **up** now\n")
+        // Storage offset 10 is the trailing edge of the bold run.
+        host.textView.setSelectedRange(NSRange(location: 10, length: 0))
+        // The controller re-resolves typing attributes on the next tick;
+        // typing before it lands measures AppKit's defaults, not ours.
+        try await Task.sleep(nanoseconds: 50_000_000)
+        try await type("per", into: host.textView)
+        XCTAssertEqual(host.controller.markdown(), "turn it **upper** now")
+    }
+
+    func testTypingAtTheTrailingEdgeOfALinkDoesNotExtendIt() async throws {
+        let host = try host("see [docs](https://example.com) now\n")
+        let end = (host.controller.textStorage.string as NSString).range(of: "docs")
+        host.textView.setSelectedRange(NSRange(location: end.location + end.length, length: 0))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        try await type("X", into: host.textView)
+        XCTAssertEqual(host.controller.markdown(), "see [docs](https://example.com)X now")
+    }
 }
 #endif

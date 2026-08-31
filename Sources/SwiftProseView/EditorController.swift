@@ -176,6 +176,10 @@ public final class EditorController {
     }
 
     func fanoutSelectionChanged(_ range: NSRange) {
+        // The marks a typed character inherits are a property of where the
+        // caret is, so moving it re-resolves them. Without this the next
+        // character carries whatever the last edit left behind.
+        refreshTypingAttributes(at: range.location)
         onSelectionChanged?(range)
         for (_, handler) in selectionChangedObservers { handler(range) }
     }
@@ -938,13 +942,30 @@ public final class EditorController {
             }
         }
         // Inserted characters inherit the marks of the run before them;
-        // there is nothing else they could reasonably belong to.
+        // there is nothing else they could reasonably belong to. PM
+        // `ResolvedPos.marks()`: a mark that isn't inclusive ends with its
+        // own run, so it carries only when the run after the gap has it too.
         for gap in unstamped where gap.length > 0 {
-            let donor = gap.location > line.location ? gap.location - 1 : gap.location + gap.length
+            let fromBefore = gap.location > line.location
+            let donor = fromBefore ? gap.location - 1 : NSMaxRange(gap)
             let box = donor < textStorage.length
                 ? textStorage.attribute(.proseMarks, at: donor, effectiveRange: nil) as? MarkSetBox
                 : nil
-            textStorage.addAttribute(.proseMarks, value: box ?? MarkSetBox(MarkSet()), range: gap)
+            var value = box ?? MarkSetBox(MarkSet())
+            if fromBefore, let box {
+                let after = NSMaxRange(gap)
+                let follower = after < textStorage.length
+                    ? (textStorage.attribute(.proseMarks, at: after, effectiveRange: nil) as? MarkSetBox)?.marks
+                    : nil
+                let kept = box.marks.marks.filter { mark in
+                    compiler.schema.markType(mark.type)?.inclusive != false
+                        || follower?.contains(type: mark.type) == true
+                }
+                // Mint only when a mark was actually dropped: reusing the
+                // donor's box is what keeps the gap in one attribute run.
+                if kept.count != box.marks.marks.count { value = MarkSetBox(MarkSet(kept)) }
+            }
+            textStorage.addAttribute(.proseMarks, value: value, range: gap)
         }
         if textStorage.blockSpec(at: line.location)?.isListItem != true {
             textStorage.removeAttribute(.proseListMarker, range: line)
@@ -2219,9 +2240,14 @@ public final class EditorController {
             // .proseLink, .strikethroughStyle) deliberately do not appear in
             // this whitelist so they cannot bleed into typed text.
             let onLink = raw[.link] != nil || raw[.proseLink] != nil
+            // `.font` and `.proseMarks` are what render an inline mark, so
+            // they come from the mark probe; the block-level attributes
+            // stay on the caret's own character.
+            let markRaw = textStorage.safeAttributes(at: inclusiveMarkProbe(at: location, total: total))
             for key in EditorController.carryForwardAttributeKeys {
                 if onLink && key == .foregroundColor { continue }
-                if let v = raw[key] { attrs[key] = v }
+                let source = (key == .font || key == .proseMarks) ? markRaw : raw
+                if let v = source[key] { attrs[key] = v }
             }
             // Inline-code carry-forward is gated on the cursor sitting
             // strictly inside an existing code span — the chars on both
@@ -2238,6 +2264,31 @@ public final class EditorController {
             clearStoredInlineMarks()
         }
         applyTypingAttributes(attrs)
+    }
+
+    /// PM `ResolvedPos.marks()`: at a run boundary a typed character takes
+    /// the marks of the character *before* the caret, so typing at the
+    /// trailing edge of a bold run extends it — `strong` is inclusive.
+    ///
+    /// The probe stays on the caret's own line: the character before a line
+    /// start belongs to another block. It steps back only when every mark
+    /// that would come with it is inclusive — `link` is not, and neither is
+    /// `code`, whose `excludesAll` means a code character carries nothing
+    /// else and so can be refused wholesale.
+    private func inclusiveMarkProbe(at location: Int, total: Int) -> Int {
+        let here = max(0, min(location, total - 1))
+        guard location > 0, location <= total else { return here }
+        let before = location - 1
+        guard (textStorage.string as NSString).character(at: before) != 0x0A else { return here }
+        let beforeMarks = textStorage.markSet(at: before) ?? MarkSet()
+        let hereMarks = location < total
+            ? (textStorage.markSet(at: location) ?? MarkSet())
+            : MarkSet()
+        for mark in beforeMarks.marks where !hereMarks.contains(type: mark.type) {
+            if mark.type == "code" { return here }
+            if compiler.schema.markType(mark.type)?.inclusive == false { return here }
+        }
+        return before
     }
 
     private func isInsideCodeSpan(at location: Int) -> Bool {
