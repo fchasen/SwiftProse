@@ -3,7 +3,7 @@
   "finally": [
     "schema"
   ],
-  "name": "regressions/empty-document-fails-the-schema-content-rule",
+  "name": "regressions/empty-document-satisfies-the-schema-content-rule",
   "ops": [
     {
       "op": "check",
@@ -15,6 +15,5 @@
   "tags": [
     "regression",
     "schema"
-  ],
-  "xfail": "invalidContent(parent: \"doc\", found: [], expected: \"block+\")"
+  ]
 }

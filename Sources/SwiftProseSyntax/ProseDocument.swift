@@ -268,7 +268,18 @@ public extension ProseDocument {
         schema: Schema = .defaultMarkdown
     ) -> ProseDocument {
         let total = storage.length
-        guard total > 0 else { return .makeEmpty(schema: schema) }
+        // PM has no empty document — `doc` is `block+`, and a fresh state
+        // fills it with one empty paragraph. An empty buffer projects the
+        // same way, so the schema validator sees a legal tree.
+        guard total > 0 else {
+            return ProseDocument(
+                schema: schema,
+                root: .structural(
+                    schema.topNode.create(),
+                    [.structural(ProseNode(type: "paragraph"), [])]
+                )
+            )
+        }
         let scanRange: NSRange = {
             guard let r = range else { return NSRange(location: 0, length: total) }
             let lo = max(0, r.location)
