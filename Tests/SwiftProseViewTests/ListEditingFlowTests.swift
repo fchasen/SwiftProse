@@ -182,4 +182,11 @@ import UIKit
         #expect(controller.toggleCheckbox(at: 0))
         #expect(controller.markdown() == "- [x] milk\n- [ ] eggs")
     }
+
+    @Test func wrappingTwoParagraphsMakesOneListWithoutAnEmptyItem() throws {
+        let controller = try EditorController(initialMarkdown: "alpha\n\nbeta\n", theme: .default)
+        controller.testSelection = NSRange(location: 0, length: controller.textStorage.length)
+        controller.perform(.unorderedList)
+        #expect(controller.markdown() == "- alpha\n- beta")
+    }
 }

@@ -17,7 +17,6 @@
   "expect": {
     "doc": "- alpha\n- beta\n"
   },
-  "xfail": "markdown mismatch",
   "finally": [
     "tier0",
     "projection",

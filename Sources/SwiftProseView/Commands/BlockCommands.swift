@@ -19,10 +19,34 @@ func transformParagraphs(
             label: label
         )
     }
+    let ns = storage.string as NSString
+    func isBlank(_ range: NSRange) -> Bool {
+        ns.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    // Index of the first and last line carrying content, so a blank line
+    // between them can be told from the ones the selection merely reaches
+    // over at its edges.
+    let contentBounds: (first: Int, last: Int)? = {
+        guard let first = lineRanges.firstIndex(where: { !isBlank($0) }),
+              let last = lineRanges.lastIndex(where: { !isBlank($0) }) else { return nil }
+        return (first, last)
+    }()
+
     var steps: [Step] = []
-    for lineRange in lineRanges {
+    for (index, lineRange) in lineRanges.enumerated() {
         let current = storage.blockSpec(at: lineRange.location) ?? .paragraph
-        steps.append(.setSpec(lineRange: lineRange, transform(current)))
+        let target = transform(current)
+        if let bounds = contentBounds, isBlank(lineRange) {
+            // The blank line between two blocks is their separator, not a
+            // block of its own — PM wraps nodes, and this is not one.
+            // Wrapping it would make an empty item; leaving it in place
+            // would keep the wrapped lines in separate lists.
+            if target.isListItem, index > bounds.first, index < bounds.last {
+                steps.append(.replaceText(range: lineRange, with: NSAttributedString()))
+            }
+            continue
+        }
+        steps.append(.setSpec(lineRange: lineRange, target))
     }
     return Transaction(steps: steps, label: label)
 }
