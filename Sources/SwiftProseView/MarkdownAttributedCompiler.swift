@@ -502,7 +502,7 @@ public final class MarkdownAttributedCompiler {
             .foregroundColor: theme.foregroundColor,
             .paragraphStyle: baseStyle
         ]
-        var content = extractCodeBlockBody(from: raw, tag: segment.tag)
+        var content = extractCodeBlockBody(from: raw, tag: segment.tag, blockquoteDepth: segment.blockquoteDepth)
         if !content.hasSuffix("\n") { content.append("\n") }
         let attributed = NSMutableAttributedString(string: content, attributes: paragraphAttrs)
         applyCodeBlockHighlights(to: attributed, segment: segment, source: source, theme: theme)
@@ -548,10 +548,15 @@ public final class MarkdownAttributedCompiler {
     /// (fenced) or the leading 4-space indent (indented). Mirrors the source
     /// markup the serializer reconstructs from the leaf's `language` /
     /// `fenced` attrs, so storage holds only the document content.
-    private func extractCodeBlockBody(from raw: String, tag: BlockTag) -> String {
+    /// The quote prefix comes off before the fence is unwrapped: storage
+    /// holds the bare body, and `emitCodeBlock` re-adds one `> ` per line on
+    /// the way out. Left on, each reload quoted the block one level deeper
+    /// and the closing fence stopped matching `isFenceLine`.
+    private func extractCodeBlockBody(from raw: String, tag: BlockTag, blockquoteDepth: Int) -> String {
         switch tag {
         case .fencedCode:
             let lines = raw.components(separatedBy: "\n")
+                .map { stripBlockquotePrefix($0, depth: blockquoteDepth) }
             guard lines.count >= 2 else { return "" }
             var bodyLines = Array(lines.dropFirst())
             if bodyLines.last == "" { bodyLines.removeLast() }
@@ -561,6 +566,7 @@ public final class MarkdownAttributedCompiler {
             return bodyLines.joined(separator: "\n")
         case .indentedCode:
             let lines = raw.components(separatedBy: "\n")
+                .map { stripBlockquotePrefix($0, depth: blockquoteDepth) }
             let stripped = lines.map { line -> String in
                 var prefix = 0
                 for ch in line {
