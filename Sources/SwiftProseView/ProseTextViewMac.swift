@@ -460,6 +460,14 @@ final class ProseNSTextView: NSTextView {
     /// so SwiftUI can tear down the text view without leaking the controller.
     weak var proseController: EditorController?
 
+    /// The shared Font panel is never used: styling comes from `ProseTheme`
+    /// and mark commands, and nothing here implements `changeFont:`. Left
+    /// armed, `setTypingAttributes:` calls this from inside AppKit's own
+    /// editing transaction, which reads the storage at a selection the
+    /// transaction has not collapsed yet — out of bounds after a delete that
+    /// shrank the buffer, and `NSAttributedString` raises there.
+    override func updateFontPanel() {}
+
     /// The controller owns history, so AppKit must never see an undo
     /// manager on this view: with `allowsUndo` off, `undoManager` is nil
     /// and the typing coalescer stays out of the controller's stack.
