@@ -1,0 +1,14 @@
+{
+  "name": "enter/enter-splits-the-paragraph-at-the-caret",
+  "tags": ["enter", "structure", "ui"],
+  "intent": "Enter in the middle of a paragraph splits it at the caret, and Enter at the end of a paragraph opens a fresh empty one below it.",
+  "doc": "alpha<|>beta\n",
+  "ops": [
+    { "op": "key", "key": "Enter" },
+    { "op": "caret", "after": "beta" },
+    { "op": "key", "key": "Enter" },
+    { "op": "type", "text": "gamma" }
+  ],
+  "expect": { "doc": "alpha\n\nbeta\n\ngamma<|>", "blockKind": "paragraph" },
+  "finally": ["tier0", "projection", "markdownFixpoint"]
+}

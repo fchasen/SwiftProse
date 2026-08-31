@@ -1,0 +1,15 @@
+{
+  "name" : "delete/backspace-at-nested-blockquote-start-lowers-depth",
+  "tags" : ["delete", "blockquote"],
+  "intent" : "Backspace at the start of a doubly-quoted line joins it onto the singly-quoted line above, so the text ends up one blockquote level shallower.",
+  "doc" : "> quoted outer\n> > <|>nested\n",
+  "ops" : [
+    { "op" : "key", "key" : "Backspace" }
+  ],
+  "expect" : {
+    "doc" : "> quoted outernested\n",
+    "blockKind" : "paragraph",
+    "canUndo" : true
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

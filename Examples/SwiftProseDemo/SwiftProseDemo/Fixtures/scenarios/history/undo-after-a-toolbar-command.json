@@ -1,0 +1,29 @@
+{
+  "name": "history/undo-after-a-toolbar-command",
+  "tags": [
+    "history",
+    "marks"
+  ],
+  "intent": "A toolbar command opens its own undo unit, so one undo takes the strong mark back off the selected word and leaves the text alone.",
+  "doc": "make it <{loud}>",
+  "ops": [
+    {
+      "op": "action",
+      "id": "bold"
+    },
+    {
+      "op": "undo",
+      "n": 1
+    }
+  ],
+  "expect": {
+    "doc": "make it loud",
+    "marks": [],
+    "canUndo": false,
+    "canRedo": true
+  },
+  "finally": [
+    "tier0",
+    "history"
+  ]
+}

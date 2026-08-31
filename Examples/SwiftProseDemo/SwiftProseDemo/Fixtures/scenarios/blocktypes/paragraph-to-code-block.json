@@ -1,0 +1,15 @@
+{
+  "name" : "blocktypes/paragraph-to-code-block",
+  "tags" : ["blocktypes"],
+  "intent" : "The codeBlock action on a non-empty paragraph does not convert it — the marked prose is left alone, a fresh empty fence lands after the line, and the caret ends up inside that fence.",
+  "doc" : "Say **lo<|>ud** things\n",
+  "ops" : [
+    { "op" : "action", "id" : "codeBlock" }
+  ],
+  "expect" : {
+    "doc" : "Say **loud** things\n\n```\n\n```\n",
+    "blockKind" : "fencedCode(language: nil)",
+    "marks" : []
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

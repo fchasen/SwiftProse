@@ -1,0 +1,23 @@
+{
+  "name": "marks/unbold-a-fully-bold-selection",
+  "tags": [
+    "marks"
+  ],
+  "intent": "Bold over a selection that is already entirely bold removes the mark rather than re-applying it.",
+  "doc": "<{**loud**}> and clear\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "bold"
+    }
+  ],
+  "expect": {
+    "doc": "<{loud}> and clear\n",
+    "marks": []
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

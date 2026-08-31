@@ -1,0 +1,16 @@
+{
+  "name" : "delete/selection-spanning-a-table-is-deleted-whole",
+  "tags" : ["delete", "tables"],
+  "intent" : "A selection that covers a whole pipe table deletes the table as one unit, leaving the paragraphs on either side intact and no half-table behind.",
+  "doc" : "before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter\n",
+  "ops" : [
+    { "op" : "select", "from" : { "after" : "before\n" }, "to" : { "before" : "after" } },
+    { "op" : "key", "key" : "Backspace" }
+  ],
+  "expect" : {
+    "doc" : "before\n\nafter\n",
+    "blockKind" : "paragraph",
+    "canUndo" : true
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema", "pmJSON"]
+}

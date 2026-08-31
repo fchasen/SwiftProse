@@ -1,0 +1,11 @@
+{
+  "name": "enter/enter-at-the-start-of-a-paragraph",
+  "tags": ["enter", "structure"],
+  "intent": "Enter with the caret at the start of a paragraph pushes that paragraph down and keeps the caret on it; the empty paragraph it opens above has no markdown form, so the source is unchanged.",
+  "doc": "intro\n\n<|>hello\n",
+  "ops": [
+    { "op": "key", "key": "Enter" }
+  ],
+  "expect": { "doc": "intro\n\n<|>hello", "selection": [8, 0], "blockKind": "paragraph" },
+  "finally": ["tier0", "projection", "markdownFixpoint"]
+}

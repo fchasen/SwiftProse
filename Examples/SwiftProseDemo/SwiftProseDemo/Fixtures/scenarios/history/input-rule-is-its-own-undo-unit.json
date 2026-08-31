@@ -1,0 +1,29 @@
+{
+  "name": "history/input-rule-is-its-own-undo-unit",
+  "tags": [
+    "history",
+    "inputrules"
+  ],
+  "intent": "The heading input rule applies as a transaction that closes the typing burst, so one undo reverts the rule and leaves the two typed characters behind as a paragraph.",
+  "doc": "<|>",
+  "ops": [
+    {
+      "op": "type",
+      "text": "# "
+    },
+    {
+      "op": "undo",
+      "n": 1
+    }
+  ],
+  "expect": {
+    "doc": "# ",
+    "blockKind": "paragraph",
+    "canUndo": true,
+    "canRedo": true
+  },
+  "finally": [
+    "tier0",
+    "history"
+  ]
+}

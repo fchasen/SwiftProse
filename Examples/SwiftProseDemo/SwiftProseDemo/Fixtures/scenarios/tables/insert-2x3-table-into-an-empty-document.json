@@ -1,0 +1,28 @@
+{
+  "name": "tables/insert-2x3-table-into-an-empty-document",
+  "tags": [
+    "tables",
+    "ui"
+  ],
+  "intent": "An inserted table emits a blank line between the alignment row and the first body row, and pads empty cells to three spaces, so the source is not the canonical GFM form the command's own header row uses.",
+  "doc": "",
+  "ops": [
+    {
+      "op": "action",
+      "id": "insertTable",
+      "rows": 2,
+      "columns": 3
+    }
+  ],
+  "expect": {
+    "doc": "| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n",
+    "canUndo": true,
+    "undoDepth": 1
+  },
+  "finally": [
+    "tier0",
+    "markdownFixpoint",
+    "projection"
+  ],
+  "xfail": "markdown mismatch"
+}

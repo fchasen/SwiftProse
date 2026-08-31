@@ -1,0 +1,29 @@
+{
+  "name": "tables/delete-a-column",
+  "tags": [
+    "tables"
+  ],
+  "intent": "After deleting a column the incrementally spliced tree matches a full re-projection.",
+  "doc": "| fruit | qty | price |\n| --- | --- | --- |\n| pear | 2 | 3 |\n",
+  "ops": [
+    {
+      "op": "caret",
+      "block": 0,
+      "edge": "start"
+    },
+    {
+      "op": "action",
+      "id": "deleteTableColumn"
+    }
+  ],
+  "expect": {
+    "doc": "| fruit | qty |\n| --- | --- |\n| pear | 2 |\n",
+    "canUndo": true,
+    "undoDepth": 1
+  },
+  "finally": [
+    "tier0",
+    "markdownFixpoint",
+    "projection"
+  ]
+}

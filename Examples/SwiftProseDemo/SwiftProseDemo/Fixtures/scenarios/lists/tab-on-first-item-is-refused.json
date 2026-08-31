@@ -1,0 +1,25 @@
+{
+  "name": "lists/tab-on-first-item-is-refused",
+  "tags": [
+    "lists",
+    "ui"
+  ],
+  "intent": "Tab on the first item of a list is refused \u2014 there is no preceding sibling to nest under, so the document is left alone.",
+  "doc": "- on<|>e\n- two\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Tab"
+    }
+  ],
+  "expect": {
+    "doc": "- on<|>e\n- two\n",
+    "blockKind": "unorderedListItem"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

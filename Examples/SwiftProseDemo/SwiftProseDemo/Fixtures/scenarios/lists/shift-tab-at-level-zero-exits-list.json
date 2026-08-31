@@ -1,0 +1,24 @@
+{
+  "name": "lists/shift-tab-at-level-zero-exits-list",
+  "tags": [
+    "lists",
+    "ui"
+  ],
+  "intent": "Shift-Tab on a top-level item has no shallower list level to fall to, and the outdent command refuses rather than lifting the item out of the list, so the document is unchanged.",
+  "doc": "- one\n- tw<|>o\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Shift-Tab"
+    }
+  ],
+  "expect": {
+    "doc": "- one\n- two<|>"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

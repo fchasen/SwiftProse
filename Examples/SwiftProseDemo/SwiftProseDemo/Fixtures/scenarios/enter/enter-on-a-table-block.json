@@ -1,0 +1,13 @@
+{
+  "name": "enter/enter-on-a-table-block",
+  "tags": ["enter", "tables"],
+  "intent": "Enter with the caret on a table block deletes the whole table — the attachment and its off-buffer cell text are lost instead of a paragraph opening around an intact table.",
+  "doc": "intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter\n",
+  "ops": [
+    { "op": "caret", "block": 1, "edge": "start" },
+    { "op": "key", "key": "Enter" }
+  ],
+  "expect": { "doc": "intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter" },
+  "finally": ["tier0", "projection", "markdownFixpoint", "schema", "pmJSON"],
+  "xfail": "markdown mismatch"
+}

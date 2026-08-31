@@ -1,0 +1,16 @@
+{
+  "name" : "delete/backspace-across-a-blockquote-boundary",
+  "tags" : ["delete", "blockquote"],
+  "intent" : "Backspace at the start of the paragraph after a blockquote pulls that text inside the quote rather than leaving it as an unquoted block.",
+  "doc" : "> quoted line\n\n<|>after\n",
+  "ops" : [
+    { "op" : "key", "key" : "Backspace" },
+    { "op" : "key", "key" : "Backspace" }
+  ],
+  "expect" : {
+    "doc" : "> quoted lineafter\n",
+    "blockKind" : "paragraph",
+    "canUndo" : true
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

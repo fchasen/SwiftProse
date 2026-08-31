@@ -1,0 +1,28 @@
+{
+  "name": "enter/enter-at-the-end-of-a-heading",
+  "tags": [
+    "enter",
+    "structure"
+  ],
+  "intent": "Enter at the end of a heading starts a plain paragraph rather than a second heading.",
+  "doc": "# Title<|>\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "body"
+    }
+  ],
+  "expect": {
+    "doc": "# Title\n\nbody<|>",
+    "blockKind": "paragraph"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

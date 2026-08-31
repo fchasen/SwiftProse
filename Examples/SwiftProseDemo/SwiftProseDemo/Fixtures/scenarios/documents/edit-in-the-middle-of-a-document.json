@@ -1,0 +1,50 @@
+{
+  "name": "documents/edit-in-the-middle-of-a-document",
+  "tags": [
+    "documents",
+    "marks"
+  ],
+  "intent": "Typing into the middle paragraph of a five-block document and then bolding the new word touches only that paragraph \u2014 the heading above and the quote and list below keep their structure and their markdown.",
+  "doc": "# Title\n\nalpha\n\n> quoted\n\n- a\n- b\n",
+  "ops": [
+    {
+      "op": "caret",
+      "after": "alpha"
+    },
+    {
+      "op": "type",
+      "text": " beta"
+    },
+    {
+      "op": "select",
+      "from": {
+        "before": "beta"
+      },
+      "to": {
+        "after": "beta"
+      }
+    },
+    {
+      "op": "action",
+      "id": "bold"
+    }
+  ],
+  "expect": {
+    "doc": "# Title\n\nalpha **<{beta}>**\n\n> quoted\n\n- a\n- b\n",
+    "selection": [
+      13,
+      4
+    ],
+    "blockKind": "paragraph",
+    "marks": [
+      "strong"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON",
+    "schema"
+  ]
+}

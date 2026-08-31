@@ -1,0 +1,45 @@
+{
+  "name": "clipboard/cut-then-paste-preserves-marks",
+  "tags": [
+    "clipboard",
+    "marks"
+  ],
+  "intent": "Cut removes the selected run and pasting the clipboard back at the caret restores it inline with its marks. Cut now deletes; the paste-back still lands as its own block because applyReplaceRange compiles the slice with emitBlock and mints a new node instead of rendering the leading textblock inline onto the destination line NodePathBox. Same root cause as clipboard/copy-inside-a-list-item-then-paste-into-a-paragraph.",
+  "doc": "cut **me**\n",
+  "ops": [
+    {
+      "op": "select",
+      "from": {
+        "before": "me"
+      },
+      "to": {
+        "after": "me"
+      }
+    },
+    {
+      "op": "cut"
+    },
+    {
+      "op": "caret",
+      "after": "cut "
+    },
+    {
+      "op": "paste",
+      "text": "me",
+      "html": "<div data-pm-slice=\"1 1 []\"><strong>me</strong></div>",
+      "plain": false
+    }
+  ],
+  "expect": {
+    "doc": "cut **me**<|>",
+    "marks": [
+      "strong"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ],
+  "xfail": "markdown mismatch"
+}

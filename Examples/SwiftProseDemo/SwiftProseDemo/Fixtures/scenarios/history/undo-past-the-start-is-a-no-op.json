@@ -1,0 +1,12 @@
+{
+  "name" : "history/undo-past-the-start-is-a-no-op",
+  "tags" : ["history"],
+  "intent" : "Undoing more times than there are units stops at the loaded document instead of running off the bottom of the stack.",
+  "doc" : "stable<|>",
+  "ops" : [
+    { "op" : "type", "text" : "!" },
+    { "op" : "undo", "n" : 3 }
+  ],
+  "expect" : { "doc" : "stable", "canUndo" : false, "canRedo" : true },
+  "finally" : ["tier0", "history"]
+}

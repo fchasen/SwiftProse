@@ -1,0 +1,15 @@
+{
+  "name" : "inputrules/inline-rule-is-inert-inside-a-fenced-block",
+  "tags" : ["inputrules", "code"],
+  "intent" : "Inline mark rules declare `inCode: .skip`, so closing `**b**` inside a fenced block leaves the stars as literal code text with no strong mark.",
+  "doc" : "```\nlet x = 1<|>\n```\n",
+  "ops" : [
+    { "op" : "type", "text" : " **b**" }
+  ],
+  "expect" : {
+    "doc" : "```\nlet x = 1 **b**<|>\n```",
+    "blockKind" : "fencedCode(language: nil)",
+    "marks" : []
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

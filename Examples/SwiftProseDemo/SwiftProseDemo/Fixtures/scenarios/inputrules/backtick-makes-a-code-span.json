@@ -1,0 +1,27 @@
+{
+  "name": "inputrules/backtick-makes-a-code-span",
+  "tags": [
+    "inputrules",
+    "marks"
+  ],
+  "intent": "Closing a backtick pair recompiles the line so the inner run carries the code mark.",
+  "doc": "",
+  "ops": [
+    {
+      "op": "type",
+      "text": "`code`"
+    }
+  ],
+  "expect": {
+    "doc": "`code`<|>",
+    "blockKind": "paragraph",
+    "marks": [
+      "code"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

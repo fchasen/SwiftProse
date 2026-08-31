@@ -1,0 +1,12 @@
+{
+  "name" : "history/typed-burst-undoes-in-one-step",
+  "tags" : ["history"],
+  "intent" : "Characters typed without a pause coalesce into one history unit, so a single undo removes the whole burst rather than one keystroke.",
+  "doc" : "shopping<|>",
+  "ops" : [
+    { "op" : "type", "text" : " list" },
+    { "op" : "undo", "n" : 1 }
+  ],
+  "expect" : { "doc" : "shopping", "canUndo" : false, "canRedo" : true },
+  "finally" : ["tier0", "history"]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "marks/bold-at-caret-then-typing",
+  "tags": [
+    "marks"
+  ],
+  "intent": "Text typed under a stored bold mark carries the mark in `proseMarks` as well as in its rendering, so every reader of `storage.markSet(at:)` sees it.",
+  "doc": "<|>fish\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "bold"
+    },
+    {
+      "op": "type",
+      "text": "cat"
+    }
+  ],
+  "expect": {
+    "doc": "**cat**<|>fish\n",
+    "marks": [
+      "strong"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

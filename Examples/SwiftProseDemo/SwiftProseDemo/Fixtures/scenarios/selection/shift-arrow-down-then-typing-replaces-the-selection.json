@@ -1,0 +1,17 @@
+{
+  "name" : "selection/shift-arrow-down-then-typing-replaces-the-selection",
+  "tags" : ["selection", "ui"],
+  "intent" : "Shift-ArrowDown from the paragraph's first line extends the selection over that whole line including its break, and typing replaces exactly that run.",
+  "doc" : "alpha bravo\ncharlie delta\necho foxtrot\n",
+  "ops" : [
+    { "op" : "caret", "before" : "alpha" },
+    { "op" : "key", "key" : "Shift-ArrowDown" },
+    { "op" : "type", "text" : "Z" }
+  ],
+  "expect" : {
+    "doc" : "Z<|>charlie delta\necho foxtrot",
+    "selection" : [1, 0],
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

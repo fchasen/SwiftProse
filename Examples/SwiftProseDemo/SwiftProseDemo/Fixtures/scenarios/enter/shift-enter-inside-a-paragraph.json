@@ -1,0 +1,11 @@
+{
+  "name": "enter/shift-enter-inside-a-paragraph",
+  "tags": ["enter", "structure"],
+  "intent": "Shift-Enter reaches the same insertNewline path as Enter, so it splits the paragraph at the caret rather than inserting a hard break.",
+  "doc": "alpha<|>beta\n",
+  "ops": [
+    { "op": "key", "key": "Shift-Enter" }
+  ],
+  "expect": { "doc": "alpha\n\n<|>beta", "blockKind": "paragraph" },
+  "finally": ["tier0", "projection", "markdownFixpoint"]
+}

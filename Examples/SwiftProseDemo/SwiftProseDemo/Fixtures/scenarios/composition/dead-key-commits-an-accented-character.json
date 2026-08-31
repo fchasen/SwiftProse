@@ -1,0 +1,11 @@
+{
+  "name" : "composition/dead-key-commits-an-accented-character",
+  "tags" : ["composition", "ime"],
+  "intent" : "Option-e marks a bare acute accent, and the following vowel commits one precomposed character in its place rather than leaving the accent behind.",
+  "doc" : "Meet at the caf<|>\n",
+  "ops" : [
+    { "op" : "compose", "interims" : ["´"], "commit" : "é" }
+  ],
+  "expect" : { "doc" : "Meet at the café<|>\n", "canUndo" : true },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

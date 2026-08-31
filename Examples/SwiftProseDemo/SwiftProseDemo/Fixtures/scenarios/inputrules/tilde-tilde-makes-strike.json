@@ -1,0 +1,27 @@
+{
+  "name": "inputrules/tilde-tilde-makes-strike",
+  "tags": [
+    "inputrules",
+    "marks"
+  ],
+  "intent": "Typing ~~gone~~ applies the strike mark and consumes the delimiters, so the document round-trips as ~~gone~~ rather than growing a second pair.",
+  "doc": "",
+  "ops": [
+    {
+      "op": "type",
+      "text": "~~gone~~"
+    }
+  ],
+  "expect": {
+    "doc": "~~gone~~<|>",
+    "blockKind": "paragraph",
+    "marks": [
+      "strike"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

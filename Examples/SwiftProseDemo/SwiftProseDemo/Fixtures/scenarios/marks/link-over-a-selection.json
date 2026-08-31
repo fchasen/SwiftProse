@@ -1,0 +1,28 @@
+{
+  "name": "marks/link-over-a-selection",
+  "tags": [
+    "marks",
+    "ui"
+  ],
+  "intent": "Inserting a link over a selection keeps the selected text as the label, stamps the link mark, and leaves a collapsed caret at the end of the label.",
+  "doc": "read the <{docs}> now\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "link",
+      "url": "https://example.com"
+    }
+  ],
+  "expect": {
+    "doc": "read the [docs](https://example.com)<|> now\n",
+    "marks": [
+      "link"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "marks/mark-skips-trailing-whitespace",
+  "tags": [
+    "marks"
+  ],
+  "intent": "Bold over a selection running one space past the word marks only the word: a run that swallowed its trailing space could not close and lost the mark on the next read.",
+  "doc": "<{loud }>and clear\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "bold"
+    }
+  ],
+  "expect": {
+    "doc": "**loud** and clear\n"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

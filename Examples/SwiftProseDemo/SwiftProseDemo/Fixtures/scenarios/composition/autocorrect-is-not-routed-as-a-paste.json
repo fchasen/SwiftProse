@@ -1,0 +1,11 @@
+{
+  "name" : "composition/autocorrect-is-not-routed-as-a-paste",
+  "tags" : ["composition", "history"],
+  "intent" : "Autocorrect rewrites a range the selection is not on, so it classifies as a correction: the replacement lands in place of the misspelling instead of at the caret, and no input rule re-transforms it.",
+  "doc" : "teh cat sat<|>\n",
+  "ops" : [
+    { "op" : "correct", "find" : "teh ", "replace" : "the " }
+  ],
+  "expect" : { "doc" : "the cat sat", "blockKind" : "paragraph", "canUndo" : true },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+}

@@ -1,0 +1,370 @@
+{
+  "entries": [
+    {
+      "file": "swift-evolution-0447.md",
+      "source": "github:swiftlang/swift-evolution//proposals/0447-span-access-shared-contiguous-storage.md",
+      "license": "Apache-2.0",
+      "features": [
+        "fences",
+        "tables",
+        "long-lines",
+        "nested-lists"
+      ],
+      "commit": "06d3b8f3737b83d234ad53c03e8db38530b1d2fa",
+      "bytes": 49382
+    },
+    {
+      "file": "swift-book-closures.md",
+      "source": "github:swiftlang/swift-book//TSPL.docc/LanguageGuide/Closures.md",
+      "license": "Apache-2.0",
+      "features": [
+        "fences",
+        "nested-lists",
+        "long-lines"
+      ],
+      "commit": "7ab47cd167487cc6994d2bf7646da612e2234dc9",
+      "bytes": 43179
+    },
+    {
+      "file": "swiftpm-readme.md",
+      "source": "github:swiftlang/swift-package-manager//Documentation/README.md",
+      "license": "Apache-2.0",
+      "features": [
+        "fences",
+        "nested-lists",
+        "html"
+      ],
+      "commit": "b32dec1611cdf4078760279df2a6a10147319e2c",
+      "bytes": 652
+    },
+    {
+      "file": "alamofire-usage.md",
+      "source": "github:Alamofire/Alamofire//Documentation/Usage.md",
+      "license": "MIT",
+      "features": [
+        "fences",
+        "nested-lists",
+        "long-lines"
+      ],
+      "maxBytes": 80000,
+      "commit": "c279eda711944b5fe0c1ce410f2d934353e7bf65",
+      "bytes": 55580
+    },
+    {
+      "file": "swiftlint-readme.md",
+      "source": "github:realm/SwiftLint//README.md",
+      "license": "MIT",
+      "features": [
+        "tables",
+        "fences",
+        "html",
+        "task-lists"
+      ],
+      "maxBytes": 80000,
+      "commit": "5ee4407a8a68079732d87f19e89e4ff2444619cf",
+      "bytes": 38416
+    },
+    {
+      "file": "tca-readme.md",
+      "source": "github:pointfreeco/swift-composable-architecture//README.md",
+      "license": "MIT",
+      "features": [
+        "fences",
+        "images",
+        "html",
+        "long-lines"
+      ],
+      "commit": "05ec494be51969bda435e813e3f1a0f91b2f80c1",
+      "bytes": 27080
+    },
+    {
+      "file": "swift-nio-readme.md",
+      "source": "github:apple/swift-nio//README.md",
+      "license": "Apache-2.0",
+      "features": [
+        "fences",
+        "tables",
+        "nested-lists"
+      ],
+      "commit": "01626145d0388bc27361571cafdcbbc77d8f50ce",
+      "bytes": 31142
+    },
+    {
+      "file": "node-fs-api.md",
+      "source": "github:nodejs/node//doc/api/fs.md",
+      "license": "MIT",
+      "features": [
+        "fences",
+        "nested-lists",
+        "html",
+        "long-lines"
+      ],
+      "maxBytes": 120000,
+      "commit": "30542c362f29a22d22fe3d8a341a9420c71fe5ed",
+      "bytes": 119962
+    },
+    {
+      "file": "electron-browser-window.md",
+      "source": "github:electron/electron//docs/api/browser-window.md",
+      "license": "MIT",
+      "features": [
+        "fences",
+        "nested-lists",
+        "long-lines"
+      ],
+      "maxBytes": 90000,
+      "commit": "37f44ca55d94d71bf8926fb4bd850a55c27c9dd1",
+      "bytes": 62944
+    },
+    {
+      "file": "rust-book-ownership.md",
+      "source": "github:rust-lang/book//src/ch04-01-what-is-ownership.md",
+      "license": "MIT",
+      "features": [
+        "fences",
+        "images",
+        "long-lines"
+      ],
+      "commit": "05d114287b7d6f6c9253d5242540f00fbd6172ab",
+      "bytes": 25352
+    },
+    {
+      "file": "brew-formula-cookbook.md",
+      "source": "github:Homebrew/brew//docs/Formula-Cookbook.md",
+      "license": "BSD-2-Clause",
+      "features": [
+        "fences",
+        "nested-lists",
+        "tables",
+        "long-lines"
+      ],
+      "commit": "7dc61504ff4b156e64e8b1cc2c5bfa7dd6505b22",
+      "bytes": 89810
+    },
+    {
+      "file": "prettier-options.md",
+      "source": "github:prettier/prettier//docs/options.md",
+      "license": "MIT",
+      "features": [
+        "tables",
+        "fences",
+        "long-lines"
+      ],
+      "commit": "43b8bb401ffcaf240e2401930dcda104b678d717",
+      "bytes": 27834
+    },
+    {
+      "file": "airbnb-javascript-readme.md",
+      "source": "github:airbnb/javascript//README.md",
+      "license": "MIT",
+      "features": [
+        "nested-lists",
+        "fences",
+        "html",
+        "long-lines"
+      ],
+      "maxBytes": 120000,
+      "commit": "8ed19247bef145e3cc41b24a02dd1fe6d9b5e681",
+      "bytes": 117002
+    },
+    {
+      "file": "public-apis-readme.md",
+      "source": "github:public-apis/public-apis//README.md",
+      "license": "MIT",
+      "features": [
+        "tables",
+        "long-lines"
+      ],
+      "maxBytes": 120000,
+      "commit": "988c57be4616cc9507fd3e8c34adedba5387f079",
+      "bytes": 111839
+    },
+    {
+      "file": "coding-interview-university-readme.md",
+      "source": "github:jwasham/coding-interview-university//README.md",
+      "license": "CC-BY-SA-4.0",
+      "features": [
+        "task-lists",
+        "nested-lists",
+        "long-lines"
+      ],
+      "maxBytes": 120000,
+      "commit": "717298bf219a30d7fb0671285c5f057b1bb74b27",
+      "bytes": 119758
+    },
+    {
+      "file": "system-design-primer-readme.md",
+      "source": "github:donnemartin/system-design-primer//README.md",
+      "license": "CC-BY-4.0",
+      "features": [
+        "images",
+        "tables",
+        "nested-lists",
+        "fences"
+      ],
+      "maxBytes": 120000,
+      "commit": "ae9bbd7b02d90b9866215de185217d33f39ab733",
+      "bytes": 109830
+    },
+    {
+      "file": "nodebestpractices-readme.md",
+      "source": "github:goldbergyoni/nodebestpractices//README.md",
+      "license": "CC-BY-SA-4.0",
+      "features": [
+        "html",
+        "nested-lists",
+        "images"
+      ],
+      "maxBytes": 100000,
+      "commit": "dc3d60c29d5483d9ea99cf261bbd6203516a2ba7",
+      "bytes": 99890
+    },
+    {
+      "file": "awesome-readme.md",
+      "source": "github:sindresorhus/awesome//readme.md",
+      "license": "CC0-1.0",
+      "features": [
+        "nested-lists",
+        "long-lines"
+      ],
+      "maxBytes": 90000,
+      "commit": "d35bcd9c5c83f2652b0d2b5f91a320009c8f29a3",
+      "bytes": 78803
+    },
+    {
+      "file": "prosemirror-view-readme.md",
+      "source": "github:ProseMirror/prosemirror-view//README.md",
+      "license": "MIT",
+      "features": [
+        "fences",
+        "long-lines"
+      ],
+      "commit": "ca4c78e9b56f1b164c0b3758b59d8748f11b7534",
+      "bytes": 1527
+    },
+    {
+      "file": "marked-readme.md",
+      "source": "github:markedjs/marked//README.md",
+      "license": "MIT",
+      "features": [
+        "tables",
+        "fences",
+        "html"
+      ],
+      "commit": "0c6b2a671bbdab82e13c47c0ebc428b8eb08087d",
+      "bytes": 3343
+    },
+    {
+      "file": "commonmark-examples.md",
+      "source": "generated:commonmark",
+      "license": "CC-BY-SA-4.0",
+      "features": [
+        "fences",
+        "html",
+        "long-lines",
+        "unicode",
+        "nested-lists",
+        "tables"
+      ],
+      "bytes": 16476
+    },
+    {
+      "file": "lists-deep.md",
+      "source": "hand-written",
+      "license": "MPL-2.0",
+      "features": [
+        "nested-lists",
+        "task-lists"
+      ]
+    },
+    {
+      "file": "blockquotes-nested.md",
+      "source": "hand-written",
+      "license": "MPL-2.0",
+      "features": [
+        "alerts",
+        "nested-lists"
+      ]
+    },
+    {
+      "file": "code-fences.md",
+      "source": "hand-written",
+      "license": "MPL-2.0",
+      "features": [
+        "fences"
+      ]
+    },
+    {
+      "file": "links-images.md",
+      "source": "hand-written",
+      "license": "MPL-2.0",
+      "features": [
+        "images",
+        "long-lines"
+      ]
+    },
+    {
+      "file": "tables.md",
+      "source": "hand-written",
+      "license": "MPL-2.0",
+      "features": [
+        "tables"
+      ]
+    },
+    {
+      "file": "task-lists.md",
+      "source": "hand-written",
+      "license": "MPL-2.0",
+      "features": [
+        "task-lists",
+        "nested-lists"
+      ]
+    },
+    {
+      "file": "mixed-marks.md",
+      "source": "hand-written",
+      "license": "MPL-2.0",
+      "features": [
+        "long-lines"
+      ]
+    },
+    {
+      "file": "unicode.md",
+      "source": "hand-written",
+      "license": "MPL-2.0",
+      "features": [
+        "unicode"
+      ]
+    },
+    {
+      "file": "edge.md",
+      "source": "hand-written",
+      "license": "MPL-2.0",
+      "features": [
+        "long-lines",
+        "unicode"
+      ]
+    },
+    {
+      "file": "swiftprose-readme.md",
+      "source": "hand-written",
+      "license": "MPL-2.0",
+      "features": [
+        "tables",
+        "fences",
+        "nested-lists",
+        "long-lines"
+      ]
+    },
+    {
+      "file": "alice-in-wonderland.md",
+      "source": "local:pagedjs-combo/examples/alice-in-wonderland/index.html via pandoc -f html -t gfm-raw_html --wrap=none",
+      "license": "public domain",
+      "features": [
+        "long-lines",
+        "unicode"
+      ],
+      "bytes": 152279
+    }
+  ]
+}

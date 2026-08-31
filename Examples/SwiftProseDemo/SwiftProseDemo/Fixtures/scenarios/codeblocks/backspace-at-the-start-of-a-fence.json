@@ -1,0 +1,14 @@
+{
+  "name": "codeblocks/backspace-at-the-start-of-a-fence",
+  "tags": ["codeblocks"],
+  "intent": "Backspace at the start of a fence's first body line eats the blank separator above it, not the fence: the code block keeps its content and the markdown is unchanged.",
+  "doc": "intro\n\n```\n<|>value\n```\n",
+  "ops": [
+    { "op": "key", "key": "Backspace" }
+  ],
+  "expect": {
+    "doc": "intro\n\n```\n<|>value\n```\n",
+    "blockKind": "fencedCode(language: nil)"
+  },
+  "finally": ["tier0", "projection", "markdownFixpoint"]
+}

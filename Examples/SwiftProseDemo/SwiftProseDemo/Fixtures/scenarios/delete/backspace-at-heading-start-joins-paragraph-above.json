@@ -1,0 +1,17 @@
+{
+  "name" : "delete/backspace-at-heading-start-joins-paragraph-above",
+  "tags" : ["delete", "structure"],
+  "intent" : "Joining a heading into the paragraph above re-expresses the heading's display bold as a literal strong mark, so the merged text serializes as `introduction**Heading**` instead of plain prose.",
+  "doc" : "introduction\n\n# <|>Heading\n",
+  "ops" : [
+    { "op" : "key", "key" : "Backspace" },
+    { "op" : "key", "key" : "Backspace" }
+  ],
+  "expect" : {
+    "doc" : "introduction<|>Heading\n",
+    "blockKind" : "paragraph",
+    "canUndo" : true
+  },
+  "xfail" : "markdown mismatch",
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

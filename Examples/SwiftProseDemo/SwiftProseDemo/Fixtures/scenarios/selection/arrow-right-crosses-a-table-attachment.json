@@ -1,0 +1,17 @@
+{
+  "name" : "selection/arrow-right-crosses-a-table-attachment",
+  "tags" : ["selection", "tables"],
+  "intent" : "A table is one opaque attachment character in storage, so the caret walks past the whole table in a single ArrowRight and the document is untouched by the move.",
+  "doc" : "before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter\n",
+  "ops" : [
+    { "op" : "caret", "after" : "before" },
+    { "op" : "key", "key" : "ArrowRight" },
+    { "op" : "key", "key" : "ArrowRight" },
+    { "op" : "key", "key" : "ArrowRight" }
+  ],
+  "expect" : {
+    "doc" : "before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter",
+    "selection" : [9, 0]
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "delete/backspace-at-list-item-start-lifts-to-paragraph",
+  "tags": [
+    "delete",
+    "lists",
+    "ui"
+  ],
+  "intent": "Backspace at the body start of a nested list item strips the marker and lifts the item out of the list as a plain paragraph.",
+  "doc": "- one\n  - <|>two\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Backspace"
+    }
+  ],
+  "expect": {
+    "doc": "- one\n\ntwo\n",
+    "blockKind": "paragraph",
+    "canUndo": true
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

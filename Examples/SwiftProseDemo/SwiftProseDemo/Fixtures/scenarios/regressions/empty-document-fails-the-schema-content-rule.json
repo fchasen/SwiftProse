@@ -1,0 +1,20 @@
+{
+  "doc": "",
+  "finally": [
+    "schema"
+  ],
+  "name": "regressions/empty-document-fails-the-schema-content-rule",
+  "ops": [
+    {
+      "op": "check",
+      "oracles": [
+        "schema"
+      ]
+    }
+  ],
+  "tags": [
+    "regression",
+    "schema"
+  ],
+  "xfail": "invalidContent(parent: \"doc\", found: [], expected: \"block+\")"
+}

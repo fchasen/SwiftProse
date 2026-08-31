@@ -1,0 +1,28 @@
+{
+  "name": "enter/mod-enter-exits-a-fenced-code-block",
+  "tags": [
+    "enter",
+    "code"
+  ],
+  "intent": "Mod-Enter inside a non-empty fenced code block leaves the block and lands the caret in a fresh paragraph after it.",
+  "doc": "```\ncode<|>\n```\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Mod-Enter"
+    },
+    {
+      "op": "type",
+      "text": "after"
+    }
+  ],
+  "expect": {
+    "doc": "```\ncode\n```\n\nafter<|>",
+    "blockKind": "paragraph"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

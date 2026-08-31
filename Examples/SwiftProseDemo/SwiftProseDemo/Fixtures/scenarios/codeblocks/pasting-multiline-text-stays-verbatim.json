@@ -1,0 +1,25 @@
+{
+  "name": "codeblocks/pasting-multiline-text-stays-verbatim",
+  "tags": [
+    "codeblocks"
+  ],
+  "intent": "A multi-line plain-text paste inside a fence extends the body it was dropped into instead of splitting the block.",
+  "doc": "```\n<|>last\n```\n",
+  "ops": [
+    {
+      "op": "paste",
+      "text": "one\ntwo\n",
+      "plain": true
+    }
+  ],
+  "expect": {
+    "doc": "```\none\ntwo\n<|>last\n```\n",
+    "blockKind": "fencedCode(language: nil)"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON"
+  ]
+}

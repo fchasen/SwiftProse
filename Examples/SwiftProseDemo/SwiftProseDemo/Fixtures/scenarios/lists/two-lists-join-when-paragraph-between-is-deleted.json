@@ -1,0 +1,32 @@
+{
+  "name": "lists/two-lists-join-when-paragraph-between-is-deleted",
+  "tags": [
+    "lists"
+  ],
+  "intent": "Deleting the paragraph that separates two ordered lists joins them into one list numbered straight through.",
+  "doc": "1. one\n2. two\n\nbreak\n\n1. three\n2. four\n",
+  "ops": [
+    {
+      "op": "select",
+      "from": {
+        "after": "two\n"
+      },
+      "to": {
+        "before": "1. three"
+      }
+    },
+    {
+      "op": "key",
+      "key": "Backspace"
+    }
+  ],
+  "expect": {
+    "doc": "1. one\n2. two\n3. three\n4. four\n"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

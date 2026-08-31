@@ -1,0 +1,34 @@
+{
+  "name": "enter/enter-in-an-empty-list-item-exits-the-list",
+  "tags": [
+    "enter",
+    "lists",
+    "ui"
+  ],
+  "intent": "Enter at the end of a list item opens a new empty item, and a second Enter on that empty item leaves the list for a plain paragraph.",
+  "doc": "- one<|>\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "plain"
+    }
+  ],
+  "expect": {
+    "doc": "- one\n\nplain<|>",
+    "blockKind": "paragraph"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

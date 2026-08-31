@@ -1,0 +1,27 @@
+{
+  "name": "lists/toggle-bullet-list-back-off",
+  "tags": [
+    "lists"
+  ],
+  "intent": "Toggling the bullet-list action a second time over the whole list lifts every item back to a plain paragraph.",
+  "doc": "- one\n- two\n",
+  "ops": [
+    {
+      "op": "selectAll"
+    },
+    {
+      "op": "action",
+      "id": "unorderedList"
+    }
+  ],
+  "expect": {
+    "doc": "one\n\ntwo\n",
+    "blockKind": "paragraph"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "codeblocks/fence-inside-a-list-item",
+  "tags": ["codeblocks", "lists"],
+  "intent": "An indented fence under a list item is not kept inside the item: compiling lifts it to a top-level block between the two items and leaves the source indent in the code body, and typing then edits that body in place.",
+  "doc": "- item\n  ```swift\n  let inner = true<|>\n  ```\n- next item\n",
+  "ops": [
+    { "op": "type", "text": " // yes" }
+  ],
+  "expect": {
+    "doc": "- item\n\n```swift\n  let inner = t<|>rue // yes\n```\n\n- next item",
+    "blockKind": "fencedCode(language: Optional(\"swift\"))"
+  },
+  "finally": ["tier0", "projection", "markdownFixpoint", "schema"]
+}

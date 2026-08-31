@@ -1,11 +1,13 @@
 import XCTest
 
+/// The `DocumentGroup` path — the one flow the harness window deliberately
+/// does not cover, because it is what a real user of the demo opens.
 final class EditorTypingTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
-    func testEditorAcceptsTypedCharacter() {
+    func testEditorAcceptsTypedCharacterInADocumentWindow() {
         let app = XCUIApplication()
         app.launchAndOpenNewDocument()
         let editor = app.descendants(matching: .textView).firstMatch

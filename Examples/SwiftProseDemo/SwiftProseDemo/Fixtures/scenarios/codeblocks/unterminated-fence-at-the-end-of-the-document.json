@@ -1,0 +1,27 @@
+{
+  "name": "codeblocks/unterminated-fence-at-the-end-of-the-document",
+  "tags": [
+    "codeblocks"
+  ],
+  "intent": "Enter inside a fence body adds a line to that block rather than closing it and opening a second fence with the same info string.",
+  "doc": "intro\n\n```swift\nlet never = 1<|>",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "let also = 2"
+    }
+  ],
+  "expect": {
+    "doc": "intro\n\n```swift\nlet never = 1\nlet also = 2<|>\n```",
+    "blockKind": "fencedCode(language: Optional(\"swift\"))"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

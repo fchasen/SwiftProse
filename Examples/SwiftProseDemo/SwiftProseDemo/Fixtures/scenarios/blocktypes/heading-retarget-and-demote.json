@@ -1,0 +1,16 @@
+{
+  "name" : "blocktypes/heading-retarget-and-demote",
+  "tags" : ["blocktypes"],
+  "intent" : "heading:3 retargets an existing h1 to h3, and heading:0 on a second h1 demotes it to a plain paragraph.",
+  "doc" : "# Alpha<|>\n\n# Bravo\n",
+  "ops" : [
+    { "op" : "action", "id" : "heading:3" },
+    { "op" : "caret", "after" : "Bravo" },
+    { "op" : "action", "id" : "heading:0" }
+  ],
+  "expect" : {
+    "doc" : "### Alpha\n\nBravo\n",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

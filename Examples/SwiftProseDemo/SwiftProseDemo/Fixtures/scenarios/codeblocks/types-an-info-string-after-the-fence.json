@@ -1,0 +1,16 @@
+{
+  "name": "codeblocks/types-an-info-string-after-the-fence",
+  "tags": ["codeblocks", "inputrules", "ui"],
+  "intent": "Typing ``` plus a language tag and then Enter opens a fenced block whose leaf carries the language, and the characters typed next land in its body.",
+  "doc": "",
+  "ops": [
+    { "op": "type", "text": "```swift" },
+    { "op": "key", "key": "Enter" },
+    { "op": "type", "text": "let x = 1" }
+  ],
+  "expect": {
+    "doc": "```swift\nlet x = 1<|>\n```\n",
+    "blockKind": "fencedCode(language: Optional(\"swift\"))"
+  },
+  "finally": ["tier0", "projection", "markdownFixpoint", "pmJSON"]
+}

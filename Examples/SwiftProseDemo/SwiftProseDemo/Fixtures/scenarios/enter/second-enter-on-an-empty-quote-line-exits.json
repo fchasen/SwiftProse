@@ -1,0 +1,13 @@
+{
+  "name": "enter/second-enter-on-an-empty-quote-line-exits",
+  "tags": ["enter", "blockquote"],
+  "intent": "A second Enter on the empty quote line the first one opened leaves the blockquote for a plain paragraph.",
+  "doc": "> quoted<|>\n",
+  "ops": [
+    { "op": "key", "key": "Enter" },
+    { "op": "key", "key": "Enter" },
+    { "op": "type", "text": "plain" }
+  ],
+  "expect": { "doc": "> quoted\n\nplain<|>", "blockKind": "paragraph" },
+  "finally": ["tier0", "projection", "markdownFixpoint", "schema"]
+}

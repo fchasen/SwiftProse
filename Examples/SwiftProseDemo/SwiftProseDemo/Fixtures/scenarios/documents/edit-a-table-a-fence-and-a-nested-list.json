@@ -1,0 +1,51 @@
+{
+  "name": "documents/edit-a-table-a-fence-and-a-nested-list",
+  "tags": [
+    "documents",
+    "tables",
+    "lists"
+  ],
+  "intent": "One document holding all three multi-line block kinds is edited at each in turn \u2014 a column added to the attachment-backed table, a character typed into the fence body, a sibling added under the nested bullet \u2014 and each edit lands only in its own block.",
+  "doc": "| a | b |\n| --- | --- |\n| 1 | 2 |\n\n```swift\nlet x = 1\n```\n\n- top\n  - nested\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "insertTableColumnAfter"
+    },
+    {
+      "op": "caret",
+      "after": "let x = 1"
+    },
+    {
+      "op": "type",
+      "text": " + 1"
+    },
+    {
+      "op": "caret",
+      "after": "nested"
+    },
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "sibling"
+    }
+  ],
+  "expect": {
+    "doc": "| a | b |  |\n| --- | --- | --- |\n| 1 | 2 |  |\n\n```swift\nlet x = 1 + 1\n```\n\n- top\n  - nested\n  - sibling<|>\n",
+    "selection": [
+      42,
+      0
+    ],
+    "blockKind": "unorderedListItem"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON",
+    "schema"
+  ]
+}

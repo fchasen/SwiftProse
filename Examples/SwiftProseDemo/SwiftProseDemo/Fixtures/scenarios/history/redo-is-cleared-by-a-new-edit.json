@@ -1,0 +1,13 @@
+{
+  "name" : "history/redo-is-cleared-by-a-new-edit",
+  "tags" : ["history"],
+  "intent" : "Typing after an undo drops the redo stack, so the undone text can no longer be redone.",
+  "doc" : "<|>",
+  "ops" : [
+    { "op" : "type", "text" : "hello" },
+    { "op" : "undo", "n" : 1 },
+    { "op" : "type", "text" : "bye" }
+  ],
+  "expect" : { "doc" : "bye", "canUndo" : true, "canRedo" : false },
+  "finally" : ["tier0", "history"]
+}

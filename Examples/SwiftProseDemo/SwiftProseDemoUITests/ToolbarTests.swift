@@ -11,5 +11,4 @@ final class ToolbarTests: XCTestCase {
         let bold = app.buttons["bold"].firstMatch
         XCTAssertTrue(bold.waitForExistence(timeout: 10))
     }
-
 }

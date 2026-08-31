@@ -1,0 +1,16 @@
+{
+  "name" : "delete/backspace-at-paragraph-start-joins-previous",
+  "tags" : ["delete", "ui"],
+  "intent" : "Backspace at the start of a paragraph eats the blank separator line and then joins the paragraph onto the one above.",
+  "doc" : "alpha\n\n<|>beta\n",
+  "ops" : [
+    { "op" : "key", "key" : "Backspace" },
+    { "op" : "key", "key" : "Backspace" }
+  ],
+  "expect" : {
+    "doc" : "alpha<|>beta\n",
+    "blockKind" : "paragraph",
+    "canUndo" : true
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

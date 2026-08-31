@@ -1,0 +1,26 @@
+{
+  "name": "marks/bold-across-two-paragraphs",
+  "tags": [
+    "marks"
+  ],
+  "intent": "A selection spanning two paragraphs bolds the inline content of each block separately; the block break is not swallowed into one run.",
+  "doc": "<{one\n\ntwo}>\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "bold"
+    }
+  ],
+  "expect": {
+    "doc": "**one**\n\n**two**\n",
+    "marks": [
+      "strong"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "lists/wrap-multi-paragraph-selection",
+  "tags": [
+    "lists"
+  ],
+  "intent": "Toggling the bullet list over a selection covering two paragraphs also wraps the blank line between them, producing an empty `- ` item that does not survive a markdown round trip.",
+  "doc": "alpha\n\nbeta\n",
+  "ops": [
+    {
+      "op": "selectAll"
+    },
+    {
+      "op": "action",
+      "id": "unorderedList"
+    }
+  ],
+  "expect": {
+    "doc": "- alpha\n- beta\n"
+  },
+  "xfail": "markdown mismatch",
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

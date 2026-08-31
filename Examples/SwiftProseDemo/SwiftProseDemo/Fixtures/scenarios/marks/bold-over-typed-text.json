@@ -1,0 +1,12 @@
+{
+  "name" : "marks/bold-over-typed-text",
+  "tags" : ["marks"],
+  "doc" : "<|>",
+  "ops" : [
+    { "op" : "type", "text" : "loud" },
+    { "op" : "select", "from" : { "at" : 0 }, "to" : { "at" : 4 } },
+    { "op" : "action", "id" : "bold" }
+  ],
+  "expect" : { "doc" : "**loud**" },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

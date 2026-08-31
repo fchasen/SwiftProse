@@ -1,0 +1,24 @@
+{
+  "name": "clipboard/paste-into-a-fenced-code-block",
+  "tags": [
+    "clipboard"
+  ],
+  "intent": "A multi-line paste into a fenced code block lands verbatim inside the destination fence, as one block rather than one fence per pasted line.",
+  "doc": "```swift\nlet a = 1<|>\n```\n",
+  "ops": [
+    {
+      "op": "paste",
+      "text": "\nlet b = 2\n# not a heading",
+      "plain": true
+    }
+  ],
+  "expect": {
+    "doc": "```swift\nlet a = 1\nlet b = 2\n# not a heading<|>\n```",
+    "blockKind": "fencedCode(language: Optional(\"swift\"))"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

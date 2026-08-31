@@ -1,0 +1,26 @@
+{
+  "name": "marks/remove-a-link",
+  "tags": [
+    "marks"
+  ],
+  "intent": "Replacing a link's text with the same words pasted as plain text drops the link mark and leaves the words in the sentence.",
+  "doc": "see the <{[docs](https://example.com)}> page\n",
+  "ops": [
+    {
+      "op": "paste",
+      "text": "docs",
+      "html": null,
+      "plain": true
+    }
+  ],
+  "expect": {
+    "doc": "see the docs<|> page\n",
+    "marks": []
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON"
+  ]
+}

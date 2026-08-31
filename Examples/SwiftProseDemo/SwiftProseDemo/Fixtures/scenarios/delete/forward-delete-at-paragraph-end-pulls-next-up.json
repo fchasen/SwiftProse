@@ -1,0 +1,16 @@
+{
+  "name" : "delete/forward-delete-at-paragraph-end-pulls-next-up",
+  "tags" : ["delete"],
+  "intent" : "Forward Delete at the end of a paragraph eats the blank separator line and then pulls the following paragraph up onto it.",
+  "doc" : "alpha<|>\n\nbeta\n",
+  "ops" : [
+    { "op" : "key", "key" : "Delete" },
+    { "op" : "key", "key" : "Delete" }
+  ],
+  "expect" : {
+    "doc" : "alpha<|>beta\n",
+    "blockKind" : "paragraph",
+    "canUndo" : true
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

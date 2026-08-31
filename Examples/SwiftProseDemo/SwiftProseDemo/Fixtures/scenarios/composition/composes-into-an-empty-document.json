@@ -1,0 +1,11 @@
+{
+  "name" : "composition/composes-into-an-empty-document",
+  "tags" : ["composition", "ime"],
+  "intent" : "A composition started in an empty block leaves nothing behind until it commits, and then the committed text is the whole document.",
+  "doc" : "<|>",
+  "ops" : [
+    { "op" : "compose", "interims" : ["n", "ni"], "commit" : "日本" }
+  ],
+  "expect" : { "doc" : "日本<|>", "canUndo" : true, "blockKind" : "paragraph" },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+}

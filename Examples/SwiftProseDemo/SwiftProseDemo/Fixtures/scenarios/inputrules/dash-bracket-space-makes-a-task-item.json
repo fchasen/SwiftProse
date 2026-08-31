@@ -1,0 +1,26 @@
+{
+  "name": "inputrules/dash-bracket-space-makes-a-task-item",
+  "tags": [
+    "inputrules",
+    "lists"
+  ],
+  "intent": "Typing a dash, brackets and a space makes a task item, and it survives a ProseMirror JSON round trip at the nesting level it was written.",
+  "doc": "",
+  "ops": [
+    {
+      "op": "type",
+      "text": "- [ ] milk"
+    }
+  ],
+  "expect": {
+    "doc": "- [ ] milk<|>",
+    "blockKind": "taskListItem(checked: false)"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema",
+    "pmJSON"
+  ]
+}

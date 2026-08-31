@@ -1,0 +1,17 @@
+{
+  "name" : "selection/caret-clamps-at-the-document-trailing-position",
+  "tags" : ["selection"],
+  "intent" : "Mod-ArrowDown parks the caret on the document's trailing position — one past the last block's terminating newline — and further ArrowRights are no-ops that leave the document unchanged.",
+  "doc" : "alpha\n\nbeta\n",
+  "ops" : [
+    { "op" : "key", "key" : "Mod-ArrowDown" },
+    { "op" : "key", "key" : "ArrowRight" },
+    { "op" : "key", "key" : "ArrowRight" }
+  ],
+  "expect" : {
+    "doc" : "alpha\n\nbeta<|>",
+    "selection" : [12, 0],
+    "canUndo" : false
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

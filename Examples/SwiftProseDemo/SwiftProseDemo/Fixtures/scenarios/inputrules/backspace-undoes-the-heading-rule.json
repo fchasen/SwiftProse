@@ -1,0 +1,31 @@
+{
+  "name": "inputrules/backspace-undoes-the-heading-rule",
+  "tags": [
+    "inputrules",
+    "history"
+  ],
+  "intent": "Backspace immediately after the heading rule fires undoes the rule instead of deleting a character, leaving the typed `# ` behind as a plain paragraph.",
+  "doc": "",
+  "ops": [
+    {
+      "op": "type",
+      "text": "# "
+    },
+    {
+      "op": "key",
+      "key": "Backspace"
+    }
+  ],
+  "expect": {
+    "doc": "# <|>",
+    "blockKind": "paragraph",
+    "canUndo": true,
+    "canRedo": true
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "history"
+  ]
+}

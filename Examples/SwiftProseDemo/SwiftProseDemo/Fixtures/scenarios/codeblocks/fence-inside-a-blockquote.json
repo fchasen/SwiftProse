@@ -1,0 +1,24 @@
+{
+  "name": "codeblocks/fence-inside-a-blockquote",
+  "tags": [
+    "codeblocks",
+    "blockquote"
+  ],
+  "intent": "A fence inside a blockquote settles: storage holds the bare body, the serializer re-adds one quote prefix per line, and reloading reproduces the same document.",
+  "doc": "> ```swift\n> let quoted = true<|>\n> ```\n",
+  "ops": [
+    {
+      "op": "type",
+      "text": " // yes"
+    }
+  ],
+  "expect": {
+    "blockKind": "fencedCode(language: Optional(\"swift\"))"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

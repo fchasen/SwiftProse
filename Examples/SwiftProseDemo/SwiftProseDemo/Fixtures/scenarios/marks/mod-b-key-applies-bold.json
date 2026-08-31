@@ -1,0 +1,26 @@
+{
+  "name": "marks/mod-b-key-applies-bold",
+  "tags": [
+    "marks",
+    "ui"
+  ],
+  "intent": "Cmd-B reaches the same bold command as the toolbar button, through the keymap rather than the action id.",
+  "doc": "<{alpha}> beta\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Mod-b"
+    }
+  ],
+  "expect": {
+    "doc": "<{**alpha**}> beta\n",
+    "marks": [
+      "strong"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

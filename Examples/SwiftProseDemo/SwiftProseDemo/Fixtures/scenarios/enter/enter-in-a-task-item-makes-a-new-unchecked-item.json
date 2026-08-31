@@ -1,0 +1,29 @@
+{
+  "name": "enter/enter-in-a-task-item-makes-a-new-unchecked-item",
+  "tags": [
+    "enter",
+    "lists"
+  ],
+  "intent": "Enter at the end of a task item opens a new task item that starts unchecked, even when the item it continued was checked.",
+  "doc": "- [x] done<|>\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "next"
+    }
+  ],
+  "expect": {
+    "doc": "- [x] done\n- [ ] next<|>",
+    "blockKind": "taskListItem(checked: false)"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

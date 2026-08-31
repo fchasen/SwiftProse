@@ -1,0 +1,22 @@
+{
+  "name" : "clipboard/internal-copy-paste-of-a-multi-block-range",
+  "tags" : ["clipboard", "structure"],
+  "intent" : "Copying a whole heading-plus-paragraph range and pasting it at the end of the document reproduces both blocks with their types intact.",
+  "doc" : "# Head\n\nBody text\n",
+  "ops" : [
+    { "op" : "selectAll" },
+    { "op" : "copy" },
+    { "op" : "key", "key" : "Mod-ArrowDown" },
+    {
+      "op" : "paste",
+      "text" : "Head\nBody text",
+      "html" : "<div data-pm-slice=\"0 0 []\"><h1>Head</h1><p>Body text</p></div>",
+      "plain" : false
+    }
+  ],
+  "expect" : {
+    "doc" : "# Head\n\nBody text\n\n# Head\n\nBody text<|>",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema", "pmJSON"]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "marks/stacking-strong-and-em",
+  "tags": [
+    "marks"
+  ],
+  "intent": "Bold then italic over the same selection stack into one run that serializes as ***text***.",
+  "doc": "<{alpha}> beta\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "bold"
+    },
+    {
+      "op": "action",
+      "id": "italic"
+    }
+  ],
+  "expect": {
+    "doc": "<{***alpha***}> beta\n",
+    "marks": [
+      "em",
+      "strong"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON"
+  ]
+}

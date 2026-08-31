@@ -1,0 +1,36 @@
+{
+  "name": "tables/undo-a-cell-edit",
+  "tags": [
+    "tables",
+    "history"
+  ],
+  "intent": "Undo after an edit made with the table focused restores the loaded document exactly — the grid, its cell text and the surrounding paragraphs all come back in one step.",
+  "doc": "intro\n\n| name | qty |\n| --- | --- |\n| pear | 2 |\n",
+  "ops": [
+    {
+      "op": "caret",
+      "block": 1,
+      "edge": "start"
+    },
+    {
+      "op": "type",
+      "text": "hi"
+    },
+    {
+      "op": "undo",
+      "n": 1
+    }
+  ],
+  "expect": {
+    "doc": "intro\n\n| name | qty |\n| --- | --- |\n| pear | 2 |\n",
+    "canUndo": false,
+    "canRedo": true,
+    "undoDepth": 0
+  },
+  "finally": [
+    "tier0",
+    "history",
+    "markdownFixpoint",
+    "projection"
+  ]
+}

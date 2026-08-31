@@ -1,0 +1,11 @@
+{
+  "name" : "composition/emoji-picker-inserts-a-single-character",
+  "tags" : ["composition"],
+  "intent" : "The emoji picker sends one insertText of a multi-unit character with no marked text; it lands verbatim at the caret and is not split or re-routed through the paste pipeline.",
+  "doc" : "party<|>\n",
+  "ops" : [
+    { "op" : "typeBurst", "text" : "🎉" }
+  ],
+  "expect" : { "doc" : "party🎉<|>\n", "canUndo" : true, "blockKind" : "paragraph" },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+}

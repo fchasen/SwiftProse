@@ -1,0 +1,33 @@
+{
+  "name": "inputrules/fence-info-string-sets-the-language",
+  "tags": [
+    "inputrules",
+    "code"
+  ],
+  "intent": "The fence rule captures the info string typed after the backticks, so ```` ```swift ```` + Enter opens a block whose leaf carries the language.",
+  "doc": "",
+  "ops": [
+    {
+      "op": "type",
+      "text": "```swift"
+    },
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "let x = 1"
+    }
+  ],
+  "expect": {
+    "doc": "```swift\nlet x = 1<|>\n```",
+    "blockKind": "fencedCode(language: Optional(\"swift\"))"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

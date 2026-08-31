@@ -1,0 +1,23 @@
+{
+  "name": "inputrules/hash-space-makes-a-heading",
+  "tags": [
+    "inputrules"
+  ],
+  "intent": "Bug: `# ` at the head of a line never fires the heading rule — the line stays a paragraph holding the literal hashes.",
+  "doc": "<|>",
+  "ops": [
+    {
+      "op": "type",
+      "text": "# Title"
+    }
+  ],
+  "expect": {
+    "doc": "# Title<|>",
+    "blockKind": "heading(level: 1)"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

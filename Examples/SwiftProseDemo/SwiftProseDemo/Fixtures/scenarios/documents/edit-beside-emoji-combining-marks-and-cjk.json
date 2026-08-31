@@ -1,0 +1,50 @@
+{
+  "name": "documents/edit-beside-emoji-combining-marks-and-cjk",
+  "tags": [
+    "documents",
+    "unicode"
+  ],
+  "intent": "Characters typed immediately after a ZWJ emoji sequence, after a decomposed combining acute, and after a CJK run land after the whole cluster rather than inside it, and none of the three clusters is re-normalized on the markdown round-trip.",
+  "doc": "# \u899a\u66f8\n\nTeam \ud83d\udc69\u200d\ud83d\udc69\u200d\ud83d\udc67 shipped the cafe\u0301 build.\n\n- \u65e5\u672c\u8a9e\n- r\u00e9sum\u00e9\n",
+  "ops": [
+    {
+      "op": "caret",
+      "after": "\ud83d\udc69\u200d\ud83d\udc69\u200d\ud83d\udc67"
+    },
+    {
+      "op": "type",
+      "text": "!"
+    },
+    {
+      "op": "caret",
+      "after": "cafe\u0301"
+    },
+    {
+      "op": "type",
+      "text": "s"
+    },
+    {
+      "op": "caret",
+      "after": "\u65e5\u672c\u8a9e"
+    },
+    {
+      "op": "type",
+      "text": " (JP)"
+    }
+  ],
+  "expect": {
+    "doc": "# \u899a\u66f8\n\nTeam \ud83d\udc69\u200d\ud83d\udc69\u200d\ud83d\udc67! shipped the cafe\u0301s build.\n\n- \u65e5\u672c\u8a9e (JP)<|>\n- r\u00e9sum\u00e9\n",
+    "selection": [
+      56,
+      0
+    ],
+    "blockKind": "unorderedListItem"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON",
+    "schema"
+  ]
+}

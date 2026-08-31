@@ -1,0 +1,28 @@
+{
+  "name": "enter/enter-inside-a-fenced-code-block",
+  "tags": [
+    "enter",
+    "code"
+  ],
+  "intent": "Enter inside a fenced code block adds a line to the body of the one block instead of splitting the fence in two.",
+  "doc": "```swift\nlet x = 1<|>\n```\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "let y = 2"
+    }
+  ],
+  "expect": {
+    "doc": "```swift\nlet x = 1\nlet y = 2\n```",
+    "blockKind": "fencedCode(language: Optional(\"swift\"))"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

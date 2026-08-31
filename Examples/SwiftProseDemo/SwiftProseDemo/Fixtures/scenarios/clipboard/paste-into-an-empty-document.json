@@ -1,0 +1,14 @@
+{
+  "name" : "clipboard/paste-into-an-empty-document",
+  "tags" : ["clipboard"],
+  "intent" : "Pasting into a document with no content at all yields exactly the pasted blocks, with no leading empty paragraph left over.",
+  "doc" : "",
+  "ops" : [
+    { "op" : "paste", "text" : "One paragraph.\n\nTwo paragraph.", "plain" : true }
+  ],
+  "expect" : {
+    "doc" : "One paragraph.\n\nTwo paragraph.<|>",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "history/undo-restores-the-selection",
+  "tags": [
+    "history"
+  ],
+  "intent": "Undo puts the caret back where the edit started rather than where it ended.",
+  "doc": "hello <|>world",
+  "ops": [
+    {
+      "op": "type",
+      "text": "brave "
+    },
+    {
+      "op": "undo",
+      "n": 1
+    }
+  ],
+  "expect": {
+    "doc": "hello world",
+    "selection": [
+      6,
+      0
+    ],
+    "canUndo": false,
+    "canRedo": true
+  },
+  "finally": [
+    "tier0",
+    "history"
+  ]
+}

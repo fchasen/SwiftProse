@@ -1,0 +1,27 @@
+{
+  "name": "marks/edit-an-existing-link-url",
+  "tags": [
+    "marks"
+  ],
+  "intent": "Running the link action again over an existing link's text swaps its destination and leaves the label untouched.",
+  "doc": "see the <{[docs](https://old.example.com)}> page\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "link",
+      "url": "https://new.example.com"
+    }
+  ],
+  "expect": {
+    "doc": "see the [docs](https://new.example.com)<|> page\n",
+    "marks": [
+      "link"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name" : "delete/backspace-at-document-start-is-a-no-op",
+  "tags" : ["delete"],
+  "intent" : "Backspace with the caret at offset 0 changes nothing and registers no undo unit.",
+  "doc" : "<|>alpha\n\nbeta\n",
+  "ops" : [
+    { "op" : "key", "key" : "Backspace" }
+  ],
+  "expect" : {
+    "doc" : "<|>alpha\n\nbeta\n",
+    "blockKind" : "paragraph",
+    "canUndo" : false,
+    "undoDepth" : 0
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

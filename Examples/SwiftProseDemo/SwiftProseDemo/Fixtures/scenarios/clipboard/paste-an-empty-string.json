@@ -1,0 +1,15 @@
+{
+  "name" : "clipboard/paste-an-empty-string",
+  "tags" : ["clipboard"],
+  "intent" : "An empty pasteboard payload changes nothing and registers no undo unit.",
+  "doc" : "abc<|>\n",
+  "ops" : [
+    { "op" : "paste", "text" : "", "plain" : true }
+  ],
+  "expect" : {
+    "doc" : "abc<|>",
+    "canUndo" : false,
+    "undoDepth" : 0
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

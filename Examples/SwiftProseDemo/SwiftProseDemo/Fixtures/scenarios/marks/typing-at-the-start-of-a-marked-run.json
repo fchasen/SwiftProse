@@ -1,0 +1,23 @@
+{
+  "name": "marks/typing-at-the-start-of-a-marked-run",
+  "tags": [
+    "marks"
+  ],
+  "intent": "Typing immediately before a bold run inherits the plain text on its left, so the new characters stay outside the mark.",
+  "doc": "turn it <|>**up** now\n",
+  "ops": [
+    {
+      "op": "type",
+      "text": "way "
+    }
+  ],
+  "expect": {
+    "doc": "turn it way <|>**up** now\n",
+    "marks": []
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

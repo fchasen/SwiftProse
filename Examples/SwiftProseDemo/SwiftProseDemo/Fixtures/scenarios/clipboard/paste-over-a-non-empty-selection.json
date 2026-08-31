@@ -1,0 +1,14 @@
+{
+  "name" : "clipboard/paste-over-a-non-empty-selection",
+  "tags" : ["clipboard"],
+  "intent" : "A paste replaces the selected range and leaves the caret collapsed after the inserted text.",
+  "doc" : "hello <{world}>\n",
+  "ops" : [
+    { "op" : "paste", "text" : "there", "plain" : true }
+  ],
+  "expect" : {
+    "doc" : "hello there<|>",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

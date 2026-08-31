@@ -1,0 +1,32 @@
+{
+  "name": "lists/ordered-list-renumbers-after-delete",
+  "tags": [
+    "lists"
+  ],
+  "intent": "Deleting the whole middle item of an ordered list renumbers the items below it.",
+  "doc": "1. one\n2. two\n3. three\n",
+  "ops": [
+    {
+      "op": "select",
+      "from": {
+        "after": "one\n"
+      },
+      "to": {
+        "after": "two\n"
+      }
+    },
+    {
+      "op": "key",
+      "key": "Backspace"
+    }
+  ],
+  "expect": {
+    "doc": "1. one\n2. three\n"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

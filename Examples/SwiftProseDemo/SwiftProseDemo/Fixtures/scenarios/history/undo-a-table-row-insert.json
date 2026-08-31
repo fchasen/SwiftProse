@@ -1,0 +1,12 @@
+{
+  "name" : "history/undo-a-table-row-insert",
+  "tags" : ["history", "tables"],
+  "intent" : "An edit to the attachment-backed table subtree undoes like any other transaction, restoring the original grid exactly.",
+  "doc" : "| a | b |\n| --- | --- |\n| 1 | 2 |\n",
+  "ops" : [
+    { "op" : "action", "id" : "insertTableRowBelow" },
+    { "op" : "undo", "n" : 1 }
+  ],
+  "expect" : { "doc" : "| a | b |\n| --- | --- |\n| 1 | 2 |\n", "canUndo" : false, "canRedo" : true },
+  "finally" : ["tier0", "history"]
+}

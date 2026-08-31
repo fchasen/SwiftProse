@@ -1,0 +1,27 @@
+{
+  "name": "lists/ordered-list-becomes-task-list",
+  "tags": [
+    "lists"
+  ],
+  "intent": "Converting a whole ordered list to a task list writes the right markdown, and the result survives a ProseMirror JSON round trip.",
+  "doc": "1. one\n2. two\n",
+  "ops": [
+    {
+      "op": "selectAll"
+    },
+    {
+      "op": "action",
+      "id": "taskList"
+    }
+  ],
+  "expect": {
+    "doc": "- [ ] one\n- [ ] two\n",
+    "blockKind": "taskListItem(checked: false)"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON"
+  ]
+}

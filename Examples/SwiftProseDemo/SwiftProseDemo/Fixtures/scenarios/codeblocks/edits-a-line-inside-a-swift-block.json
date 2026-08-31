@@ -1,0 +1,14 @@
+{
+  "name": "codeblocks/edits-a-line-inside-a-swift-block",
+  "tags": ["codeblocks"],
+  "intent": "Typing at the end of the first body line of a highlighted swift block edits that line in place: the block keeps its language, both body lines, and one fence.",
+  "doc": "```swift\nlet x = 1<|>\nlet y = 2\n```\n",
+  "ops": [
+    { "op": "type", "text": " // one" }
+  ],
+  "expect": {
+    "doc": "```swift\nlet x = 1 // one<|>\nlet y = 2\n```\n",
+    "blockKind": "fencedCode(language: Optional(\"swift\"))"
+  },
+  "finally": ["tier0", "projection", "markdownFixpoint", "pmJSON"]
+}

@@ -21,10 +21,39 @@
 		B0E30002000000000000B0E3 /* TreeSitterJavaScript in Frameworks */ = {isa = PBXBuildFile; productRef = B0E20002000000000000B0E2 /* TreeSitterJavaScript */; };
 		B0E30003000000000000B0E3 /* TreeSitterCSS in Frameworks */ = {isa = PBXBuildFile; productRef = B0E20003000000000000B0E2 /* TreeSitterCSS */; };
 		B0E30004000000000000B0E3 /* TreeSitterHTML in Frameworks */ = {isa = PBXBuildFile; productRef = B0E20004000000000000B0E2 /* TreeSitterHTML */; };
+		B001000B000000000000B001 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = B002000B000000000000B002 /* Fixtures */; };
+		B0011001000000000000B001 /* EditOp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021001000000000000B002 /* EditOp.swift */; };
+		B0011002000000000000B001 /* Scenario.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021002000000000000B002 /* Scenario.swift */; };
+		B0011003000000000000B001 /* EditDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021003000000000000B002 /* EditDriver.swift */; };
+		B0011004000000000000B001 /* Oracles.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021004000000000000B002 /* Oracles.swift */; };
+		B0011005000000000000B001 /* FuzzEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021005000000000000B002 /* FuzzEngine.swift */; };
+		B0011006000000000000B001 /* Shrinker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021006000000000000B002 /* Shrinker.swift */; };
+		B0011007000000000000B001 /* StorageDump.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021007000000000000B002 /* StorageDump.swift */; };
+		B0011008000000000000B001 /* HarnessLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021008000000000000B002 /* HarnessLaunch.swift */; };
+		B0011009000000000000B001 /* HarnessRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021009000000000000B002 /* HarnessRegistry.swift */; };
+		B001100A000000000000B001 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B002100A000000000000B002 /* HarnessView.swift */; };
+		B001100B000000000000B001 /* ScenarioRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B002100B000000000000B002 /* ScenarioRunner.swift */; };
+		B001100C000000000000B001 /* HarnessCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B002100C000000000000B002 /* HarnessCLI.swift */; };
+		B001100D000000000000B001 /* Corpus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B002100D000000000000B002 /* Corpus.swift */; };
+		B0012001000000000000B001 /* HarnessTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0022001000000000000B002 /* HarnessTestSupport.swift */; };
+		B0012002000000000000B001 /* DriverCanaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0022002000000000000B002 /* DriverCanaryTests.swift */; };
+		B0012003000000000000B001 /* ScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0022003000000000000B002 /* ScenarioTests.swift */; };
+		B0012004000000000000B001 /* FuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0022004000000000000B002 /* FuzzTests.swift */; };
+		B0013001000000000000B001 /* EditOp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021001000000000000B002 /* EditOp.swift */; };
+		B0013002000000000000B001 /* Scenario.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0021002000000000000B002 /* Scenario.swift */; };
+		B0010010000000000000B001 /* FormattingToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0020010000000000000B002 /* FormattingToolbar.swift */; };
+		B0012010000000000000B001 /* HarnessUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0022010000000000000B002 /* HarnessUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		B0090001000000000000B009 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B0030001000000000000B003 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B0040001000000000000B004;
+			remoteInfo = SwiftProseDemo;
+		};
+		B0090003000000000000B009 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = B0030001000000000000B003 /* Project object */;
 			proxyType = 1;
@@ -45,6 +74,27 @@
 		B002000A000000000000B002 /* Resources/queries */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/queries; sourceTree = "<group>"; };
 		B00F0001000000000000B00F /* SwiftProseDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwiftProseDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00F0002000000000000B00F /* SwiftProseDemoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftProseDemoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B002000B000000000000B002 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fixtures; sourceTree = "<group>"; };
+		B0021001000000000000B002 /* EditOp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditOp.swift; sourceTree = "<group>"; };
+		B0021002000000000000B002 /* Scenario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scenario.swift; sourceTree = "<group>"; };
+		B0021003000000000000B002 /* EditDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditDriver.swift; sourceTree = "<group>"; };
+		B0021004000000000000B002 /* Oracles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Oracles.swift; sourceTree = "<group>"; };
+		B0021005000000000000B002 /* FuzzEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzEngine.swift; sourceTree = "<group>"; };
+		B0021006000000000000B002 /* Shrinker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shrinker.swift; sourceTree = "<group>"; };
+		B0021007000000000000B002 /* StorageDump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageDump.swift; sourceTree = "<group>"; };
+		B0021008000000000000B002 /* HarnessLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessLaunch.swift; sourceTree = "<group>"; };
+		B0021009000000000000B002 /* HarnessRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessRegistry.swift; sourceTree = "<group>"; };
+		B002100A000000000000B002 /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
+		B002100B000000000000B002 /* ScenarioRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenarioRunner.swift; sourceTree = "<group>"; };
+		B002100C000000000000B002 /* HarnessCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessCLI.swift; sourceTree = "<group>"; };
+		B002100D000000000000B002 /* Corpus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Corpus.swift; sourceTree = "<group>"; };
+		B0022001000000000000B002 /* HarnessTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessTestSupport.swift; sourceTree = "<group>"; };
+		B0022002000000000000B002 /* DriverCanaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverCanaryTests.swift; sourceTree = "<group>"; };
+		B0022003000000000000B002 /* ScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenarioTests.swift; sourceTree = "<group>"; };
+		B0022004000000000000B002 /* FuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzTests.swift; sourceTree = "<group>"; };
+		B00F0003000000000000B00F /* SwiftProseDemoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftProseDemoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B0020010000000000000B002 /* FormattingToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingToolbar.swift; sourceTree = "<group>"; };
+		B0022010000000000000B002 /* HarnessUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,6 +118,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B0070003000000000000B007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -75,6 +132,7 @@
 			isa = PBXGroup;
 			children = (
 				B0060002000000000000B006 /* SwiftProseDemo */,
+				B0060005000000000000B006 /* SwiftProseDemoTests */,
 				B0060003000000000000B006 /* SwiftProseDemoUITests */,
 				B0060004000000000000B006 /* Products */,
 			);
@@ -83,11 +141,14 @@
 		B0060002000000000000B006 /* SwiftProseDemo */ = {
 			isa = PBXGroup;
 			children = (
+				B0020010000000000000B002 /* FormattingToolbar.swift */,
+				B0060006000000000000B006 /* Harness */,
 				B0020001000000000000B002 /* SwiftProseDemoApp.swift */,
 				B0020002000000000000B002 /* ContentView.swift */,
 				B0020009000000000000B002 /* CodeHighlighters.swift */,
 				B0020006000000000000B002 /* MarkdownDocument.swift */,
 				B002000A000000000000B002 /* Resources/queries */,
+				B002000B000000000000B002 /* Fixtures */,
 				B0020007000000000000B002 /* Info.plist */,
 			);
 			path = SwiftProseDemo;
@@ -96,6 +157,7 @@
 		B0060003000000000000B006 /* SwiftProseDemoUITests */ = {
 			isa = PBXGroup;
 			children = (
+				B0022010000000000000B002 /* HarnessUITests.swift */,
 				B0020003000000000000B002 /* EditorTypingTests.swift */,
 				B0020004000000000000B002 /* ToolbarTests.swift */,
 				B0020008000000000000B002 /* TestHelpers.swift */,
@@ -108,8 +170,40 @@
 			children = (
 				B00F0001000000000000B00F /* SwiftProseDemo.app */,
 				B00F0002000000000000B00F /* SwiftProseDemoUITests.xctest */,
+				B00F0003000000000000B00F /* SwiftProseDemoTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B0060005000000000000B006 /* SwiftProseDemoTests */ = {
+			isa = PBXGroup;
+			children = (
+				B0022001000000000000B002 /* HarnessTestSupport.swift */,
+				B0022002000000000000B002 /* DriverCanaryTests.swift */,
+				B0022003000000000000B002 /* ScenarioTests.swift */,
+				B0022004000000000000B002 /* FuzzTests.swift */,
+			);
+			path = SwiftProseDemoTests;
+			sourceTree = "<group>";
+		};
+		B0060006000000000000B006 /* Harness */ = {
+			isa = PBXGroup;
+			children = (
+				B0021001000000000000B002 /* EditOp.swift */,
+				B0021002000000000000B002 /* Scenario.swift */,
+				B0021003000000000000B002 /* EditDriver.swift */,
+				B0021004000000000000B002 /* Oracles.swift */,
+				B0021005000000000000B002 /* FuzzEngine.swift */,
+				B0021006000000000000B002 /* Shrinker.swift */,
+				B0021007000000000000B002 /* StorageDump.swift */,
+				B0021008000000000000B002 /* HarnessLaunch.swift */,
+				B0021009000000000000B002 /* HarnessRegistry.swift */,
+				B002100A000000000000B002 /* HarnessView.swift */,
+				B002100B000000000000B002 /* ScenarioRunner.swift */,
+				B002100C000000000000B002 /* HarnessCLI.swift */,
+				B002100D000000000000B002 /* Corpus.swift */,
+			);
+			path = Harness;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -157,6 +251,23 @@
 			productReference = B00F0002000000000000B00F /* SwiftProseDemoUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		B0040003000000000000B004 /* SwiftProseDemoTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B00B0004000000000000B00B /* Build configuration list for PBXNativeTarget "SwiftProseDemoTests" */;
+			buildPhases = (
+				B00C0003000000000000B00C /* Sources */,
+				B0070003000000000000B007 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B0090004000000000000B009 /* PBXTargetDependency */,
+			);
+			name = SwiftProseDemoTests;
+			productName = SwiftProseDemoTests;
+			productReference = B00F0003000000000000B00F /* SwiftProseDemoTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -171,6 +282,10 @@
 						CreatedOnToolsVersion = 16.0;
 					};
 					B0040002000000000000B004 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = B0040001000000000000B004;
+					};
+					B0040003000000000000B004 = {
 						CreatedOnToolsVersion = 16.0;
 						TestTargetID = B0040001000000000000B004;
 					};
@@ -198,6 +313,7 @@
 			targets = (
 				B0040001000000000000B004 /* SwiftProseDemo */,
 				B0040002000000000000B004 /* SwiftProseDemoUITests */,
+				B0040003000000000000B004 /* SwiftProseDemoTests */,
 			);
 		};
 /* End PBXProject section */
@@ -208,6 +324,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B001000A000000000000B001 /* Resources/queries in Resources */,
+				B001000B000000000000B001 /* Fixtures in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -218,10 +335,24 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0010010000000000000B001 /* FormattingToolbar.swift in Sources */,
 				B0010001000000000000B001 /* SwiftProseDemoApp.swift in Sources */,
 				B0010002000000000000B001 /* ContentView.swift in Sources */,
 				B0010007000000000000B001 /* MarkdownDocument.swift in Sources */,
 				B0010009000000000000B001 /* CodeHighlighters.swift in Sources */,
+				B0011001000000000000B001 /* EditOp.swift in Sources */,
+				B0011002000000000000B001 /* Scenario.swift in Sources */,
+				B0011003000000000000B001 /* EditDriver.swift in Sources */,
+				B0011004000000000000B001 /* Oracles.swift in Sources */,
+				B0011005000000000000B001 /* FuzzEngine.swift in Sources */,
+				B0011006000000000000B001 /* Shrinker.swift in Sources */,
+				B0011007000000000000B001 /* StorageDump.swift in Sources */,
+				B0011008000000000000B001 /* HarnessLaunch.swift in Sources */,
+				B0011009000000000000B001 /* HarnessRegistry.swift in Sources */,
+				B001100A000000000000B001 /* HarnessView.swift in Sources */,
+				B001100B000000000000B001 /* ScenarioRunner.swift in Sources */,
+				B001100C000000000000B001 /* HarnessCLI.swift in Sources */,
+				B001100D000000000000B001 /* Corpus.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -229,9 +360,23 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0012010000000000000B001 /* HarnessUITests.swift in Sources */,
 				B0010004000000000000B001 /* EditorTypingTests.swift in Sources */,
 				B0010005000000000000B001 /* ToolbarTests.swift in Sources */,
 				B0010008000000000000B001 /* TestHelpers.swift in Sources */,
+				B0013001000000000000B001 /* EditOp.swift in Sources */,
+				B0013002000000000000B001 /* Scenario.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B00C0003000000000000B00C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B0012001000000000000B001 /* HarnessTestSupport.swift in Sources */,
+				B0012002000000000000B001 /* DriverCanaryTests.swift in Sources */,
+				B0012003000000000000B001 /* ScenarioTests.swift in Sources */,
+				B0012004000000000000B001 /* FuzzTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -242,6 +387,11 @@
 			isa = PBXTargetDependency;
 			target = B0040001000000000000B004 /* SwiftProseDemo */;
 			targetProxy = B0090001000000000000B009 /* PBXContainerItemProxy */;
+		};
+		B0090004000000000000B009 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B0040001000000000000B004 /* SwiftProseDemo */;
+			targetProxy = B0090003000000000000B009 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -399,6 +549,50 @@
 			};
 			name = Release;
 		};
+		B00A0007000000000000B00A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = FKN6VL994M;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fchasen.swiftprose.SwiftProseDemoTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SwiftProseDemo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SwiftProseDemo";
+				TEST_TARGET_NAME = SwiftProseDemo;
+			};
+			name = Debug;
+		};
+		B00A0008000000000000B00A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = FKN6VL994M;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fchasen.swiftprose.SwiftProseDemoTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SwiftProseDemo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SwiftProseDemo";
+				TEST_TARGET_NAME = SwiftProseDemo;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -425,6 +619,15 @@
 			buildConfigurations = (
 				B00A0001000000000000B00A /* Debug */,
 				B00A0002000000000000B00A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B00B0004000000000000B00B /* Build configuration list for PBXNativeTarget "SwiftProseDemoTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B00A0007000000000000B00A /* Debug */,
+				B00A0008000000000000B00A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

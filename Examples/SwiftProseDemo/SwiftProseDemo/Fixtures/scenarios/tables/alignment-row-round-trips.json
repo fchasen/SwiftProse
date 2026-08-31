@@ -1,0 +1,27 @@
+{
+  "name": "tables/alignment-row-round-trips",
+  "tags": [
+    "tables"
+  ],
+  "intent": "A table with explicit left / center / right alignment survives compile and re-emit byte-for-byte — the per-cell align attr carries the delimiter tokens back out.",
+  "doc": "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |\n",
+  "ops": [
+    {
+      "op": "check",
+      "oracles": [
+        "markdownFixpoint",
+        "projection"
+      ]
+    }
+  ],
+  "expect": {
+    "doc": "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |\n",
+    "canUndo": false,
+    "undoDepth": 0
+  },
+  "finally": [
+    "tier0",
+    "markdownFixpoint",
+    "projection"
+  ]
+}

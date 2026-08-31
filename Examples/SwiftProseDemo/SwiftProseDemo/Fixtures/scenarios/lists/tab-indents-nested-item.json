@@ -1,0 +1,10 @@
+{
+  "name" : "lists/tab-indents-nested-item",
+  "tags" : ["lists", "ui"],
+  "doc" : "- one\n- tw<|>o\n",
+  "ops" : [
+    { "op" : "key", "key" : "Tab" }
+  ],
+  "expect" : { "doc" : "- one\n  - two\n" },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

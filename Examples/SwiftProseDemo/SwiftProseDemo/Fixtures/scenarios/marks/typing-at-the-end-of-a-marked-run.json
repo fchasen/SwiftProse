@@ -1,0 +1,26 @@
+{
+  "name": "marks/typing-at-the-end-of-a-marked-run",
+  "tags": [
+    "marks"
+  ],
+  "intent": "Typing at the trailing edge of a bold run does not extend it: strong is an inclusive mark, but the new characters land outside the span and serialize as `**up**per`, splitting one word across a mark boundary.",
+  "doc": "turn it **up<|>** now\n",
+  "ops": [
+    {
+      "op": "type",
+      "text": "per"
+    }
+  ],
+  "expect": {
+    "doc": "turn it **upper**<|> now\n",
+    "marks": [
+      "strong"
+    ]
+  },
+  "xfail": "turn it **up**per now",
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

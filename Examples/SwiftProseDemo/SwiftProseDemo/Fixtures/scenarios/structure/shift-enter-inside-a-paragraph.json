@@ -1,0 +1,9 @@
+{
+  "name" : "structure/shift-enter-inside-a-paragraph",
+  "tags" : ["structure"],
+  "doc" : "one<|> two\n",
+  "ops" : [
+    { "op" : "key", "key" : "Shift-Enter" }
+  ],
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

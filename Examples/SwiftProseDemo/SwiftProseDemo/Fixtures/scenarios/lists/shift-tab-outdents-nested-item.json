@@ -1,0 +1,25 @@
+{
+  "name": "lists/shift-tab-outdents-nested-item",
+  "tags": [
+    "lists",
+    "ui"
+  ],
+  "intent": "Shift-Tab on a nested bullet item destroys it: the item's marker is written into the document as a literal `- -` line and its text drops out of the list as a paragraph, instead of lifting to the parent's level.",
+  "doc": "- one\n  - tw<|>o\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Shift-Tab"
+    }
+  ],
+  "expect": {
+    "doc": "- one\n- two<|>\n"
+  },
+  "xfail": "markdown mismatch",
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

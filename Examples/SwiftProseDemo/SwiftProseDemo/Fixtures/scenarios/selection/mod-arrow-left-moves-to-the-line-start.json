@@ -1,0 +1,16 @@
+{
+  "name" : "selection/mod-arrow-left-moves-to-the-line-start",
+  "tags" : ["selection", "ui"],
+  "intent" : "Mod-ArrowLeft collapses the caret to the start of the line it is on — the second paragraph's own start, not the document's — so typing there prefixes that paragraph.",
+  "doc" : "alpha beta\n\ngamma delta<|>\n",
+  "ops" : [
+    { "op" : "key", "key" : "Mod-ArrowLeft" },
+    { "op" : "type", "text" : "X" }
+  ],
+  "expect" : {
+    "doc" : "alpha beta\n\nX<|>gamma delta",
+    "selection" : [13, 0],
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

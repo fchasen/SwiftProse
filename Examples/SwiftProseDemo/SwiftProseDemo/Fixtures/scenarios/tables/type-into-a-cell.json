@@ -1,0 +1,30 @@
+{
+  "name": "tables/type-into-a-cell",
+  "tags": [
+    "tables"
+  ],
+  "intent": "Typing with the caret at the start of a table block destroys the table: the attachment and its whole subtree are dropped and only the preceding paragraph survives, instead of the characters landing beside the grid.",
+  "doc": "intro\n\n| name | qty |\n| --- | --- |\n| pear | 2 |\n",
+  "ops": [
+    {
+      "op": "caret",
+      "block": 1,
+      "edge": "start"
+    },
+    {
+      "op": "type",
+      "text": "hi"
+    }
+  ],
+  "expect": {
+    "doc": "intro\n\nhi<|>\n\n| name | qty |\n| --- | --- |\n| pear | 2 |\n",
+    "canUndo": true,
+    "undoDepth": 1
+  },
+  "finally": [
+    "tier0",
+    "markdownFixpoint",
+    "projection"
+  ],
+  "xfail": "markdown mismatch"
+}

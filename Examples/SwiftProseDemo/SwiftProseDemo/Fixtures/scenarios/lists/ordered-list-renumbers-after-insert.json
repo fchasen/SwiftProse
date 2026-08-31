@@ -1,0 +1,27 @@
+{
+  "name": "lists/ordered-list-renumbers-after-insert",
+  "tags": [
+    "lists"
+  ],
+  "intent": "Enter at the end of the first item opens a new item in the middle of the list, and everything below it renumbers.",
+  "doc": "1. one<|>\n2. two\n3. three\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "middle"
+    }
+  ],
+  "expect": {
+    "doc": "1. one\n2. middle<|>\n3. two\n4. three\n"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

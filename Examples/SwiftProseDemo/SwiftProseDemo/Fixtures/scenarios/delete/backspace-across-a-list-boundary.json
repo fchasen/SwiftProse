@@ -1,0 +1,16 @@
+{
+  "name" : "delete/backspace-across-a-list-boundary",
+  "tags" : ["delete", "lists"],
+  "intent" : "Backspace at the start of the paragraph that follows a bullet list pulls that text back into the last list item instead of leaving a stray block or splitting the list.",
+  "doc" : "- alpha\n- beta\n\n<|>tail\n",
+  "ops" : [
+    { "op" : "key", "key" : "Backspace" },
+    { "op" : "key", "key" : "Backspace" }
+  ],
+  "expect" : {
+    "doc" : "- alpha\n- betatail\n",
+    "blockKind" : "unorderedListItem",
+    "canUndo" : true
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

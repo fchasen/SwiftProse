@@ -1,0 +1,15 @@
+{
+  "name" : "delete/alt-backspace-deletes-a-word",
+  "tags" : ["delete"],
+  "intent" : "Alt-Backspace deletes the word before the caret and nothing else, leaving the spaces that bracketed it.",
+  "doc" : "the quick brown<|> fox\n",
+  "ops" : [
+    { "op" : "key", "key" : "Alt-Backspace" }
+  ],
+  "expect" : {
+    "doc" : "the quick <|> fox\n",
+    "blockKind" : "paragraph",
+    "canUndo" : true
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

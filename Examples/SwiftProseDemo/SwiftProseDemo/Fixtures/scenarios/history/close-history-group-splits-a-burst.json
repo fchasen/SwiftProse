@@ -1,0 +1,14 @@
+{
+  "name" : "history/close-history-group-splits-a-burst",
+  "tags" : ["history"],
+  "intent" : "closeHistoryGroup ends the open typing burst, so the characters typed after it form their own unit and undo alone.",
+  "doc" : "start<|>",
+  "ops" : [
+    { "op" : "type", "text" : "abc" },
+    { "op" : "closeHistoryGroup" },
+    { "op" : "type", "text" : "def" },
+    { "op" : "undo", "n" : 1 }
+  ],
+  "expect" : { "doc" : "startabc", "canUndo" : true, "canRedo" : true },
+  "finally" : ["tier0", "history"]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "documents/edit-at-the-very-start-of-a-document",
+  "tags": [
+    "documents"
+  ],
+  "intent": "Backspace at offset 0 is a no-op and text typed there extends the first block in place \u2014 the heading keeps its level and every block below it is untouched.",
+  "doc": "# Release notes\n\nShip **soon**.\n\n- first\n- second\n",
+  "ops": [
+    {
+      "op": "caret",
+      "at": 0
+    },
+    {
+      "op": "key",
+      "key": "Backspace"
+    },
+    {
+      "op": "type",
+      "text": "Draft "
+    }
+  ],
+  "expect": {
+    "doc": "# Draft <|>Release notes\n\nShip **soon**.\n\n- first\n- second\n",
+    "selection": [
+      6,
+      0
+    ],
+    "blockKind": "heading(level: 1)",
+    "canUndo": true
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON",
+    "schema"
+  ]
+}

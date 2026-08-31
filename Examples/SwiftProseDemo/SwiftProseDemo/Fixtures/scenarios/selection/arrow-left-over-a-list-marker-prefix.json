@@ -1,0 +1,16 @@
+{
+  "name" : "selection/arrow-left-over-a-list-marker-prefix",
+  "tags" : ["selection", "lists"],
+  "intent" : "ArrowLeft from the first text character of a bullet item steps into the item's presentation marker (glyph plus space) rather than leaving the item, so the caret lands one offset back, still inside the item.",
+  "doc" : "- alpha\n- beta\n",
+  "ops" : [
+    { "op" : "caret", "before" : "beta" },
+    { "op" : "key", "key" : "ArrowLeft" }
+  ],
+  "expect" : {
+    "doc" : "- alpha\n-<|> beta",
+    "selection" : [9, 0],
+    "blockKind" : "unorderedListItem"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

@@ -1,0 +1,14 @@
+{
+  "name" : "regressions/setmarkdown-leaves-the-typing-burst-open",
+  "tags" : ["regression", "history"],
+  "doc" : "hello<|>",
+  "ops" : [
+    { "op" : "type", "text" : "!" },
+    { "op" : "load", "markdown" : "world", "keepHistory" : true },
+    { "op" : "caret", "at" : 5 },
+    { "op" : "type", "text" : "X" },
+    { "op" : "undo", "n" : 1 }
+  ],
+  "expect" : { "doc" : "world" },
+  "finally" : ["tier0"]
+}

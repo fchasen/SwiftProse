@@ -1,0 +1,24 @@
+{
+  "name": "lists/tab-indents-ordered-item",
+  "tags": [
+    "lists",
+    "ui"
+  ],
+  "intent": "Tab inside the second item of an ordered list nests it under the first, and the nested list numbers from one.",
+  "doc": "1. one\n2. tw<|>o\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Tab"
+    }
+  ],
+  "expect": {
+    "doc": "1. one\n   1. two<|>\n"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

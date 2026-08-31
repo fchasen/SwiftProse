@@ -1,0 +1,30 @@
+{
+  "name": "tables/insert-a-row-below",
+  "tags": [
+    "tables",
+    "ui"
+  ],
+  "intent": "After inserting a row the incrementally spliced tree carries the new table_row, matching a full re-projection.",
+  "doc": "| fruit | qty |\n| --- | --- |\n| pear | 2 |\n",
+  "ops": [
+    {
+      "op": "caret",
+      "block": 0,
+      "edge": "start"
+    },
+    {
+      "op": "action",
+      "id": "insertTableRowBelow"
+    }
+  ],
+  "expect": {
+    "doc": "| fruit | qty |\n| --- | --- |\n| pear | 2 |\n|  |  |\n",
+    "canUndo": true,
+    "undoDepth": 1
+  },
+  "finally": [
+    "tier0",
+    "markdownFixpoint",
+    "projection"
+  ]
+}

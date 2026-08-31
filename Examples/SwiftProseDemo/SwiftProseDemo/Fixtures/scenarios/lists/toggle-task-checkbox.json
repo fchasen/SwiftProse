@@ -1,0 +1,25 @@
+{
+  "name": "lists/toggle-task-checkbox",
+  "tags": [
+    "lists"
+  ],
+  "intent": "Checking the first item's checkbox splits the task list in two — a blank line lands between the checked item and the one below it.",
+  "doc": "- [ ] milk\n- [ ] eggs\n",
+  "ops": [
+    {
+      "op": "toggleCheckbox",
+      "at": 0
+    }
+  ],
+  "expect": {
+    "doc": "- [x] milk\n- [ ] eggs\n",
+    "blockKind": "taskListItem(checked: true)"
+  },
+  "xfail": "markdown mismatch",
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON"
+  ]
+}

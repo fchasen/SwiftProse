@@ -1,0 +1,18 @@
+{
+  "name" : "selection/alt-arrow-right-moves-by-word",
+  "tags" : ["selection", "ui"],
+  "intent" : "Alt-ArrowRight moves the caret to the end of the next word, so two presses from the line start land after \"two\" and typing there lands inside the paragraph.",
+  "doc" : "one two three\n",
+  "ops" : [
+    { "op" : "caret", "before" : "one" },
+    { "op" : "key", "key" : "Alt-ArrowRight" },
+    { "op" : "key", "key" : "Alt-ArrowRight" },
+    { "op" : "type", "text" : "!" }
+  ],
+  "expect" : {
+    "doc" : "one two!<|> three",
+    "selection" : [8, 0],
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

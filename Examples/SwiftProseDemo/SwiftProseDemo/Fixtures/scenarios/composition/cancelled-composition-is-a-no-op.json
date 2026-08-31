@@ -1,0 +1,11 @@
+{
+  "name" : "composition/cancelled-composition-is-a-no-op",
+  "tags" : ["composition", "ime", "history"],
+  "intent" : "Escape during a composition puts the pre-image back, so the interims never became content and nothing was pushed onto the undo stack.",
+  "doc" : "keep me<|>\n",
+  "ops" : [
+    { "op" : "compose", "interims" : ["k", "ka"], "commit" : null }
+  ],
+  "expect" : { "doc" : "keep me<|>\n", "canUndo" : false, "undoDepth" : 0, "blockKind" : "paragraph" },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+}

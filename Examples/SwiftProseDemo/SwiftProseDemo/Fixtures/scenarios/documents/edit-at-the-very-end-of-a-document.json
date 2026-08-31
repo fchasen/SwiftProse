@@ -1,0 +1,39 @@
+{
+  "name": "documents/edit-at-the-very-end-of-a-document",
+  "tags": [
+    "documents",
+    "lists"
+  ],
+  "intent": "Enter at the end of the last line of the document continues the list rather than landing outside it, and the text typed onto the new line becomes a third item at the same level.",
+  "doc": "# Log\n\nShipped the parser.\n\n- rebuilt the lexer\n- reran the suite\n",
+  "ops": [
+    {
+      "op": "caret",
+      "after": "reran the suite"
+    },
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "wrote the notes"
+    }
+  ],
+  "expect": {
+    "doc": "# Log\n\nShipped the parser.\n\n- rebuilt the lexer\n- reran the suite\n- wrote the notes<|>\n",
+    "selection": [
+      81,
+      0
+    ],
+    "blockKind": "unorderedListItem",
+    "canUndo": true
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON",
+    "schema"
+  ]
+}

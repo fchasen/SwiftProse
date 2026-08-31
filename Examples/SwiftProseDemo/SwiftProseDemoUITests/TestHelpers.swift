@@ -1,9 +1,17 @@
 import XCTest
 
 extension XCUIApplication {
-    /// Launches the app and opens a fresh untitled document. The demo is a
-    /// document-based app, so the editor is not visible until a document is
-    /// created — every test driving the editor has to pass through this.
+    /// Launches the app straight into the harness window. The demo is a
+    /// document-based app, so without `--harness` the editor is not visible
+    /// until a document exists — which used to mean a Cmd-N and a
+    /// restoration race in every test.
+    func launchHarness() {
+        launchArguments += ["--harness", "ui"]
+        launch()
+    }
+
+    /// The pre-harness path, kept for a test that deliberately exercises
+    /// the real `DocumentGroup`.
     func launchAndOpenNewDocument() {
         launch()
         #if os(macOS)

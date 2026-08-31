@@ -1,0 +1,26 @@
+{
+  "name": "marks/code-excludes-strong-and-em",
+  "tags": [
+    "marks"
+  ],
+  "intent": "Code span over a bold-italic selection replaces both marks — the schema declares code as excludesAll — so only backticks survive.",
+  "doc": "<{***loud***}> here\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "codeSpan"
+    }
+  ],
+  "expect": {
+    "doc": "<{`loud`}> here\n",
+    "marks": [
+      "code"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON"
+  ]
+}

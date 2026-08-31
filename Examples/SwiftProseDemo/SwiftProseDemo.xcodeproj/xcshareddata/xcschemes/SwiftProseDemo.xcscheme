@@ -34,6 +34,20 @@
                ReferencedContainer = "container:SwiftProseDemo.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B0040003000000000000B004"
+               BuildableName = "SwiftProseDemoTests.xctest"
+               BlueprintName = "SwiftProseDemoTests"
+               ReferencedContainer = "container:SwiftProseDemo.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -44,6 +58,16 @@
       <Testables>
          <TestableReference
             skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B0040003000000000000B004"
+               BuildableName = "SwiftProseDemoTests.xctest"
+               BlueprintName = "SwiftProseDemoTests"
+               ReferencedContainer = "container:SwiftProseDemo.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "B0040002000000000000B004"

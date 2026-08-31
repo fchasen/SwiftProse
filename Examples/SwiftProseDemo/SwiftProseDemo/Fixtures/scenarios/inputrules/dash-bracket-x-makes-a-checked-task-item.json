@@ -1,0 +1,26 @@
+{
+  "name": "inputrules/dash-bracket-x-makes-a-checked-task-item",
+  "tags": [
+    "inputrules",
+    "lists"
+  ],
+  "intent": "Typing a dash and a bracketed x makes a checked task item, and it survives a ProseMirror JSON round trip at the nesting level it was written.",
+  "doc": "",
+  "ops": [
+    {
+      "op": "type",
+      "text": "- [x] milk"
+    }
+  ],
+  "expect": {
+    "doc": "- [x] milk<|>",
+    "blockKind": "taskListItem(checked: true)"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema",
+    "pmJSON"
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "airbnb-javascript-readme" : [
+    "markdownFixpoint",
+    "pmJSON",
+    "schema"
+  ],
+  "alamofire-usage" : [
+    "pmJSON"
+  ],
+  "blockquotes-nested" : [
+    "pmJSON"
+  ],
+  "brew-formula-cookbook" : [
+    "markdownFixpoint",
+    "pmJSON"
+  ],
+  "coding-interview-university-readme" : [
+    "markdownFixpoint",
+    "pmJSON",
+    "schema",
+    "specFull"
+  ],
+  "commonmark-examples" : [
+    "markdownFixpoint",
+    "pmJSON",
+    "schema"
+  ],
+  "edge" : [
+    "markdownFixpoint"
+  ],
+  "electron-browser-window" : [
+    "markdownFixpoint",
+    "pmJSON"
+  ],
+  "links-images" : [
+    "specFull"
+  ],
+  "lists-deep" : [
+    "pmJSON"
+  ],
+  "nodebestpractices-readme" : [
+    "markdownFixpoint",
+    "pmJSON",
+    "specFull"
+  ],
+  "prettier-options" : [
+    "markdownFixpoint"
+  ],
+  "public-apis-readme" : [
+    "markdownFixpoint",
+    "specFull"
+  ],
+  "swiftlint-readme" : [
+    "markdownFixpoint",
+    "pmJSON",
+    "specFull"
+  ],
+  "swiftprose-readme" : [
+    "markdownFixpoint"
+  ],
+  "system-design-primer-readme" : [
+    "markdownFixpoint",
+    "pmJSON",
+    "schema",
+    "specFull"
+  ],
+  "task-lists" : [
+    "pmJSON"
+  ],
+  "tca-readme" : [
+    "markdownFixpoint",
+    "pmJSON",
+    "schema"
+  ]
+}

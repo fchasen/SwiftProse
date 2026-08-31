@@ -1,0 +1,29 @@
+{
+  "name": "inputrules/three-dashes-make-a-horizontal-rule",
+  "tags": [
+    "inputrules",
+    "structure"
+  ],
+  "intent": "Three dashes alone on a fresh line become a horizontal rule — the first `- ` never completes because no space follows the dash.",
+  "doc": "above<|>",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "---"
+    }
+  ],
+  "expect": {
+    "doc": "above\n\n---<|>",
+    "blockKind": "horizontalRule"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

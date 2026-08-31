@@ -1,0 +1,15 @@
+{
+  "name" : "history/new-group-delay-splits-a-burst",
+  "tags" : ["history"],
+  "intent" : "With newGroupDelay at 50ms a 100ms pause closes the burst on its own, so only the second run of characters comes back off the stack.",
+  "doc" : "<|>",
+  "config" : { "newGroupDelay" : 0.05 },
+  "ops" : [
+    { "op" : "type", "text" : "abc" },
+    { "op" : "wait", "ms" : 100 },
+    { "op" : "type", "text" : "def" },
+    { "op" : "undo", "n" : 1 }
+  ],
+  "expect" : { "doc" : "abc", "canUndo" : true, "canRedo" : true },
+  "finally" : ["tier0", "history"]
+}

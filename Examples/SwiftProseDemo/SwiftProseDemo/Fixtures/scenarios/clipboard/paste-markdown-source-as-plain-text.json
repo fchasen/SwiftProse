@@ -1,0 +1,15 @@
+{
+  "name" : "clipboard/paste-markdown-source-as-plain-text",
+  "tags" : ["clipboard"],
+  "intent" : "A plain-text paste inserts its text verbatim instead of parsing it — only an HTML payload reaches the clipboard parser — so a pasted ATX line stays a paragraph that merely looks like a heading.",
+  "doc" : "",
+  "ops" : [
+    { "op" : "paste", "text" : "# Title\n\nSome body.", "plain" : true },
+    { "op" : "caret", "after" : "Title" }
+  ],
+  "expect" : {
+    "doc" : "# Title<|>\n\nSome body.",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

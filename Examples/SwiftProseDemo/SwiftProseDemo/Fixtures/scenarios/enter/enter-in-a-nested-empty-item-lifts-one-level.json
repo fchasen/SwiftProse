@@ -1,0 +1,13 @@
+{
+  "name": "enter/enter-in-a-nested-empty-item-lifts-one-level",
+  "tags": ["enter", "lists"],
+  "intent": "Enter on the empty nested item the first Enter opened ends the list outright and drops to a plain paragraph — the empty-item rule is level-blind, so it does not lift one level to the outer list the way prosemirror-schema-list's splitListItem does.",
+  "doc": "- one\n  - nested<|>\n",
+  "ops": [
+    { "op": "key", "key": "Enter" },
+    { "op": "key", "key": "Enter" },
+    { "op": "type", "text": "outer" }
+  ],
+  "expect": { "doc": "- one\n  - nested\n\nou<|>ter" },
+  "finally": ["tier0", "projection", "markdownFixpoint", "schema"]
+}

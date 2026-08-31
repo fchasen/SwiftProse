@@ -1,0 +1,11 @@
+{
+  "name" : "composition/korean-jamo-assembles-in-a-list-item",
+  "tags" : ["composition", "ime", "lists"],
+  "intent" : "Jamo typed into a bullet item assemble in the marked range and commit as one syllable, without disturbing the item's list marker or the sibling below it.",
+  "doc" : "- 인사<|>\n- 다음\n",
+  "ops" : [
+    { "op" : "compose", "interims" : ["ㅎ", "하", "한"], "commit" : "한" }
+  ],
+  "expect" : { "doc" : "- 인사한\n- 다음\n", "blockKind" : "unorderedListItem" },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

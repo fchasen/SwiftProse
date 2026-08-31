@@ -1,0 +1,34 @@
+{
+  "name": "marks/strikethrough-over-a-selection",
+  "tags": [
+    "marks"
+  ],
+  "intent": "Strikethrough over a word wraps it in ~~ and stamps the strike mark; toggling it again clears both.",
+  "doc": "<{done}> deal\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "strikethrough"
+    },
+    {
+      "op": "expect",
+      "doc": "~~done~~ deal\n",
+      "marks": [
+        "strike"
+      ]
+    },
+    {
+      "op": "action",
+      "id": "strikethrough"
+    }
+  ],
+  "expect": {
+    "doc": "<{done}> deal\n",
+    "marks": []
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

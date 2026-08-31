@@ -1,0 +1,15 @@
+{
+  "name": "codeblocks/mod-enter-exits-a-fence",
+  "tags": ["codeblocks", "ui"],
+  "intent": "Mod-Enter inside a non-empty fence leaves the code untouched and lands the caret in a fresh paragraph after the block, so the next typed text is prose.",
+  "doc": "```\nlet x = 1<|>\n```\n",
+  "ops": [
+    { "op": "key", "key": "Mod-Enter" },
+    { "op": "type", "text": "after" }
+  ],
+  "expect": {
+    "doc": "```\nlet x = 1\n```\n\nafter<|>",
+    "blockKind": "paragraph"
+  },
+  "finally": ["tier0", "projection", "markdownFixpoint", "pmJSON"]
+}

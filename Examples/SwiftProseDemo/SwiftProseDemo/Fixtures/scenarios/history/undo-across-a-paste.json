@@ -1,0 +1,12 @@
+{
+  "name" : "history/undo-across-a-paste",
+  "tags" : ["history"],
+  "intent" : "A plain-text paste arrives as a bulk edit and is one undo unit however many characters it brings in.",
+  "doc" : "before<|>",
+  "ops" : [
+    { "op" : "paste", "text" : " and after", "plain" : true },
+    { "op" : "undo", "n" : 1 }
+  ],
+  "expect" : { "doc" : "before", "canUndo" : false, "canRedo" : true },
+  "finally" : ["tier0", "history"]
+}

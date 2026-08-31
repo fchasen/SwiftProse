@@ -1,0 +1,353 @@
+task-lists: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 70
+               }
+             ],
+             "type" : "list_item"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "bullet_list"
+ +           "content" : [
+ -     },
+ +             {
+
+blockquotes-nested: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 25
+               }
+             ],
+             "type" : "paragraph"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "blockquote"
+ +           "content" : [
+ -     },
+ +             {
+
+lists-deep: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 326
+               }
+             ],
+             "type" : "list_item"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "bullet_list"
+ +           "content" : [
+ -     },
+ +             {
+
+links-images: [specFull] op -1: 21 violation(s) missingSpec in line {131, 31}: «An image and one with a title.⏎»
+
+commonmark-examples: [schema] op -1: 7 schema diagnostic(s): invalidContent(parent: "list_item", found: ["bullet_list"], expected: "paragraph block*"); invalidContent(parent: "list_item", found: ["bullet_list"], expected: "paragraph block*"); invalidContent(parent: "list_item", found: ["ordered_list"], expected: "paragraph block*")
+
+commonmark-examples: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 112
+   
+   ### Example 22
+   
+ - [foo](/bar\* "ti\*tle")
+ + [foo](/bar\*) `"ti\*tle"`
+   
+   ### Example 23
+   
+
+commonmark-examples: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 117
+               }
+             ],
+             "type" : "list_item"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "bullet_list"
+ +           "content" : [
+ -     },
+ +             {
+
+edge: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 8
+   Whitespace-only line follows.
+   
+   
+ -    
+ + 
+ - 
+ +    
+ - A line ending in two spaces for a hard break  
+ + 
+ - and the line after it.
+ + A line ending in two spaces for a hard break  
+
+tca-readme: [schema] op -1: 1 schema diagnostic(s): invalidContent(parent: "list_item", found: ["bullet_list"], expected: "paragraph block*")
+
+tca-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 565
+   You can add ComposableArchitecture to an Xcode project by adding it as a package dependency.
+   
+   1. From the **File** menu, select **Add Package Dependencies...**
+ - 2.   Enter "https://github.com/pointfreeco/swift-composable-architecture" into the package 
+ + 2. Enter "https://github.com/pointfreeco/swift-composable-architecture" into the package 
+   repository URL text field
+ - 3.   Depending on how your project is structured:
+ + 3. Depending on how your project is structured:
+ -    - If you have a single application target that needs access to the library, then add **ComposableArchitecture** directly to your application.
+ + 
+
+tca-readme: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 301
+               }
+             ],
+             "type" : "list_item"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "bullet_list"
+ +           "content" : [
+ -     },
+ +             {
+
+prettier-options: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 314
+   Valid options:
+   
+   - `"babel"` (via [@babel/parser](https://github.com/babel/babel/tree/main/packages/babel-parser)) Named `"babylon"` until v1.16.0_
+ - - `"babel-flow"` (same as `"babel"` but enables Flow parsing explicitly to avoid ambiguity) _First available in v1.16.0_
+ + - `"babel-flow"` (same as `"babel"` but enables Flow parsing explicitly to avoid ambiguity) First available in v1.16.0_
+   - `"babel-ts"` (similar to `"typescript"` but uses Babel and its TypeScript plugin) First available in v2.0.0_
+   - `"flow"` (via [flow-parser](https://github.com/facebook/flow/tree/master/src/parser))
+   - `"typescript"` (via [@typescript-eslint/typescript-estree](https://github.com/typescript-eslint/typescript-eslint)) First available in v1.4.0_
+
+swiftprose-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 187
+   
+   ### Input rules
+   
+ - `InputRule` fires when typed text matches a regex. The default set turns `# ` into a heading, `> ` into a blockquote, `- ` / `1. ` / `- [ ] ` into lists, `  ` into a fenced code block, and `**bold**` / `*italic*` / `~~strike~~` / `` `code` `` into inline marks. `InputRuleRunner.makeDefault()` ships these.
+ + `InputRule` fires when typed text matches a regex. The default set turns `# ` into a heading, `> ` into a blockquote, `- ` / `1. ` / `- [ ] ` into lists, `  ` into a fenced code block, and `**bold**` / `*italic*` / `~~strike~~` / ` `code` ` into inline marks. `InputRuleRunner.makeDefault()` ships these.
+   
+   Add custom rules with the PM-style helpers:
+   
+
+swiftlint-readme: [specFull] op -1: 111 violation(s) missingSpec in line {501, 53}: «SwiftLint violations highlighted in the Xcode editor⏎»
+
+swiftlint-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 11
+   SwiftLint rules are predominantly based on [SwiftSyntax](https://github.com/swiftlang/swift-syntax).
+   Some rules still hook into [Clang](http://clang.llvm.org) and[SourceKit](http://www.jpsim.com/uncovering-sourcekit) to access type information.
+   
+ - [Supported Swift Versions](https://swiftpackageindex.com/realm/SwiftLint)[Supported Platforms](https://swiftpackageindex.com/realm/SwiftLint)[Buildkite Build Status](https://buildkite.com/swiftlint/swiftlint)
+ + [Supported Swift VersionsSupported Platforms](https://swiftpackageindex.com/realm/SwiftLint)[Buildkite Build Status](https://buildkite.com/swiftlint/swiftlint)
+   
+   ![SwiftLint violations highlighted in the Xcode editor](https://raw.githubusercontent.com/realm/SwiftLint/main/assets/screenshot.png)
+   
+
+swiftlint-readme: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 1832
+               }
+             ],
+             "type" : "paragraph"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "blockquote"
+ +           "content" : [
+ -     },
+ +             {
+
+alamofire-usage: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 1764
+               }
+             ],
+             "type" : "paragraph"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "blockquote"
+ +           "content" : [
+ -     },
+ +             {
+
+electron-browser-window: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 1260
+   (see [did-finish-load](web-contents.md#event-did-finish-load)), and rejects
+   if the page fails to load (see[did-fail-load](web-contents.md#event-did-fail-load)). A noop rejection handler is already attached, which avoids unhandled rejection errors. If the existing page has a beforeUnload handler, [did-fail-load](web-contents.md#event-did-fail-load) will be called unless [will-prevent-unload](web-contents.md#event-did-fail-load) is handled.
+   
+ - Same as [webContents.loadURL(url[, options])](web-contents.md#contentsloadurlurl-options).
+ + Same as [webContents.loadURL(url, options)](web-contents.md#contentsloadurlurl-options).
+   
+   The `url` can be a remote address (e.g. `http://`) or a path to a local
+   HTML file using the `file://` protocol.
+
+electron-browser-window: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 8084
+               }
+             ],
+             "type" : "paragraph"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "blockquote"
+ +           "content" : [
+ -     },
+ +             {
+
+brew-formula-cookbook: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 536
+   
+   When [patch](/rubydoc/Formula.html#patch-class_method)ing (i.e. fixing header file inclusion, fixing compiler warnings, etc.) the first thing to do is check whether the upstream project is aware of the issue. If not, file a bug report and/or submit your patch for inclusion. We may sometimes still accept your patch before it was submitted upstream but by getting the ball rolling on fixing the upstream issue you reduce the length of time we have to carry the patch around.
+   
+ - *Always justify a *[patch](/rubydoc/Formula.html#patch-class_method)* with a code comment!* Otherwise, nobody will know when it is safe to remove the patch, or safe to leave it in when updating the formula. The comment should include a link to the relevant upstream issue(s).
+ + *Always justify a *[*patch*](/rubydoc/Formula.html#patch-class_method)* with a code comment!* Otherwise, nobody will know when it is safe to remove the patch, or safe to leave it in when updating the formula. The comment should include a link to the relevant upstream issue(s).
+   
+   External [patch](/rubydoc/Formula.html#patch-class_method)es can be declared using resource-style blocks:
+   
+
+brew-formula-cookbook: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 10452
+               }
+             ],
+             "type" : "list_item"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "bullet_list"
+ +           "content" : [
+ -     },
+ +             {
+
+nodebestpractices-readme: [specFull] op -1: 91 violation(s) missingSpec in line {11065, 53}: «✔ 1.1 Structure your solution by business components⏎»
+
+nodebestpractices-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 27
+   
+   # 🎊 2026 edition is here!
+   
+ - - 🛰** Modernized to 2026**: Tons of text edits, new recommended libraries, and some new best practices
+ + - 🛰** Modernized to 2026*: Tons of text edits, new recommended libraries, and some new best practices
+   
+ - - ✨** Easily focus on new content**: Already visited before? Search for `#new` or `#updated` tags for new content only
+ + - ✨* Easily focus on new content*: Already visited before? Search for `#new` or `#updated` tags for new content only
+   
+
+nodebestpractices-readme: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 450
+               }
+             ],
+             "type" : "list_item"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "bullet_list"
+ +           "content" : [
+ -     },
+ +             {
+
+system-design-primer-readme: [specFull] op -1: 46 violation(s) missingSpec in line {4494, 6}: «Imgur⏎»
+
+system-design-primer-readme: [schema] op -1: 1 schema diagnostic(s): invalidContent(parent: "table", found: ["paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph"], expected: "table_row+")
+
+system-design-primer-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 1
+ - [*English*](README.md)* ∙ *[日本語](README-ja.md)* ∙ *[简体中文](README-zh-Hans.md)* ∙ *[繁體中文](README-zh-TW.md)* | *[العَرَبِيَّة](https://github.com/donnemartin/system-design-primer/issues/170)[*‎*](https://github.com/donnemartin/system-design-primer/issues/170)* ∙ *[বাংলা](https://github.com/donnemartin/system-design-primer/issues/220)* ∙ *[*Português do Brasil*](https://github.com/donnemartin/system-design-primer/issues/40)* ∙ *[*Deutsch*](https://github.com/donnemartin/system-design-primer/issues/186)* ∙ *[*ελληνικά*](https://github.com/donnemartin/system-design-primer/issues/130)* ∙ *[עברית](https://github.com/donnemartin/system-design-primer/issues/272)* ∙ *[*Italiano*](https://github.com/donnemartin/system-design-primer/issues/104)* ∙ *[한국어](https://github.com/donnemartin/system-design-primer/issues/102)* ∙ *[فارسی](https://github.com/donnemartin/system-design-primer/issues/110)* ∙ *[*Polski*](https://github.com/donnemartin/system-design-primer/issues/68)* ∙ *[*русский язык*](https://github.com/donnemartin/system-design-primer/issues/87)* ∙ *[*Español*](https://github.com/donnemartin/system-design-primer/issues/136)* ∙ *[ภาษาไทย](https://github.com/donnemartin/system-design-primer/issues/187)* ∙ *[*Türkçe*](https://github.com/donnemartin/system-design-primer/issues/39)* ∙ *[*tiếng Việt*](https://github.com/donnemartin/system-design-primer/issues/127)* ∙ *[*Français*](https://github.com/donnemartin/system-design-primer/issues/250)* | *[*Add Translation*](https://github.com/donnemartin/system-design-primer/issues/28)
+ + [*English*](README.md)* ∙ [日本語](README-ja.md) ∙ [简体中文](README-zh-Hans.md) ∙ [繁體中文](README-zh-TW.md) | [العَرَبِيَّة](https://github.com/donnemartin/system-design-primer/issues/170)[*‎*](https://github.com/donnemartin/system-design-primer/issues/170) ∙ [বাংলা](https://github.com/donnemartin/system-design-primer/issues/220) ∙ [*Português do Brasil*](https://github.com/donnemartin/system-design-primer/issues/40) ∙ [*Deutsch*](https://github.com/donnemartin/system-design-primer/issues/186) ∙ [*ελληνικά*](https://github.com/donnemartin/system-design-primer/issues/130) ∙ [עברית](https://github.com/donnemartin/system-design-primer/issues/272) ∙ [*Italiano*](https://github.com/donnemartin/system-design-primer/issues/104) ∙ [한국어](https://github.com/donnemartin/system-design-primer/issues/102) ∙ [فارسی](https://github.com/donnemartin/system-design-primer/issues/110) ∙ [*Polski*](https://github.com/donnemartin/system-design-primer/issues/68) ∙ [*русский язык*](https://github.com/donnemartin/system-design-primer/issues/87) ∙ [*Español*](https://github.com/donnemartin/system-design-primer/issues/136) ∙ [ภาษาไทย](https://github.com/donnemartin/system-design-primer/issues/187) ∙ [*Türkçe*](https://github.com/donnemartin/system-design-primer/issues/39) ∙ [*tiếng Việt*](https://github.com/donnemartin/system-design-primer/issues/127) ∙ [*Français*](https://github.com/donnemartin/system-design-primer/issues/250) | [*Add Translation*](https://github.com/donnemartin/system-design-primer/issues/28)
+   
+   **Help **[**translate**](TRANSLATIONS.md)** this guide!**
+   
+
+system-design-primer-readme: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 5746
+               }
+             ],
+             "type" : "paragraph"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "blockquote"
+ +           "content" : [
+ -     },
+ +             {
+
+public-apis-readme: [specFull] op -1: 15 violation(s) missingSpec in line {414, 16}: «APILayer Banner⏎»
+
+public-apis-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 50
+   | [IPstack](https://ipstack.com/?utm_source=Github&utm_medium=Referral&utm_campaign=Public-apis-repo-Best-sellers) | Locate and Identify Website Visitors by IP Address | [<img src="https://run.pstmn.io/button.svg" alt="Run In Postman" style="width: 128px; height: 32px;">](https://god.gw.postman.com/run-collection/10131015-55145132-244c-448c-8e6f-8780866e4862?action=collection%2Ffork&source=rip_markdown&collection-url=entityId%3D10131015-55145132-244c-448c-8e6f-8780866e4862%26entityType%3Dcollection%26workspaceId%3D2b7498b6-6d91-4fa8-817f-608441fe42a8) |
+   | [Marketstack](https://marketstack.com/?utm_source=Github&utm_medium=Referral&utm_campaign=Public-apis-repo-Best-sellers) | Free, easy-to-use REST API interface delivering worldwide stock market data in JSON format | [<img src="https://run.pstmn.io/button.svg" alt="Run In Postman" style="width: 128px; height: 32px;">](https://god.gw.postman.com/run-collection/10131015-9cbac391-3611-4f50-9bfd-d24ae41c97c1?action=collection%2Ffork&source=rip_markdown&collection-url=entityId%3D10131015-9cbac391-3611-4f50-9bfd-d24ae41c97c1%26entityType%3Dcollection%26workspaceId%3D2b7498b6-6d91-4fa8-817f-608441fe42a8) |
+   | [Weatherstack](https://weatherstack.com/?utm_source=Github&utm_medium=Referral&utm_campaign=Public-apis-repo-Best-sellers) | Retrieve instant, accurate weather information for any location in the world in lightweight JSON format | [<img src="https://run.pstmn.io/button.svg" alt="Run In Postman" style="width: 128px; height: 32px;">](https://god.gw.postman.com/run-collection/10131015-276c4312-f682-425d-b6b1-0f82c0a7f2b3?action=collection%2Ffork&source=rip_markdown&collection-url=entityId%3D10131015-276c4312-f682-425d-b6b1-0f82c0a7f2b3%26entityType%3Dcollection%26workspaceId%3D2b7498b6-6d91-4fa8-817f-608441fe42a8) |
+ - | [Numverify](https://numverify.com/?utm_source=Github&utm_medium=Referral&utm_campaign=Public-apis-repo-Best-sellers)  | Global Phone Number Validation & Lookup JSON API | [<img src="https://run.pstmn.io/button.svg" alt="Run In Postman" style="width: 128px; height: 32px;">](https://god.gw.postman.com/run-collection/10131015-0760d25e-b802-412e-b0e4-26e5ca3b9ffa?action=collection%2Ffork&source=rip_markdown&collection-url=entityId%3D10131015-0760d25e-b802-412e-b0e4-26e5ca3b9ffa%26entityType%3Dcollection%26workspaceId%3D2b7498b6-6d91-4fa8-817f-608441fe42a8) |
+ + | [Numverify](https://numverify.com/?utm_source=Github&utm_medium=Referral&utm_campaign=Public-apis-repo-Best-sellers) | Global Phone Number Validation & Lookup JSON API | [<img src="https://run.pstmn.io/button.svg" alt="Run In Postman" style="width: 128px; height: 32px;">](https://god.gw.postman.com/run-collection/10131015-0760d25e-b802-412e-b0e4-26e5ca3b9ffa?action=collection%2Ffork&source=rip_markdown&collection-url=entityId%3D10131015-0760d25e-b802-412e-b0e4-26e5ca3b9ffa%26entityType%3Dcollection%26workspaceId%3D2b7498b6-6d91-4fa8-817f-608441fe42a8) |
+   | [Fixer](https://fixer.io/?utm_source=Github&utm_medium=Referral&utm_campaign=Public-apis-repo-Best-sellers) | Fixer is a simple and lightweight API for current and historical foreign exchange (forex) rates. | [<img src="https://run.pstmn.io/button.svg" alt="Run In Postman" style="width: 128px; height: 32px;">](https://god.gw.postman.com/run-collection/10131015-0d9c66b3-5f1a-42ed-a5ca-379217bd629d?action=collection%2Ffork&source=rip_markdown&collection-url=entityId%3D10131015-0d9c66b3-5f1a-42ed-a5ca-379217bd629d%26entityType%3Dcollection%26workspaceId%3D2b7498b6-6d91-4fa8-817f-608441fe42a8) |
+   | [Aviationstack](https://aviationstack.com/?utm_source=Github&utm_medium=Referral&utm_campaign=Public-apis-repo-Best-sellers) | Free, real-time flight status and global Aviation data API | [<img src="https://run.pstmn.io/button.svg" alt="Run In Postman" style="width: 128px; height: 32px;">](https://god.gw.postman.com/run-collection/10131015-72ee0d35-018e-4370-a2b6-a66d3ebd5b5a?action=collection/fork) |
+   | [Zenserp](https://zenserp.com/?utm_source=Github&utm_medium=Referral&utm_campaign=Public-apis-repo-Best-sellers) | Fast, Accurate Google Search Data Built for Developers | [<img src="https://run.pstmn.io/button.svg" alt="Run In Postman" style="width: 128px; height: 32px;">](https://god.gw.postman.com/run-collection/10131015-a3d63243-081e-4961-a2f0-39c7a9394b8d?action=collection/fork) |
+
+airbnb-javascript-readme: [schema] op -1: 5 schema diagnostic(s): invalidContent(parent: "list_item", found: ["bullet_list"], expected: "paragraph block*"); invalidContent(parent: "list_item", found: ["bullet_list"], expected: "paragraph block*"); invalidContent(parent: "list_item", found: ["bullet_list"], expected: "paragraph block*")
+
+airbnb-javascript-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 14
+   Other Style Guides
+   
+   - [ES5 (Deprecated)](https://github.com/airbnb/javascript/tree/es5-deprecated/es5)
+ - -   [React](react/)
+ + - [React](react/)
+ - -   [CSS-in-JavaScript](css-in-javascript/)
+ + - [CSS-in-JavaScript](css-in-javascript/)
+ - -   [CSS & Sass](https://github.com/airbnb/css)
+ + - [CSS & Sass](https://github.com/airbnb/css)
+ - -   [Ruby](https://github.com/airbnb/ruby)
+ + - [Ruby](https://github.com/airbnb/ruby)
+
+airbnb-javascript-readme: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 1387
+                   }
+                 ],
+                 "type" : "paragraph"
+ -             }
+ +             },
+ -           ],
+ +             {
+ -           "type" : "list_item"
+ +               "content" : [
+ -         }
+ +                 {
+
+coding-interview-university-readme: [specFull] op -1: 128 violation(s) missingSpec in line {1380, 53}: «Coding at the whiteboard - from HBO's Silicon Valley⏎»
+
+coding-interview-university-readme: [schema] op -1: 59 schema diagnostic(s): invalidContent(parent: "list_item", found: ["task_list"], expected: "paragraph block*"); invalidContent(parent: "list_item", found: ["task_list"], expected: "paragraph block*"); invalidContent(parent: "list_item", found: ["task_list"], expected: "paragraph block*")
+
+coding-interview-university-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
+first difference at line 505
+   You can see my code here:
+   
+   - [C](https://github.com/jwasham/practice-c)
+ - -  [C++](https://github.com/jwasham/practice-cpp)
+ + - [C++](https://github.com/jwasham/practice-cpp)
+ - -  [Python](https://github.com/jwasham/practice-python)
+ + - [Python](https://github.com/jwasham/practice-python)
+   
+   You don't need to memorize every algorithm. You just need to be able to understand it enough to be able to write your own implementation.
+
+coding-interview-university-readme: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
+first difference at line 460
+               }
+             ],
+             "type" : "list_item"
+ -         }
+ +         },
+ -       ],
+ +         {
+ -       "type" : "bullet_list"
+ +           "content" : [
+ -     },
+ +             {

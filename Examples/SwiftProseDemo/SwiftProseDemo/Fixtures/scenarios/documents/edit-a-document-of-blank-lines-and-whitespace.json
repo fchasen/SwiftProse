@@ -1,0 +1,19 @@
+{
+  "name": "documents/edit-a-document-of-blank-lines-and-whitespace",
+  "tags": ["documents"],
+  "intent": "A document that is only blank lines and a run of spaces still takes an edit at offset 0 and an Enter after it: the two typed lines become two paragraphs and the whitespace-only line stays where it was rather than being absorbed into them.",
+  "doc": "\n   \n\n",
+  "ops": [
+    { "op": "caret", "at": 0 },
+    { "op": "type", "text": "note" },
+    { "op": "key", "key": "Enter" },
+    { "op": "type", "text": "second" }
+  ],
+  "expect": {
+    "doc": "note\n\nsecond<|>\n\n   ",
+    "selection": [11, 0],
+    "blockKind": "paragraph",
+    "canUndo": true
+  },
+  "finally": ["tier0", "projection", "markdownFixpoint", "pmJSON", "schema"]
+}

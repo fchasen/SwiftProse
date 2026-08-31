@@ -1,0 +1,15 @@
+{
+  "name" : "blocktypes/multi-block-selection-to-headings",
+  "tags" : ["blocktypes"],
+  "intent" : "A selection spanning a heading and the paragraph under it turns both blocks into h2s, one setSpec step per line.",
+  "doc" : "# Title\nBody line<|>\n",
+  "ops" : [
+    { "op" : "select", "from" : { "before" : "Title" }, "to" : { "after" : "Body" } },
+    { "op" : "action", "id" : "heading:2" }
+  ],
+  "expect" : {
+    "doc" : "## Title\n\n## Body line\n",
+    "blockKind" : "heading(level: 2)"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "enter/enter-around-a-horizontal-rule",
+  "tags": ["enter", "structure"],
+  "intent": "Enter on the paragraph before a horizontal rule and on the one after it opens fresh paragraphs around the rule and leaves the rule itself intact.",
+  "doc": "above<|>\n\n---\n\nbelow\n",
+  "ops": [
+    { "op": "key", "key": "Enter" },
+    { "op": "type", "text": "mid" },
+    { "op": "caret", "after": "below" },
+    { "op": "key", "key": "Enter" },
+    { "op": "type", "text": "tail" }
+  ],
+  "expect": { "doc": "above\n\nmid\n\n---\n\nbelow\n\ntail<|>", "blockKind": "paragraph" },
+  "finally": ["tier0", "projection", "markdownFixpoint"]
+}

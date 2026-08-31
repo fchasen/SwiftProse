@@ -1,0 +1,14 @@
+{
+  "name" : "clipboard/paste-a-bare-url-over-a-selection",
+  "tags" : ["clipboard", "marks"],
+  "intent" : "Pasting a bare URL over selected text replaces the selection with the URL as plain text — no link mark is created, because autolinking is an opt-in plugin the default editor does not register.",
+  "doc" : "see <{docs}> here\n",
+  "ops" : [
+    { "op" : "paste", "text" : "https://example.com", "plain" : true }
+  ],
+  "expect" : {
+    "doc" : "see https://example.com<|> here",
+    "marks" : []
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

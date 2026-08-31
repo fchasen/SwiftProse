@@ -1,0 +1,24 @@
+{
+  "name": "lists/wrap-paragraph-as-bullet-list",
+  "tags": [
+    "lists"
+  ],
+  "intent": "Toggling the bullet-list action with the caret in a plain paragraph turns that one paragraph into a single-item bullet list.",
+  "doc": "hello wor<|>ld\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "unorderedList"
+    }
+  ],
+  "expect": {
+    "doc": "- hello world<|>\n",
+    "blockKind": "unorderedListItem"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

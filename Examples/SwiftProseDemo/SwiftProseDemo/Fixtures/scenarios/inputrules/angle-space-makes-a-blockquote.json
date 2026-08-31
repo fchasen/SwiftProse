@@ -1,0 +1,14 @@
+{
+  "name" : "inputrules/angle-space-makes-a-blockquote",
+  "tags" : ["inputrules", "blockquote"],
+  "intent" : "`> ` at the head of a line raises the line's blockquote depth to 1 and leaves its kind a paragraph; the marker is not part of the text.",
+  "doc" : "",
+  "ops" : [
+    { "op" : "type", "text" : "> quoted" }
+  ],
+  "expect" : {
+    "doc" : "> quoted<|>",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

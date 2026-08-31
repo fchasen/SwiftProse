@@ -1,0 +1,14 @@
+{
+  "name" : "inputrules/hash-mid-paragraph-stays-literal",
+  "tags" : ["inputrules", "headings"],
+  "intent" : "Block rules anchor at the start of the line, so `# ` typed mid-paragraph stays literal text and the line stays a paragraph.",
+  "doc" : "todo<|>",
+  "ops" : [
+    { "op" : "type", "text" : " # 3" }
+  ],
+  "expect" : {
+    "doc" : "todo # 3<|>",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

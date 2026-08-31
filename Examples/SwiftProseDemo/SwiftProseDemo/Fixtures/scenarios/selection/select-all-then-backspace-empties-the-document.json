@@ -1,0 +1,34 @@
+{
+  "name": "selection/select-all-then-backspace-empties-the-document",
+  "tags": [
+    "crash",
+    "regression",
+    "selection",
+    "ui"
+  ],
+  "intent": "Cmd-A then Backspace deletes every block and leaves an empty document with the caret at 0, as one undoable unit.",
+  "doc": "- one\n- tw<|>o\n\nparagraph\n",
+  "ops": [
+    {
+      "op": "selectAll"
+    },
+    {
+      "op": "key",
+      "key": "Backspace"
+    }
+  ],
+  "expect": {
+    "doc": "",
+    "selection": [
+      0,
+      0
+    ],
+    "canUndo": true,
+    "undoDepth": 1
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

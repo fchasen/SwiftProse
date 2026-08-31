@@ -1,0 +1,16 @@
+{
+  "name" : "delete/backspace-across-a-fence-boundary",
+  "tags" : ["delete", "codeblock"],
+  "intent" : "Backspace at the start of the paragraph after a fenced code block pulls that text into the last line of the fence, keeping the fence and its info string intact.",
+  "doc" : "```swift\nlet x = 1\n```\n\n<|>after\n",
+  "ops" : [
+    { "op" : "key", "key" : "Backspace" },
+    { "op" : "key", "key" : "Backspace" }
+  ],
+  "expect" : {
+    "doc" : "```swift\nlet x = 1after\n```\n",
+    "blockKind" : "fencedCode(language: Optional(\"swift\"))",
+    "canUndo" : true
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

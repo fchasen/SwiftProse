@@ -1,0 +1,45 @@
+{
+  "name": "inputrules/bullet-markers-dash-star-plus",
+  "tags": [
+    "inputrules",
+    "lists"
+  ],
+  "intent": "All three CommonMark bullet markers fire the same rule, and each line renders as a normalized `- ` item.",
+  "doc": "one\ntwo\nthree\n",
+  "ops": [
+    {
+      "op": "caret",
+      "before": "one"
+    },
+    {
+      "op": "type",
+      "text": "- "
+    },
+    {
+      "op": "caret",
+      "before": "two"
+    },
+    {
+      "op": "type",
+      "text": "* "
+    },
+    {
+      "op": "caret",
+      "before": "three"
+    },
+    {
+      "op": "type",
+      "text": "+ "
+    }
+  ],
+  "expect": {
+    "doc": "- one\n- two\n- three<|>",
+    "blockKind": "unorderedListItem"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

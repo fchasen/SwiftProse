@@ -1,0 +1,16 @@
+{
+  "name" : "selection/select-all-then-typing-replaces-the-document",
+  "tags" : ["selection", "ui"],
+  "intent" : "Cmd-A then typing replaces every block with the typed text, leaving one plain paragraph.",
+  "doc" : "alpha\n\nbrav<|>o\n",
+  "ops" : [
+    { "op" : "selectAll" },
+    { "op" : "type", "text" : "new" }
+  ],
+  "expect" : {
+    "doc" : "new<|>",
+    "selection" : [3, 0],
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

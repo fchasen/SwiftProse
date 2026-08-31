@@ -1,0 +1,11 @@
+{
+  "name" : "composition/text-replacement-expands-a-short-token",
+  "tags" : ["composition", "history"],
+  "intent" : "A macOS text replacement expands a short token into whitespace-bearing text; the bulk-insert veto is gated on the affected range being the selection, so the expansion stays a correction and replaces the token in place.",
+  "doc" : "omw home<|>\n",
+  "ops" : [
+    { "op" : "correct", "find" : "omw", "replace" : "on my way" }
+  ],
+  "expect" : { "doc" : "on my way home", "blockKind" : "paragraph", "canUndo" : true },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+}

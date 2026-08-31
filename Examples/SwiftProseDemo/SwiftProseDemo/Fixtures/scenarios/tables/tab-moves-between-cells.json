@@ -1,0 +1,34 @@
+{
+  "name": "tables/tab-moves-between-cells",
+  "tags": [
+    "tables"
+  ],
+  "intent": "Tab with the caret on a table block destroys the table: the attachment and its subtree are dropped and only the preceding paragraph survives.",
+  "doc": "intro\n\n| name | qty |\n| --- | --- |\n| pear | 2 |\n| plum | 3 |\n",
+  "ops": [
+    {
+      "op": "caret",
+      "block": 1,
+      "edge": "start"
+    },
+    {
+      "op": "key",
+      "key": "Tab"
+    },
+    {
+      "op": "key",
+      "key": "Tab"
+    }
+  ],
+  "expect": {
+    "doc": "intro\n\n| name | qty |\n| --- | --- |\n| pear | 2 |\n| plum | 3 |\n",
+    "canUndo": false,
+    "undoDepth": 0
+  },
+  "finally": [
+    "tier0",
+    "markdownFixpoint",
+    "projection"
+  ],
+  "xfail": "markdown mismatch"
+}

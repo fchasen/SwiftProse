@@ -1,0 +1,15 @@
+{
+  "name" : "history/undo-all-then-redo-all-round-trips",
+  "tags" : ["history"],
+  "intent" : "Undoing both units and redoing both lands back on exactly the document the edits produced, with nothing left to redo.",
+  "doc" : "one<|>",
+  "ops" : [
+    { "op" : "type", "text" : " two" },
+    { "op" : "closeHistoryGroup" },
+    { "op" : "type", "text" : " three" },
+    { "op" : "undo", "n" : 2 },
+    { "op" : "redo", "n" : 2 }
+  ],
+  "expect" : { "doc" : "one two three", "canUndo" : true, "canRedo" : false },
+  "finally" : ["tier0", "history"]
+}

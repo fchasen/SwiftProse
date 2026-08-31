@@ -1,0 +1,46 @@
+{
+  "name": "documents/select-all-delete-and-retype",
+  "tags": [
+    "documents",
+    "ui"
+  ],
+  "intent": "Select-all plus Backspace empties the document without leaving the deleted blocks' formatting behind, so the retyped `# ` still fires the heading rule and Enter after it opens a plain paragraph.",
+  "doc": "# Draft\n\nThrow this away.\n\n- and this\n",
+  "ops": [
+    {
+      "op": "selectAll"
+    },
+    {
+      "op": "key",
+      "key": "Backspace"
+    },
+    {
+      "op": "type",
+      "text": "# Fresh"
+    },
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "start over"
+    }
+  ],
+  "expect": {
+    "doc": "# Fresh\n\nstart over<|>\n",
+    "selection": [
+      16,
+      0
+    ],
+    "blockKind": "paragraph",
+    "canUndo": true
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON",
+    "schema"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name" : "blocktypes/paragraph-to-heading-1",
+  "tags" : ["blocktypes", "ui"],
+  "intent" : "The heading:1 action promotes the caret's paragraph to an h1 and leaves every other block alone.",
+  "doc" : "Section title<|>\n\nBody stays put\n",
+  "ops" : [
+    { "op" : "action", "id" : "heading:1" }
+  ],
+  "expect" : {
+    "doc" : "# Section title\n\nBody stays put\n",
+    "blockKind" : "heading(level: 1)"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

@@ -1,0 +1,41 @@
+{
+  "name": "lists/three-level-nested-bullets",
+  "tags": [
+    "lists",
+    "ui"
+  ],
+  "intent": "Tab from the second to the third nesting level writes a literal `-` into the item's own text (`- -three`) instead of only deepening the item.",
+  "doc": "- one\n- two\n- three\n",
+  "ops": [
+    {
+      "op": "caret",
+      "after": "two"
+    },
+    {
+      "op": "key",
+      "key": "Tab"
+    },
+    {
+      "op": "caret",
+      "after": "three"
+    },
+    {
+      "op": "key",
+      "key": "Tab"
+    },
+    {
+      "op": "key",
+      "key": "Tab"
+    }
+  ],
+  "expect": {
+    "doc": "- one\n  - two\n    - three<|>\n"
+  },
+  "xfail": "markdown mismatch",
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

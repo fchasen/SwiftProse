@@ -1,0 +1,11 @@
+{
+  "name" : "composition/composition-replaces-the-selected-word",
+  "tags" : ["composition", "ime"],
+  "intent" : "Marked text started over a selection replaces the selected word, and the commit is measured against the pre-composition document so one undo restores the original word.",
+  "doc" : "say <{hello}> there\n",
+  "ops" : [
+    { "op" : "compose", "interims" : ["k", "ko"], "commit" : "こんにちは" }
+  ],
+  "expect" : { "doc" : "say こんにちは<|> there\n", "canUndo" : true },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+}

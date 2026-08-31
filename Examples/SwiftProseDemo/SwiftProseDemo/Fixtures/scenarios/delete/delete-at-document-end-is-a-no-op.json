@@ -1,0 +1,14 @@
+{
+  "name" : "delete/delete-at-document-end-is-a-no-op",
+  "tags" : ["delete"],
+  "intent" : "Forward Delete with the caret past the last character leaves the document unchanged — there is nothing after it to pull up.",
+  "doc" : "alpha\n\nbeta<|>\n",
+  "ops" : [
+    { "op" : "key", "key" : "Delete" }
+  ],
+  "expect" : {
+    "doc" : "alpha\n\nbeta<|>",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

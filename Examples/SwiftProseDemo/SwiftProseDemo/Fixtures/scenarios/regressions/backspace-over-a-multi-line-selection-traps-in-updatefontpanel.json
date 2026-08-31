@@ -1,0 +1,38 @@
+{
+  "name": "regressions/backspace-over-a-multi-line-selection-traps-in-updatefontpanel",
+  "tags": [
+    "regression",
+    "fuzz",
+    "crash",
+    "delete"
+  ],
+  "intent": "Deleting a selection that spans the line the caret just created must not read attributes past the end of storage.",
+  "doc": "One paragraph with **bold**, *em*, `code` and a [link](https://example.com).\n",
+  "ops": [
+    {
+      "id": "outdent",
+      "op": "action"
+    },
+    {
+      "op": "type",
+      "text": "\u201ccurly\u201d"
+    },
+    {
+      "from": {
+        "at": 8
+      },
+      "op": "select",
+      "to": {
+        "after": "\u201ccurly\u201d\n",
+        "at": 20
+      }
+    },
+    {
+      "key": "Backspace",
+      "op": "key"
+    }
+  ],
+  "finally": [
+    "tier0"
+  ]
+}

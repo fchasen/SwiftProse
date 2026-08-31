@@ -1,0 +1,27 @@
+{
+  "name": "lists/bullet-list-becomes-ordered",
+  "tags": [
+    "lists"
+  ],
+  "intent": "Converting a whole bullet list to an ordered list writes the right markdown, and the result survives a ProseMirror JSON round trip.",
+  "doc": "- one\n- two\n",
+  "ops": [
+    {
+      "op": "selectAll"
+    },
+    {
+      "op": "action",
+      "id": "orderedList"
+    }
+  ],
+  "expect": {
+    "doc": "1. one\n2. two\n",
+    "blockKind": "orderedListItem(index: 1)"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "pmJSON"
+  ]
+}

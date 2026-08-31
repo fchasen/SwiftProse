@@ -1,0 +1,26 @@
+{
+  "name": "marks/bold-over-a-word-selection",
+  "tags": [
+    "marks",
+    "ui"
+  ],
+  "intent": "Bold applied to a word selection wraps exactly that word and leaves the selection in place so a second mark can be chained.",
+  "doc": "<{alpha}> beta\n",
+  "ops": [
+    {
+      "op": "action",
+      "id": "bold"
+    }
+  ],
+  "expect": {
+    "doc": "<{**alpha**}> beta\n",
+    "marks": [
+      "strong"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

@@ -24,13 +24,28 @@ without warnings — a symbol link that no longer resolves is a stale doc.
 Platform-conditional types (`ProseTextViewIOS`) can't be curated, since the
 reference is built per-platform.
 
-End-to-end XCUITests live in a separate Xcode project (`Examples/SwiftProseDemo/`) and require `xcodebuild`:
+The editing harness lives in a separate Xcode project
+(`Examples/SwiftProseDemo/`) and requires `xcodebuild`. It drives the real
+`ProseNSTextView` in the real app window, from inside the app's own
+process, so it needs no UI-automation permission:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
   -project Examples/SwiftProseDemo/SwiftProseDemo.xcodeproj \
   -scheme SwiftProseDemo -destination 'platform=macOS'
 ```
+
+That runs `SwiftProseDemoTests` — driver canaries, the corpus ledger, ~150
+scripted edit scenarios, and a seeded fuzz smoke — and skips the
+permission-gated `SwiftProseDemoUITests`. See
+`Examples/SwiftProseDemo/README.md` for the op vocabulary, the oracles, the
+fuzz / replay / shrink CLI, and how to add a scenario.
+
+The harness reaches four `@_spi(Harness)` seams on `EditorController`
+(`Sources/SwiftProseView/HarnessSPI.swift`): `hasPendingEnvelopes`,
+`drainPendingEnvelopesForHarness()`, `harnessAssertsOnDiagnostics`, and
+`harnessClassificationProbe`. They keep the demo off `@testable import` and
+the public API clean; add to that file rather than widening real API.
 
 Targets `macOS 26` / `iOS 26` (SDK 26+ required — older Xcodes won't build).
 

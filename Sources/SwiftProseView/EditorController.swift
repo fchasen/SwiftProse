@@ -647,6 +647,10 @@ public final class EditorController {
     /// assigned.
     var classificationProbe: ((EditClass) -> Void)?
 
+    /// Backing store for the `@_spi(Harness)` string-typed probe, so its
+    /// getter hands back what was set rather than the wrapped closure.
+    var harnessProbeBox: ((String) -> Void)?
+
     /// Carried from building a composition-commit step to registering its
     /// inverse a few lines later.
     private var pendingCompositionPreImage: NSAttributedString?

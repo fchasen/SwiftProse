@@ -1,0 +1,11 @@
+{
+  "name" : "history/typing-burst-is-one-undo-unit",
+  "tags" : ["history"],
+  "doc" : "<|>",
+  "ops" : [
+    { "op" : "type", "text" : "hello" },
+    { "op" : "undo", "n" : 1 }
+  ],
+  "expect" : { "doc" : "<|>", "canRedo" : true },
+  "finally" : ["tier0", "projection"]
+}

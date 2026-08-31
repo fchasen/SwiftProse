@@ -1,0 +1,38 @@
+{
+  "name": "inputrules/ordered-markers-dot-and-paren",
+  "tags": [
+    "inputrules",
+    "lists"
+  ],
+  "intent": "The second typed ordered item renumbers in the emitted markdown but its stored BlockSpec keeps index 1, so the derived spec and the serialized document disagree.",
+  "doc": "alpha\nbeta\n",
+  "ops": [
+    {
+      "op": "caret",
+      "before": "alpha"
+    },
+    {
+      "op": "type",
+      "text": "1. "
+    },
+    {
+      "op": "caret",
+      "before": "beta"
+    },
+    {
+      "op": "type",
+      "text": "1) "
+    }
+  ],
+  "expect": {
+    "doc": "1. alpha\n2. beta<|>",
+    "blockKind": "orderedListItem(index: 2)"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ],
+  "xfail": "blockKind expected orderedListItem(index: 2)"
+}

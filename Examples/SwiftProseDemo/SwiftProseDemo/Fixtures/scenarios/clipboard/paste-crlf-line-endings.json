@@ -1,0 +1,24 @@
+{
+  "name": "clipboard/paste-crlf-line-endings",
+  "tags": [
+    "clipboard"
+  ],
+  "intent": "A pure-CRLF paste has its line endings normalized before insertion, so no carriage return survives into the document and each pasted line becomes its own paragraph.",
+  "doc": "",
+  "ops": [
+    {
+      "op": "paste",
+      "text": "alpha\r\nbeta\r\n\r\ngamma",
+      "plain": true
+    }
+  ],
+  "expect": {
+    "doc": "alpha\n\nbeta\n\ngamma<|>",
+    "blockKind": "paragraph"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

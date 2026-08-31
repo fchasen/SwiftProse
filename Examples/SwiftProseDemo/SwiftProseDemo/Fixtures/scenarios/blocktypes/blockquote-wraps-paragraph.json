@@ -1,0 +1,14 @@
+{
+  "name" : "blocktypes/blockquote-wraps-paragraph",
+  "tags" : ["blocktypes", "ui"],
+  "intent" : "The blockquote action on an unquoted paragraph raises its blockquote depth to one, quoting just that line.",
+  "doc" : "quote me<|>\n\nplain line\n",
+  "ops" : [
+    { "op" : "action", "id" : "blockquote" }
+  ],
+  "expect" : {
+    "doc" : "> quote me\n\nplain line\n",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

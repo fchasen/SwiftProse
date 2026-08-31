@@ -1,0 +1,28 @@
+{
+  "name": "enter/enter-continues-a-blockquote",
+  "tags": [
+    "enter",
+    "blockquote"
+  ],
+  "intent": "Enter at the end of a quoted line opens a fresh quoted line, so the next thing typed stays inside the blockquote.",
+  "doc": "> quoted<|>\n",
+  "ops": [
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "more"
+    }
+  ],
+  "expect": {
+    "doc": "> quoted\n\n> more<|>"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

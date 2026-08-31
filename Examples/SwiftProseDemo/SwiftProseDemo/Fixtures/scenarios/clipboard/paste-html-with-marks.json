@@ -1,0 +1,18 @@
+{
+  "name" : "clipboard/paste-html-with-marks",
+  "tags" : ["clipboard"],
+  "intent" : "An HTML payload routes through DOMParser rather than the plain-text branch: two closed paragraphs arrive as two blocks and the strong mark survives into the markdown.",
+  "doc" : "Notes<|>\n",
+  "ops" : [
+    {
+      "op" : "paste",
+      "text" : "one\ntwo",
+      "html" : "<p>one</p><p><strong>two</strong></p>",
+      "plain" : false
+    }
+  ],
+  "expect" : {
+    "doc" : "Notes\n\none\n\n**two**<|>"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

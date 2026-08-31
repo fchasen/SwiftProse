@@ -1,0 +1,27 @@
+{
+  "name": "inputrules/stars-make-strong-then-em",
+  "tags": [
+    "inputrules",
+    "marks"
+  ],
+  "intent": "Closing `**bold**` stamps strong and closing `*soft*` later on the same line stamps em — the bold rule is tried first so the doubled delimiter wins where both could match.",
+  "doc": "",
+  "ops": [
+    {
+      "op": "type",
+      "text": "**bold** and *soft*"
+    }
+  ],
+  "expect": {
+    "doc": "**bold** and *soft*<|>",
+    "blockKind": "paragraph",
+    "marks": [
+      "em"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

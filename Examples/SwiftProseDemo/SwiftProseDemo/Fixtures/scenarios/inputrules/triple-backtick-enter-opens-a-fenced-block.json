@@ -1,0 +1,33 @@
+{
+  "name": "inputrules/triple-backtick-enter-opens-a-fenced-block",
+  "tags": [
+    "inputrules",
+    "code"
+  ],
+  "intent": "Three backticks alone stay literal until Enter; the newline fires the fence rule, which replaces the line with an empty untagged code block that the next keystrokes fill.",
+  "doc": "",
+  "ops": [
+    {
+      "op": "type",
+      "text": "```"
+    },
+    {
+      "op": "key",
+      "key": "Enter"
+    },
+    {
+      "op": "type",
+      "text": "let x = 1"
+    }
+  ],
+  "expect": {
+    "doc": "```\nlet x = 1<|>\n```",
+    "blockKind": "fencedCode(language: nil)"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name" : "blocktypes/code-block-to-paragraph",
+  "tags" : ["blocktypes", "ui"],
+  "intent" : "The codeBlock action with the caret inside a fence toggles the whole block off, leaving the body as a plain paragraph.",
+  "doc" : "```\nlet x<|> = 1\n```\n",
+  "ops" : [
+    { "op" : "action", "id" : "codeBlock" }
+  ],
+  "expect" : {
+    "doc" : "let x = 1\n",
+    "blockKind" : "paragraph",
+    "marks" : []
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}

@@ -1,0 +1,14 @@
+{
+  "name" : "clipboard/paste-plain-multi-paragraph-text",
+  "tags" : ["clipboard"],
+  "intent" : "A plain-text paste of blank-line-separated prose lands as separate paragraphs after the one the caret sits in.",
+  "doc" : "Intro.<|>\n",
+  "ops" : [
+    { "op" : "paste", "text" : "\n\nOne.\n\nTwo.", "plain" : true }
+  ],
+  "expect" : {
+    "doc" : "Intro.\n\nOne.\n\nTwo.<|>",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint"]
+}

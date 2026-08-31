@@ -1,0 +1,14 @@
+{
+  "name" : "blocktypes/blockquote-unwraps-quoted-line",
+  "tags" : ["blocktypes"],
+  "intent" : "The blockquote action on an already-quoted line drops its depth back to zero, leaving a plain paragraph.",
+  "doc" : "> quoted line<|>\n\nafter\n",
+  "ops" : [
+    { "op" : "action", "id" : "blockquote" }
+  ],
+  "expect" : {
+    "doc" : "quoted line\n\nafter\n",
+    "blockKind" : "paragraph"
+  },
+  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+}
