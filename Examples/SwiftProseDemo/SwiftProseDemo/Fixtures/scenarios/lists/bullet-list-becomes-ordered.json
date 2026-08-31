@@ -3,7 +3,7 @@
   "tags": [
     "lists"
   ],
-  "intent": "Converting a whole bullet list to an ordered list writes the right markdown, and the result survives a ProseMirror JSON round trip.",
+  "intent": "Converting a whole bullet list to an ordered list writes the right markdown, each item carries its own number, and the result survives a ProseMirror JSON round trip. The caret ends on the second item, so its spec is index 2.",
   "doc": "- one\n- two\n",
   "ops": [
     {
@@ -16,7 +16,7 @@
   ],
   "expect": {
     "doc": "1. one\n2. two\n",
-    "blockKind": "orderedListItem(index: 1)"
+    "blockKind": "orderedListItem(index: 2)"
   },
   "finally": [
     "tier0",

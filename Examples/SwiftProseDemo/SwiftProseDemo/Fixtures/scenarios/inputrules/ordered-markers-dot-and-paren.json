@@ -33,6 +33,5 @@
     "projection",
     "markdownFixpoint",
     "schema"
-  ],
-  "xfail": "blockKind expected orderedListItem(index: 2)"
+  ]
 }

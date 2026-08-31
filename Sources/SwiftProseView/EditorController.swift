@@ -1547,7 +1547,12 @@ public final class EditorController {
                 location: min(preMutationRange.location, max(0, self.textStorage.length)),
                 length: min(unionLength, self.textStorage.length - min(preMutationRange.location, max(0, self.textStorage.length)))
             )
-            self.validate(in: validationRange)
+            // A command makes the same structural mess a keystroke can —
+            // a new ordered item leaves the ones below it misnumbered — so
+            // it gets the same run-scoped fix-up, inside this scope so the
+            // inverses join the command's own undo unit.
+            self.enforceDocumentInvariants(around: validationRange)
+            self.validate(in: validationRange.clamped(to: self.textStorage.length))
         }
         invalidateForOutOfBandSubtree(appliedTransaction)
         ensureTrailingParagraph()
