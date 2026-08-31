@@ -23,11 +23,43 @@ public struct ToggleMarkCommand: Command {
     public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
 
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        Transaction(
-            steps: [.toggleInlineMark(range: selection, mark)],
+        // Add-vs-remove is decided on the untrimmed range, then only an add
+        // is trimmed: `**loud **and clear` can't close an emphasis run, so a
+        // mark that swallows its trailing space is lost on the next read.
+        // Removal keeps the full range so the space can be un-marked.
+        let isRemoval = storage.marksIntersected(in: selection)?.contains(name: mark.markName) == true
+        let applied = isRemoval ? selection : Self.trimmingWhitespace(selection, in: storage)
+        return Transaction(
+            steps: [.toggleInlineMark(range: applied, mark)],
             label: label,
+            // The user's selection survives, so a second mark can be chained.
             selection: selection.length > 0 ? .textRange(selection) : nil
         )
+    }
+
+    /// Pull the range in past leading and trailing whitespace. Returns the
+    /// original when nothing is left, matching PM's `from + spaceStart < to`
+    /// guard.
+    static func trimmingWhitespace(_ range: NSRange, in storage: NSAttributedString) -> NSRange {
+        guard range.length > 0,
+              range.location >= 0,
+              range.location + range.length <= storage.length
+        else { return range }
+        let text = storage.string as NSString
+        let ws = CharacterSet.whitespacesAndNewlines
+        var start = range.location
+        var end = range.location + range.length
+        while start < end,
+              let scalar = text.substring(with: NSRange(location: start, length: 1)).unicodeScalars.first,
+              ws.contains(scalar) {
+            start += 1
+        }
+        while end > start,
+              let scalar = text.substring(with: NSRange(location: end - 1, length: 1)).unicodeScalars.first,
+              ws.contains(scalar) {
+            end -= 1
+        }
+        return start < end ? NSRange(location: start, length: end - start) : range
     }
 
     public func isActive(
