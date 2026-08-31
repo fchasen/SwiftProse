@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Fixed: the caret froze after an undo
+
+`performUndo` wrote the internal `testSelection` seam, which
+`currentSelection` prefers over the host text view and which nothing ever
+clears. After the first undo, every command that reads `currentSelection`
+saw the range that undo landed on: a toolbar bold applied where the undo
+had been rather than where the user was selecting, and the same for every
+mark, block-type and list command. `insertNewline`'s empty-line demotion
+wrote it too. Both go through `installSelection`, which only touches the
+seam when there is no host text view.
+
+Found by the demo's new editing harness, which runs ~150 scripted scenarios
+back to back in one editor — the first scenario that undid anything
+silently broke every later one.
+
 ### Fixed: typing on macOS
 
 Every keystroke in a hosted `NSTextView` threw

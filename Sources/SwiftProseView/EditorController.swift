@@ -2073,13 +2073,25 @@ public final class EditorController {
         return record
     }
 
+    /// Move the caret, on whichever surface owns it.
+    ///
+    /// `testSelection` is the headless seam and takes precedence over the
+    /// host text view in `currentSelection`; writing it while a host is
+    /// attached pins the selection for good, because nothing clears it
+    /// again. Every later command then reads a stale range — a toolbar
+    /// mark applies where the last undo landed rather than where the user
+    /// is.
+    private func installSelection(_ range: NSRange) {
+        setHostSelection(range)
+        if hostTextView == nil { testSelection = range }
+    }
+
     /// Undo (or redo — `UndoManager` routes the re-registration for us)
     /// one unit, then push its counterpart with the selections swapped.
     private func performUndo(of record: HistoryRecord) {
         closeTypingRecord()
         let applied = applyHistory(Transaction(steps: record.inverseSteps, label: record.label))
-        setHostSelection(record.selectionBefore)
-        testSelection = record.selectionBefore
+        installSelection(record.selectionBefore)
         refreshTypingAttributes(at: record.selectionBefore.location)
 
         let counterpart = HistoryRecord(
@@ -2340,8 +2352,7 @@ public final class EditorController {
             intrinsicSizeInvalidator?()
         }
         let landingRange = NSRange(location: landing, length: 0)
-        setHostSelection(landingRange)
-        testSelection = landingRange
+        installSelection(landingRange)
         applyTypingAttributes(plainAttrs)
         return true
     }
