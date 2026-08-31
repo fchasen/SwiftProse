@@ -695,7 +695,7 @@ public enum Step {
         env: StepEnvironment,
         preserveLineTerminator: Bool = false
     ) -> NSAttributedString {
-        let priorMarkdown = env.serializer.serialize(prior)
+        let priorMarkdown = env.serializer.serializeLine(prior)
         let body = stripBlockMarkup(priorMarkdown)
         let bodyEmpty = body.replacingOccurrences(of: "\n", with: "").trimmingCharacters(in: .whitespaces).isEmpty
         // Tree-sitter's markdown grammar rejects empty list-item / blockquote

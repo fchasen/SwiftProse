@@ -15,7 +15,6 @@
   "expect": {
     "doc": "- one\n- two<|>\n"
   },
-  "xfail": "markdown mismatch",
   "finally": [
     "tier0",
     "projection",
