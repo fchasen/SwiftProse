@@ -1403,7 +1403,9 @@ public final class EditorController {
     }
 
     func normalizeLineEndings(_ s: String) -> String {
-        if !s.contains("\r") { return s }
+        // Scalar-level: `Character` folds CRLF into one grapheme, so a
+        // pure-CRLF payload never satisfies `contains("\r")`.
+        if !s.unicodeScalars.contains("\r") { return s }
         return s.replacingOccurrences(of: "\r\n", with: "\n")
                 .replacingOccurrences(of: "\r", with: "\n")
     }

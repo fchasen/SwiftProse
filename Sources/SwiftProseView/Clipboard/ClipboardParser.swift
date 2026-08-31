@@ -85,7 +85,8 @@ public struct ClipboardParser {
     }
 
     private func normalizeNewlines(_ s: String) -> String {
-        if !s.contains("\r") { return s }
+        // CRLF is a single `Character`; search scalars.
+        if !s.unicodeScalars.contains("\r") { return s }
         return s.replacingOccurrences(of: "\r\n", with: "\n")
                 .replacingOccurrences(of: "\r", with: "\n")
     }
