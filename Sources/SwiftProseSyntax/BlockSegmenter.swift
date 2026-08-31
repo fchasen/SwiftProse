@@ -144,7 +144,10 @@ public enum BlockSegmenter {
     private static func walkList(_ node: Node, ctx: inout Context) {
         let kind = listKind(of: node)
         ctx.listLevel += 1
-        var orderedCounter = 1
+        // CommonMark numbers a list from its first item's marker: `5.` then
+        // `6.`, not `1.` then `2.`. Only the first marker counts — the rest
+        // are renumbered from it.
+        var orderedCounter = kind == .ordered ? (firstOrderedMarker(of: node, mapping: ctx.mapping) ?? 1) : 1
         for i in 0..<node.childCount {
             guard let item = node.child(at: i), item.nodeType == "list_item" else { continue }
             let prevIndex = ctx.pendingOrderedIndex
@@ -279,6 +282,26 @@ public enum BlockSegmenter {
         if sawTask { return .task }
         if sawOrdered { return .ordered }
         return .bullet
+    }
+
+    /// The number the list's first `list_marker_dot` / `_parenthesis`
+    /// carries, which is where its numbering starts.
+    private static func firstOrderedMarker(of node: Node, mapping: TreeSitterMapping) -> Int? {
+        for i in 0..<node.childCount {
+            guard let item = node.child(at: i), item.nodeType == "list_item" else { continue }
+            for j in 0..<item.childCount {
+                guard let inner = item.child(at: j), let t = inner.nodeType,
+                      t == "list_marker_dot" || t == "list_marker_parenthesis" else { continue }
+                let bytes = inner.byteRange
+                let lo = mapping.utf16Offset(forByte: bytes.lowerBound)
+                let hi = mapping.utf16Offset(forByte: bytes.upperBound)
+                let text = (mapping.text as NSString)
+                    .substring(with: NSRange(location: lo, length: hi - lo))
+                return Int(text.prefix { $0.isNumber })
+            }
+            return nil
+        }
+        return nil
     }
 
     private static func taskChecked(of item: Node) -> Bool {

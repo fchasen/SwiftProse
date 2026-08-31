@@ -189,4 +189,11 @@ import UIKit
         controller.perform(.unorderedList)
         #expect(controller.markdown() == "- alpha\n- beta")
     }
+
+    @Test func aListNumbersFromItsFirstMarker() throws {
+        let compiler = try MarkdownAttributedCompiler()
+        // CommonMark: only the first marker sets the start; the rest follow.
+        #expect(compiler.compile("5. one\n6. two\n", theme: .default).string == "5. one\n6. two\n")
+        #expect(compiler.compile("5. one\n9. two\n", theme: .default).string == "5. one\n6. two\n")
+    }
 }
