@@ -199,6 +199,12 @@ public enum Step {
         storage.replaceCharacters(in: safe, with: attributed)
         let mappedRange = NSRange(location: safe.location, length: attributed.length)
         Step.restampPredecessorContext(in: storage, range: mappedRange)
+        // An inline slice merges into the block it lands in. Compiling its
+        // markdown mints a paragraph of its own, and two node identities on
+        // one line is what splits it into two blocks.
+        if Self.isInlineOnly(slice) {
+            Step.unifyLineNodePaths(in: storage, range: mappedRange)
+        }
         storage.endEditing()
         let inverse = Step.replaceRange(
             from: mappedRange.location,
@@ -212,6 +218,21 @@ public enum Step {
             affectedLineRange: mappedRange,
             stepMap: stepMap
         )
+    }
+
+    /// Whether the slice carries no block of its own — the condition
+    /// `MarkdownTreeSerializer.serializeSlice` uses to emit inline markdown
+    /// rather than blocks.
+    private static func isInlineOnly(_ slice: Slice) -> Bool {
+        let kids = slice.content.children
+        guard !kids.isEmpty else { return false }
+        return kids.allSatisfy { node in
+            switch node {
+            case .inline: return true
+            case .leaf(let pn, _): return pn.type == "hard_break" || pn.type == "image"
+            case .structural: return false
+            }
+        }
     }
 
     /// Project an attributed substring to a `Slice` so the inverse of
