@@ -307,6 +307,15 @@ public struct ProseTextViewMac: NSViewRepresentable {
                 }
             }
 
+            // An isolating block's run is atomic: an edit landing on its
+            // line moves the attachment off the run start and the block
+            // projects — and serializes — as nothing.
+            if controller.interceptEditAtIsolatingBlock(range: affectedCharRange,
+                                                        replacement: text) {
+                controller.nextEditHint = nil
+                return false
+            }
+
             // The selection as it stands *before* the edit is what separates
             // a correction from typing: autocorrect and text replacement
             // rewrite a range the user has not selected.
@@ -373,12 +382,14 @@ public struct ProseTextViewMac: NSViewRepresentable {
                 if parent.controller.handleForwardDelete() { return true }
             }
             if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                if parent.controller.handleTabAtIsolatingBlock(forward: true) { return true }
                 if isCursorInListItem() {
                     parent.controller.perform(.indent)
                     return true
                 }
             }
             if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                if parent.controller.handleTabAtIsolatingBlock(forward: false) { return true }
                 if isCursorInListItem() {
                     parent.controller.perform(.outdent)
                     return true

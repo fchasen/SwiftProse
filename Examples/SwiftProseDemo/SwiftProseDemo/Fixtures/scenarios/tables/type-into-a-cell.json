@@ -25,6 +25,5 @@
     "tier0",
     "markdownFixpoint",
     "projection"
-  ],
-  "xfail": "markdown mismatch"
+  ]
 }

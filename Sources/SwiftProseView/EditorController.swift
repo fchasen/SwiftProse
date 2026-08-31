@@ -1552,16 +1552,21 @@ public final class EditorController {
         setHostSelection(resultRange)
         refreshTypingAttributes(at: resultRange.location)
         if recordHistory, let applied = appliedTransaction {
+            // `meta["coalesce"]` marks a transaction that stands in for a
+            // keystroke (a typed character rerouted around an isolating
+            // block): it joins the open typing burst and leaves it open, so
+            // the rest of the word lands in the same undo unit.
+            let coalescing = (transaction.getMeta("coalesce") as? Bool) == true
             // A command always opens its own unit — typing before it must
             // not be swept in.
-            closeTypingRecord()
+            if !coalescing { closeTypingRecord() }
             registerOrJoin(
                 inverseSteps: normalizationInverses + applied.inverse.steps,
                 selectionBefore: preSelection,
                 selectionAfter: resultRange,
                 touched: applied.mappedRange,
                 at: historyClock(),
-                coalescing: false,
+                coalescing: coalescing,
                 label: transaction.label
             )
         }
@@ -2364,6 +2369,7 @@ public final class EditorController {
     @discardableResult
     public func handleNewline() -> Bool {
         drainPendingEnvelopes()
+        if handleNewlineAtIsolatingBlock() { return true }
         let cursor = currentSelection.location
         let ns = textStorage.string as NSString
         if textStorage.length > 0 {
