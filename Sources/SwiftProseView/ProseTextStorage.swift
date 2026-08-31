@@ -230,13 +230,34 @@ final class ProseTextStorage: NSTextStorage {
         backing.attribute(attrName, at: location, effectiveRange: range)
     }
 
+    /// Pull an out-of-process `(index, rangeLimit)` pair into the live
+    /// buffer. AppKit reads here from inside its own editing transaction,
+    /// with a selection it has not collapsed yet, so the pair can overhang
+    /// an edit that already shrank storage. Clamp the limit first, then pull
+    /// the index into it: the head of AppKit's range is still valid, so the
+    /// answer stays truthful instead of blank, and the effective range
+    /// written back is a real run — a fabricated one that doesn't contain
+    /// the index corrupts the caller's scan cursor.
+    private func clampedProbe(_ location: Int, _ rangeLimit: NSRange) -> (Int, NSRange)? {
+        let total = backing.length
+        guard total > 0 else { return nil }
+        var limit = rangeLimit.clamped(to: total)
+        if limit.length == 0 { limit = NSRange(location: total - 1, length: 1) }
+        let loc = min(max(location, limit.location), limit.location + limit.length - 1)
+        return (loc, limit)
+    }
+
     override func attribute(
         _ attrName: NSAttributedString.Key,
         at location: Int,
         longestEffectiveRange range: NSRangePointer?,
         in rangeLimit: NSRange
     ) -> Any? {
-        backing.attribute(attrName, at: location, longestEffectiveRange: range, in: rangeLimit)
+        guard let (loc, limit) = clampedProbe(location, rangeLimit) else {
+            range?.pointee = NSRange(location: 0, length: 0)
+            return nil
+        }
+        return backing.attribute(attrName, at: loc, longestEffectiveRange: range, in: limit)
     }
 
     override func attributes(
@@ -244,7 +265,11 @@ final class ProseTextStorage: NSTextStorage {
         longestEffectiveRange range: NSRangePointer?,
         in rangeLimit: NSRange
     ) -> [NSAttributedString.Key: Any] {
-        backing.attributes(at: location, longestEffectiveRange: range, in: rangeLimit)
+        guard let (loc, limit) = clampedProbe(location, rangeLimit) else {
+            range?.pointee = NSRange(location: 0, length: 0)
+            return [:]
+        }
+        return backing.attributes(at: loc, longestEffectiveRange: range, in: limit)
     }
 
     override func enumerateAttribute(
@@ -253,7 +278,10 @@ final class ProseTextStorage: NSTextStorage {
         options opts: NSAttributedString.EnumerationOptions = [],
         using block: (Any?, NSRange, UnsafeMutablePointer<ObjCBool>) -> Void
     ) {
-        backing.enumerateAttribute(attrName, in: enumerationRange, options: opts, using: block)
+        // AppKit's `fallbackFontInfoForSelectedRange:` reaches here with the
+        // same uncollapsed selection `clampedProbe` guards against.
+        let range = enumerationRange.clamped(to: backing.length)
+        backing.enumerateAttribute(attrName, in: range, options: opts, using: block)
     }
 
     override func enumerateAttributes(
