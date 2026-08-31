@@ -187,4 +187,45 @@ struct MarkdownTreeSerializerTests {
         #expect(out.contains("1. a"))
         #expect(out.contains("- b"))
     }
+
+    @Test
+    func itemLeadingWithANestedListKeepsTheListOpen() {
+        // Tree-sitter reads a bare `-` line as a paragraph, so this shape
+        // only ever arrives from a projection — a fragment cut from inside
+        // a nested list. A blank line after the bare marker would close the
+        // list and strand the nested item as a top-level one.
+        func list(_ kids: [TreeNode]) -> TreeNode {
+            .structural(ProseNode(type: "bullet_list"), kids)
+        }
+        func item(_ kids: [TreeNode]) -> TreeNode {
+            .structural(ProseNode(type: "list_item"), kids)
+        }
+        let root = TreeNode.structural(
+            ProseNode(type: "doc"),
+            [list([item([list([item([
+                .structural(ProseNode(type: "paragraph"), [.inline(text: "two", marks: MarkSet())])
+            ])])])])]
+        )
+        let out = MarkdownTreeSerializer(schema: .defaultMarkdown)
+            .serialize(ProseDocument(schema: .defaultMarkdown, root: root))
+        #expect(out == "-\n  - two\n")
+    }
+
+    @Test
+    func serializeLineDropsTheListLevelsTheLineDoesNotOwn() throws {
+        let compiler = try MarkdownAttributedCompiler()
+        let storage = compiler.compile("- one\n  - two\n", theme: .default)
+        let line = (storage.string as NSString)
+            .paragraphRange(for: NSRange(location: storage.length - 1, length: 0))
+        let serializer = AttributedMarkdownSerializer()
+        #expect(serializer.serializeLine(storage.attributedSubstring(from: line)) == "- two\n")
+    }
+
+    @Test
+    func serializeLineKeepsAListLineTheItemDoesOwn() throws {
+        let compiler = try MarkdownAttributedCompiler()
+        let storage = compiler.compile("- [ ] milk\n", theme: .default)
+        let serializer = AttributedMarkdownSerializer()
+        #expect(serializer.serializeLine(storage) == "- [ ] milk\n")
+    }
 }

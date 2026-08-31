@@ -290,7 +290,9 @@ public struct MarkdownTreeSerializer {
             ctx.output.append(preMarker)
             ctx.output.append(marker.trimmingCharacters(in: .whitespaces))
             ctx.emitNewline()
-            ctx.blocksAtThisLevel += 1
+            // The child is the item's own content, not the block after it:
+            // a blank line here would close the list and strand the child.
+            ctx.blocksAtThisLevel = 0
             emitBlock(child, ctx: &ctx)
         }
     }
