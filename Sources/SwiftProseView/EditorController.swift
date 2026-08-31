@@ -903,7 +903,12 @@ public final class EditorController {
             return
         }
         let key = ObjectIdentifier(winner)
-        if claimed.contains(key) || spansAnEarlierLine(winner, line: line) {
+        // The multi-line exemption gates the whole re-stamp, not just the
+        // `spansAnEarlierLine` half: a fence's second line finds its own box
+        // already `claimed` by its first, and re-stamping there is what split
+        // one code block into one block per line.
+        if !isMultiLineBlock(winner.path),
+           claimed.contains(key) || spansAnEarlierLine(winner, line: line) {
             textStorage.setBlockSpec(
                 BlockSpec.fromNodePath(winner.path) ?? BlockSpec(kind: .paragraph),
                 in: line
