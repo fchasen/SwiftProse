@@ -122,9 +122,13 @@ public extension NSMutableAttributedString {
         guard range.length > 0,
               range.location >= 0,
               range.location + range.length <= length else { return }
+        // The line above is where list and blockquote continuity comes
+        // from. At the start of the document there is none, and minting a
+        // fresh list there is what splits one in two when its first item
+        // changes — the line's own ancestors are the next best source.
         let predecessor: NodePath? = range.location > 0
             ? nodePath(at: range.location - 1)
-            : nil
+            : nodePath(at: range.location)
         let path = NodePath.fromBlockSpec(spec, predecessor: predecessor)
         setNodePath(path, in: range)
     }

@@ -176,4 +176,10 @@ import UIKit
         #expect(demoted, "backspace should demote")
         #expect(controller.markdown() == "apple", "list should be demoted to plain")
     }
+
+    @Test func togglingTheFirstItemsCheckboxKeepsOneList() throws {
+        let controller = try EditorController(initialMarkdown: "- [ ] milk\n- [ ] eggs\n", theme: .default)
+        #expect(controller.toggleCheckbox(at: 0))
+        #expect(controller.markdown() == "- [x] milk\n- [ ] eggs")
+    }
 }

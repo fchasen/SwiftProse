@@ -15,7 +15,6 @@
     "doc": "- [x] milk\n- [ ] eggs\n",
     "blockKind": "taskListItem(checked: true)"
   },
-  "xfail": "markdown mismatch",
   "finally": [
     "tier0",
     "projection",
