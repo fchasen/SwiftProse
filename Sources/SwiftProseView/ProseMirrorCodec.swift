@@ -489,13 +489,14 @@ public struct ProseMirrorCodec {
     /// Walk `kids` looking for the first descendant list_item carrying
     /// an `order` attr. Used by ordered_list encode to recover the start
     /// index when the wrapping list lost it via tree projection.
+    /// The order of the *first* list item, whatever it is. Skipping items
+    /// numbered 1 made a 1-based list export its second item's number, so
+    /// `1. one / 2. two` went out as `order: 2` and came back renumbered.
     private func firstListItemOrder(in kids: [TreeNode]) -> Int? {
         for kid in kids {
             guard case .structural(let node, let inner) = kid else { continue }
-            if node.type == "list_item",
-               let order = node.attrs["order"]?.intValue,
-               order != 1 {
-                return order
+            if node.type == "list_item" {
+                return node.attrs["order"]?.intValue
             }
             if let nested = firstListItemOrder(in: inner) { return nested }
         }
