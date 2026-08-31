@@ -61,14 +61,16 @@ public struct ProseMirrorCodec {
             context.popList()
         case "ordered_list":
             let start = node.attrs?["order"]?.intValue ?? 1
+            // Saved across the recursion so a nested list doesn't destroy
+            // the enclosing list's counter.
+            let outerIndex = context.orderedIndex
             context.pushList(.ordered(start: start))
             context.orderedIndex = start
             for child in node.content ?? [] { decodeNode(child, into: result, context: &context) }
             context.popList()
+            context.orderedIndex = outerIndex
         case "list_item":
-            context.listLevel += 1
             for child in node.content ?? [] { decodeNode(child, into: result, context: &context) }
-            context.listLevel -= 1
             context.incrementOrderedIndex()
         case "paragraph":
             let detected = detectTaskListPrefix(in: node)
@@ -595,9 +597,13 @@ private extension Array where Element == PMNode {
 
 struct BlockContext {
     var blockquoteDepth = 0
-    var listLevel = 0
     var listStack: [ListKind] = []
     var orderedIndex = 1
+
+    /// `listLevel` is 0-based on the number of enclosing *lists*, matching
+    /// `BlockSpec.fromNodePath` and `BlockSegmenter.walkList`. Counting
+    /// `list_item` instead nested every decoded list one level too deep.
+    var listLevel: Int { max(0, listStack.count - 1) }
 
     enum ListKind: Equatable {
         case unordered
