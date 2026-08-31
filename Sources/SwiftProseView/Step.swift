@@ -447,7 +447,8 @@ public enum Step {
             inverse: inverse,
             mappedRange: range,
             affectedLineRange: range,
-            stepMap: .empty
+            stepMap: .empty,
+            touchesOutOfBandSubtree: true
         )
     }
 
@@ -473,7 +474,8 @@ public enum Step {
             inverse: inverse,
             mappedRange: range,
             affectedLineRange: range,
-            stepMap: .empty
+            stepMap: .empty,
+            touchesOutOfBandSubtree: true
         )
     }
 
@@ -1370,6 +1372,11 @@ public struct AppliedStep {
     public let mappedRange: NSRange
     public let affectedLineRange: NSRange
     public let stepMap: StepMap
+    /// The step changed the document by writing to an attachment's
+    /// off-buffer subtree instead of to storage. Nothing observes that, so
+    /// the document cache and the incremental projection have to be
+    /// invalidated by hand.
+    public var touchesOutOfBandSubtree: Bool = false
 }
 
 public struct Transaction {
@@ -1447,6 +1454,7 @@ public struct Transaction {
         // PM's Transform tracks `from..to` similarly across the chain.
         var unionLo: Int? = nil
         var unionHi: Int? = nil
+        var outOfBand = false
         for step in steps {
             let mapped = sequential ? step : step.mapped(through: mapping)
             if mapped.canApply(to: storage) != nil {
@@ -1455,6 +1463,7 @@ public struct Transaction {
             let applied = mapped.apply(to: storage, env: env)
             inverses.insert(applied.inverse, at: 0)
             mapping.append(applied.stepMap)
+            outOfBand = outOfBand || applied.touchesOutOfBandSubtree
             if applied.mappedRange.length > 0 || applied.mappedRange.location != 0 {
                 let stepLo = applied.mappedRange.location
                 let stepHi = applied.mappedRange.location + applied.mappedRange.length
@@ -1471,7 +1480,8 @@ public struct Transaction {
         return AppliedTransaction(
             inverse: Transaction(steps: inverses, label: label),
             mapping: mapping,
-            mappedRange: mappedRange
+            mappedRange: mappedRange,
+            touchesOutOfBandSubtree: outOfBand
         )
     }
 }
@@ -1480,4 +1490,6 @@ public struct AppliedTransaction {
     public let inverse: Transaction
     public let mapping: Mapping
     public let mappedRange: NSRange
+    /// True when any applied step wrote to an off-buffer subtree.
+    public var touchesOutOfBandSubtree: Bool = false
 }

@@ -438,6 +438,16 @@ public final class EditorController {
     /// Companion seam: tests install this to move `historyClock` forward.
     var testClockAdvance: ((TimeInterval) -> Void)?
 
+    /// A table step changes the document without touching storage, so no
+    /// `EditRecord` is produced and none of the storage-driven invalidation
+    /// runs. Do it by hand: the attachment's own range is a valid dirty
+    /// range, and re-projecting that block re-lifts the live subtree.
+    private func invalidateForOutOfBandSubtree(_ applied: AppliedTransaction?) {
+        guard let applied, applied.touchesOutOfBandSubtree else { return }
+        cachedDocument = nil
+        projection.record(editedRange: applied.mappedRange, changeInLength: 0)
+    }
+
     private func storageDidProcessEditing(_ record: EditRecord) {
         // Cache invalidation runs for every origin so the next `document`
         // read after `setMarkdown` / `replaceStorage` re-derives.
@@ -1509,6 +1519,7 @@ public final class EditorController {
             )
             self.validate(in: validationRange)
         }
+        invalidateForOutOfBandSubtree(appliedTransaction)
         ensureTrailingParagraph()
         scheduleCodeBlockRehighlight()
         intrinsicSizeInvalidator?()
@@ -2097,6 +2108,7 @@ public final class EditorController {
             applied = transaction.apply(to: textStorage, env: env, sequential: true)
             validate(in: applied.mappedRange.clamped(to: textStorage.length))
         }
+        invalidateForOutOfBandSubtree(applied)
         ensureTrailingParagraph()
         accumulateHighlightRange(applied.mappedRange)
         scheduleCodeBlockRehighlight()
