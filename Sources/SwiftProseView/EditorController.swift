@@ -734,12 +734,13 @@ public final class EditorController {
     private func normalizeAfterEdit(
         in editedRange: NSRange,
         accumulateHighlight: Bool = true,
-        scrub: Bool = true
+        scrub: Bool = true,
+        demoteEmptyLines: Bool = true
     ) {
         if accumulateHighlight { accumulateHighlightRange(editedRange) }
         if scrub { scrubTypedAttributes(in: editedRange) }
         normalizeInsertedAttributes(in: editedRange)
-        demoteEmptyStyledLines(in: editedRange)
+        if demoteEmptyLines { demoteEmptyStyledLines(in: editedRange) }
         enforceDocumentInvariants(around: editedRange)
         scheduleCodeBlockRehighlight()
         // Reconcile the trailing paragraph only when the edit reached the
@@ -2121,7 +2122,11 @@ public final class EditorController {
     /// The pre-image of `range` *is* the inverse — it carries the original
     /// attributes, `NodePathBox` references included, so undo restores node
     /// identity rather than re-deriving it.
-    func withCharacterMutation(range: NSRange, _ body: () -> Void) {
+    func withCharacterMutation(
+        range: NSRange,
+        demoteEmptyLines: Bool = true,
+        _ body: () -> Void
+    ) {
         drainPendingEnvelopes()
         let preLength = textStorage.length
         let preRange = range.clamped(to: preLength)
@@ -2133,7 +2138,7 @@ public final class EditorController {
         let delta = textStorage.length - preLength
         let postRange = NSRange(location: preRange.location, length: max(0, preRange.length + delta))
 
-        normalizeAfterEdit(in: postRange, scrub: false)
+        normalizeAfterEdit(in: postRange, scrub: false, demoteEmptyLines: demoteEmptyLines)
         clearStoredInlineMarks()
         let normalizationInverses = collectingInverses ?? []
         collectingInverses = outerCollecting
@@ -2416,9 +2421,15 @@ public final class EditorController {
             return NSRange(location: lineRange.location, length: 0)
         }
         // Continuation: append a fresh empty blockquote line after this one.
+        // The demotion pass is skipped for it — the line is empty by
+        // construction, and "an empty styled line goes back to plain" would
+        // strip the quote depth this just wrote.
         let nextLine = compiler.makeBlockquoteLine(depth: depth, theme: theme)
         let insertLocation = lineRange.location + lineRange.length
-        withCharacterMutation(range: NSRange(location: insertLocation, length: 0)) {
+        withCharacterMutation(
+            range: NSRange(location: insertLocation, length: 0),
+            demoteEmptyLines: false
+        ) {
             proseStorage.withOrigin(.transaction) {
                 textStorage.beginEditing()
                 textStorage.replaceCharacters(in: NSRange(location: insertLocation, length: 0), with: nextLine)
