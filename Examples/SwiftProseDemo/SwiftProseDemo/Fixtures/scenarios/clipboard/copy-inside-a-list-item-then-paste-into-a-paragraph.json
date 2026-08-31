@@ -1,23 +1,43 @@
 {
-  "name" : "clipboard/copy-inside-a-list-item-then-paste-into-a-paragraph",
-  "tags" : ["clipboard", "lists"],
-  "intent" : "Pasting a copied list item into a paragraph writes the bullet glyph into the paragraph's own line, leaving one line with a stray list marker and a mixed paragraph / list-item spec instead of merging the copied text inline.",
-  "doc" : "- alpha\n- beta\n\nNote: \n",
-  "ops" : [
-    { "op" : "select", "from" : { "before" : "alpha" }, "to" : { "after" : "alpha" } },
-    { "op" : "copy" },
-    { "op" : "caret", "after" : "Note: " },
+  "name": "clipboard/copy-inside-a-list-item-then-paste-into-a-paragraph",
+  "tags": [
+    "clipboard",
+    "lists"
+  ],
+  "intent": "Text copied from inside a list item is text, not a list: the slice is open to the item's depth, so pasting it into a paragraph merges the words inline instead of bringing the bullet along. The payload is what the editor's own copy writes.",
+  "doc": "- alpha\n- beta\n\nNote: \n",
+  "ops": [
     {
-      "op" : "paste",
-      "text" : "• alpha",
-      "html" : "<div data-pm-slice=\"0 0 []\"><ul><li><p>alpha</p></li></ul></div>",
-      "plain" : false
+      "op": "select",
+      "from": {
+        "before": "alpha"
+      },
+      "to": {
+        "after": "alpha"
+      }
+    },
+    {
+      "op": "copy"
+    },
+    {
+      "op": "caret",
+      "after": "Note: "
+    },
+    {
+      "op": "paste",
+      "text": "alpha",
+      "html": "<div data-pm-slice=\"3 3 []\">alpha</div>",
+      "plain": false
     }
   ],
-  "expect" : {
-    "doc" : "- alpha\n- beta\n\nNote: alpha<|>",
-    "blockKind" : "paragraph"
+  "expect": {
+    "doc": "- alpha\n- beta\n\nNote: alpha<|>",
+    "blockKind": "paragraph"
   },
-  "xfail" : "markerWithoutListItem",
-  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint",
+    "schema"
+  ]
 }

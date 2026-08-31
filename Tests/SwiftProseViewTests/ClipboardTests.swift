@@ -233,6 +233,22 @@ import UIKit
         #expect(md.contains("two"))
         #expect(md.contains("three"))
     }
+
+    @Test func sliceFromInsideAListItemIsOpenToTheItemsDepth() throws {
+        let controller = try EditorController(initialMarkdown: "- alpha\n- beta\n", theme: .default)
+        let range = (controller.textStorage.string as NSString).range(of: "alpha")
+        let slice = controller.sliceForRange(range)
+        // doc > bullet_list > list_item > paragraph.
+        #expect(slice.openStart == 3)
+        #expect(slice.openEnd == 3)
+        #expect(ClipboardSerializer(schema: .defaultMarkdown).renderMarkdown(slice) == "alpha")
+    }
+
+    @Test func sliceSpanningTwoListItemsStaysClosed() throws {
+        let controller = try EditorController(initialMarkdown: "- alpha\n- beta\n", theme: .default)
+        let slice = controller.sliceForRange(NSRange(location: 0, length: controller.textStorage.length))
+        #expect(slice.openStart == 0)
+    }
 }
 
 #if canImport(AppKit) && os(macOS)

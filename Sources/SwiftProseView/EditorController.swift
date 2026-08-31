@@ -1414,18 +1414,22 @@ public final class EditorController {
         guard case .structural(_, let kids) = doc.root else { return .empty }
         let children = kids
         guard !children.isEmpty else { return .empty }
-        let onlyInline = children.allSatisfy(isInlineWrapper)
-        if onlyInline, children.count == 1, case .structural(_, let inlineKids) = children[0] {
-            return Slice(content: Fragment(inlineKids), openStart: 1, openEnd: 1)
+        // PM `serializeForClipboard`: a selection inside one textblock is
+        // open to that block's depth, so pasting it merges into the
+        // destination block instead of bringing the ancestors along — a
+        // few words copied out of a list item are words, not a list.
+        if children.count == 1,
+           let (inlineKids, depth) = Self.openTextblock(children[0], depth: 1) {
+            return Slice(content: Fragment(inlineKids), openStart: depth, openEnd: depth)
         }
         return Slice(content: Fragment(children), openStart: 0, openEnd: 0)
     }
 
-    private func isInlineWrapper(_ node: TreeNode) -> Bool {
-        if case .structural(let pn, _) = node, pn.type == "paragraph" {
-            return true
-        }
-        return false
+    private static func openTextblock(_ node: TreeNode, depth: Int) -> ([TreeNode], Int)? {
+        guard case .structural(let pn, let kids) = node else { return nil }
+        if pn.type == "paragraph" { return (kids, depth) }
+        guard kids.count == 1 else { return nil }
+        return openTextblock(kids[0], depth: depth + 1)
     }
 
     /// Resolve the storage offset's enclosing block spec and return true
