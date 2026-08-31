@@ -320,11 +320,35 @@ public struct InsertHorizontalRuleCommand: Command {
 public struct IndentCommand: Command {
     public let id = "indent"
     public init() {}
-    public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool { true }
+    public func canExecute(storage: NSAttributedString, selection: NSRange) -> Bool {
+        Self.canSink(storage: storage, selection: selection)
+    }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        transformParagraphs(storage: storage, selection: selection, label: "Indent") { current in
+        // `runCommand` doesn't consult `canExecute`, so the refusal has to
+        // be here too — returning nil is what makes Tab a real no-op.
+        guard Self.canSink(storage: storage, selection: selection) else { return nil }
+        return transformParagraphs(storage: storage, selection: selection, label: "Indent") { current in
             BlockSpec(kind: current.kind, blockquoteDepth: current.blockquoteDepth, listLevel: current.listLevel + 1)
         }
+    }
+
+    /// PM's `sinkListItem`: an item nests only under a preceding sibling at
+    /// its own level or deeper. A list's first item has none, so Tab there is
+    /// refused rather than inventing an empty parent above it.
+    static func canSink(storage: NSAttributedString, selection: NSRange) -> Bool {
+        guard storage.length > 0 else { return false }
+        let probe = max(0, min(selection.location, storage.length - 1))
+        guard let spec = storage.blockSpec(at: probe) else { return false }
+        guard spec.isListItem else { return true }
+        let ns = storage.string as NSString
+        let line = ns.paragraphRange(for: NSRange(location: probe, length: 0))
+        guard line.location > 0 else { return false }
+        let previous = ns.paragraphRange(for: NSRange(location: line.location - 1, length: 0))
+        guard let prior = storage.blockSpec(at: previous.location),
+              prior.isListItem,
+              prior.blockquoteDepth == spec.blockquoteDepth,
+              prior.listLevel >= spec.listLevel else { return false }
+        return true
     }
 }
 
