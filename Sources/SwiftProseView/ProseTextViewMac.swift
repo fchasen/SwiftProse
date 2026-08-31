@@ -545,21 +545,16 @@ final class ProseNSTextView: NSTextView {
             super.cut(sender)
             return
         }
-        // Delete the selected text after a successful copy. Go through
-        // the controller's insertion path so the deletion is one undo
-        // step joined with whatever follows.
+        // Delete the selected text after a successful copy. This goes
+        // through the platform edit path, not `dispatchPaste`: an empty
+        // paste payload is a documented no-op there, so cut used to copy
+        // and leave the run in the document. A real replacement produces a
+        // `.deletion` envelope, with normalization and undo coalescing.
         let selection = selectedRange()
         guard selection.length > 0,
               let controller = proseController,
               controller.isEditable else { return }
-        let event = PasteEvent(
-            text: "",
-            plainText: true,
-            source: .paste,
-            selection: selection,
-            inCode: controller.isLocationInCodeBlock(selection.location)
-        )
-        _ = controller.dispatchPaste(event)
+        insertText("", replacementRange: selection)
     }
 
     @discardableResult
