@@ -43,7 +43,7 @@ public enum SpecValidator {
                 if let spec = storage.blockSpec(at: i) {
                     sawSpec = true
                     if !seenSpecs.contains(spec) { seenSpecs.append(spec) }
-                } else {
+                } else if !isUnderInlineLeaf(in: storage, at: i) {
                     out.append(SpecDiagnostic(issue: .missingSpec(at: i), lineRange: lineRange))
                 }
             }
@@ -62,6 +62,17 @@ public enum SpecValidator {
             }
         }
         return out
+    }
+
+    /// Characters under an inline leaf — an image's alt text, a hard break
+    /// — end their path at that node, and `BlockSpec` has no case for it.
+    /// Same reason isolating leaves are skipped: the missing spec says
+    /// nothing about the buffer's health.
+    private static let inlineLeafTypes: Set<String> = ["image", "hard_break"]
+
+    static func isUnderInlineLeaf(in storage: NSAttributedString, at index: Int) -> Bool {
+        guard let leaf = storage.nodePath(at: index)?.leaf else { return false }
+        return inlineLeafTypes.contains(leaf.type)
     }
 
     static func lineHasIsolatingLeaf(

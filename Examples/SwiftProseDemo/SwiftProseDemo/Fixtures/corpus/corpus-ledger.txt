@@ -40,8 +40,6 @@ first difference at line 326
  -     },
  +             {
 
-links-images: [specFull] op -1: 21 violation(s) missingSpec in line {131, 31}: «An image and one with a title.⏎»
-
 commonmark-examples: [schema] op -1: 7 schema diagnostic(s): invalidContent(parent: "list_item", found: ["bullet_list"], expected: "paragraph block*"); invalidContent(parent: "list_item", found: ["bullet_list"], expected: "paragraph block*"); invalidContent(parent: "list_item", found: ["ordered_list"], expected: "paragraph block*")
 
 commonmark-examples: [markdownFixpoint] op -1: markdown is not a fixpoint
@@ -134,8 +132,6 @@ first difference at line 187
    Add custom rules with the PM-style helpers:
    
 
-swiftlint-readme: [specFull] op -1: 111 violation(s) missingSpec in line {501, 53}: «SwiftLint violations highlighted in the Xcode editor⏎»
-
 swiftlint-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
 first difference at line 11
    SwiftLint rules are predominantly based on [SwiftSyntax](https://github.com/swiftlang/swift-syntax).
@@ -214,8 +210,6 @@ first difference at line 10452
  -     },
  +             {
 
-nodebestpractices-readme: [specFull] op -1: 91 violation(s) missingSpec in line {11065, 53}: «✔ 1.1 Structure your solution by business components⏎»
-
 nodebestpractices-readme: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
 first difference at line 450
                }
@@ -229,8 +223,6 @@ first difference at line 450
  +           "content" : [
  -     },
  +             {
-
-system-design-primer-readme: [specFull] op -1: 46 violation(s) missingSpec in line {4494, 6}: «Imgur⏎»
 
 system-design-primer-readme: [schema] op -1: 1 schema diagnostic(s): invalidContent(parent: "table", found: ["paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph"], expected: "table_row+")
 
@@ -247,8 +239,6 @@ first difference at line 5746
  +           "content" : [
  -     },
  +             {
-
-public-apis-readme: [specFull] op -1: 15 violation(s) missingSpec in line {414, 16}: «APILayer Banner⏎»
 
 public-apis-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
 first difference at line 50
@@ -290,8 +280,6 @@ first difference at line 1387
  +               "content" : [
  -         }
  +                 {
-
-coding-interview-university-readme: [specFull] op -1: 128 violation(s) missingSpec in line {1380, 53}: «Coding at the whiteboard - from HBO's Silicon Valley⏎»
 
 coding-interview-university-readme: [schema] op -1: 59 schema diagnostic(s): invalidContent(parent: "list_item", found: ["task_list"], expected: "paragraph block*"); invalidContent(parent: "list_item", found: ["task_list"], expected: "paragraph block*"); invalidContent(parent: "list_item", found: ["task_list"], expected: "paragraph block*")
 

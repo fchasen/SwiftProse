@@ -16,8 +16,7 @@
   "coding-interview-university-readme" : [
     "markdownFixpoint",
     "pmJSON",
-    "schema",
-    "specFull"
+    "schema"
   ],
   "commonmark-examples" : [
     "markdownFixpoint",
@@ -31,35 +30,28 @@
     "markdownFixpoint",
     "pmJSON"
   ],
-  "links-images" : [
-    "specFull"
-  ],
   "lists-deep" : [
     "pmJSON"
   ],
   "nodebestpractices-readme" : [
-    "pmJSON",
-    "specFull"
+    "pmJSON"
   ],
   "prettier-options" : [
     "markdownFixpoint"
   ],
   "public-apis-readme" : [
-    "markdownFixpoint",
-    "specFull"
+    "markdownFixpoint"
   ],
   "swiftlint-readme" : [
     "markdownFixpoint",
-    "pmJSON",
-    "specFull"
+    "pmJSON"
   ],
   "swiftprose-readme" : [
     "markdownFixpoint"
   ],
   "system-design-primer-readme" : [
     "pmJSON",
-    "schema",
-    "specFull"
+    "schema"
   ],
   "task-lists" : [
     "pmJSON"
