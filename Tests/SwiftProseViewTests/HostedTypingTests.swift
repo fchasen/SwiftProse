@@ -262,5 +262,6 @@ final class HostedTypingTests: XCTestCase {
         XCTAssertNil(h.controller.compositionBaseline)
         XCTAssertEqual(h.controller.markdown(), "Hello\n\nWorld")
     }
+
 }
 #endif

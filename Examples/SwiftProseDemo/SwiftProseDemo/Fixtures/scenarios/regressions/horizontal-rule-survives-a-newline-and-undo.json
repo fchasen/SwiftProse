@@ -1,0 +1,17 @@
+{
+  "name": "regressions/horizontal-rule-survives-a-newline-and-undo",
+  "tags": ["regression", "fuzz", "structure", "history"],
+  "intent": "A horizontal rule is one object-replacement character, so a caret can land inside its run. Typing there must not split the rule, the demotion pass must not read the rule's own character as an empty line, and undo must put back the paragraph the rule replaced.",
+  "doc": "One paragraph with **bold**, *em*, `code` and a [link](https://example.com).\n",
+  "ops": [
+    { "op": "action", "id": "horizontalRule" },
+    { "op": "type", "text": "\n" },
+    { "op": "key", "key": "Alt-ArrowRight" },
+    { "op": "undo", "n": 3 }
+  ],
+  "expect": {
+    "doc": "One paragraph with **bold**, *em*, `code` and a [link](https://example.com).\n",
+    "undoDepth": 0
+  },
+  "finally": ["tier0", "projection", "markdownFixpoint", "history"]
+}

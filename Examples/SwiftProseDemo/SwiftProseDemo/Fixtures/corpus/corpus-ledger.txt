@@ -200,17 +200,6 @@ first difference at line 8084
  -     },
  +             {
 
-brew-formula-cookbook: [markdownFixpoint] op -1: markdown is not a fixpoint
-first difference at line 536
-   
-   When [patch](/rubydoc/Formula.html#patch-class_method)ing (i.e. fixing header file inclusion, fixing compiler warnings, etc.) the first thing to do is check whether the upstream project is aware of the issue. If not, file a bug report and/or submit your patch for inclusion. We may sometimes still accept your patch before it was submitted upstream but by getting the ball rolling on fixing the upstream issue you reduce the length of time we have to carry the patch around.
-   
- - *Always justify a *[patch](/rubydoc/Formula.html#patch-class_method)* with a code comment!* Otherwise, nobody will know when it is safe to remove the patch, or safe to leave it in when updating the formula. The comment should include a link to the relevant upstream issue(s).
- + *Always justify a *[*patch*](/rubydoc/Formula.html#patch-class_method)* with a code comment!* Otherwise, nobody will know when it is safe to remove the patch, or safe to leave it in when updating the formula. The comment should include a link to the relevant upstream issue(s).
-   
-   External [patch](/rubydoc/Formula.html#patch-class_method)es can be declared using resource-style blocks:
-   
-
 brew-formula-cookbook: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
 first difference at line 10452
                }
@@ -226,18 +215,6 @@ first difference at line 10452
  +             {
 
 nodebestpractices-readme: [specFull] op -1: 91 violation(s) missingSpec in line {11065, 53}: «✔ 1.1 Structure your solution by business components⏎»
-
-nodebestpractices-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
-first difference at line 27
-   
-   # 🎊 2026 edition is here!
-   
- - - 🛰** Modernized to 2026**: Tons of text edits, new recommended libraries, and some new best practices
- + - 🛰** Modernized to 2026*: Tons of text edits, new recommended libraries, and some new best practices
-   
- - - ✨** Easily focus on new content**: Already visited before? Search for `#new` or `#updated` tags for new content only
- + - ✨* Easily focus on new content*: Already visited before? Search for `#new` or `#updated` tags for new content only
-   
 
 nodebestpractices-readme: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
 first difference at line 450
@@ -256,14 +233,6 @@ first difference at line 450
 system-design-primer-readme: [specFull] op -1: 46 violation(s) missingSpec in line {4494, 6}: «Imgur⏎»
 
 system-design-primer-readme: [schema] op -1: 1 schema diagnostic(s): invalidContent(parent: "table", found: ["paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph", "paragraph"], expected: "table_row+")
-
-system-design-primer-readme: [markdownFixpoint] op -1: markdown is not a fixpoint
-first difference at line 1
- - [*English*](README.md)* ∙ *[日本語](README-ja.md)* ∙ *[简体中文](README-zh-Hans.md)* ∙ *[繁體中文](README-zh-TW.md)* | *[العَرَبِيَّة](https://github.com/donnemartin/system-design-primer/issues/170)[*‎*](https://github.com/donnemartin/system-design-primer/issues/170)* ∙ *[বাংলা](https://github.com/donnemartin/system-design-primer/issues/220)* ∙ *[*Português do Brasil*](https://github.com/donnemartin/system-design-primer/issues/40)* ∙ *[*Deutsch*](https://github.com/donnemartin/system-design-primer/issues/186)* ∙ *[*ελληνικά*](https://github.com/donnemartin/system-design-primer/issues/130)* ∙ *[עברית](https://github.com/donnemartin/system-design-primer/issues/272)* ∙ *[*Italiano*](https://github.com/donnemartin/system-design-primer/issues/104)* ∙ *[한국어](https://github.com/donnemartin/system-design-primer/issues/102)* ∙ *[فارسی](https://github.com/donnemartin/system-design-primer/issues/110)* ∙ *[*Polski*](https://github.com/donnemartin/system-design-primer/issues/68)* ∙ *[*русский язык*](https://github.com/donnemartin/system-design-primer/issues/87)* ∙ *[*Español*](https://github.com/donnemartin/system-design-primer/issues/136)* ∙ *[ภาษาไทย](https://github.com/donnemartin/system-design-primer/issues/187)* ∙ *[*Türkçe*](https://github.com/donnemartin/system-design-primer/issues/39)* ∙ *[*tiếng Việt*](https://github.com/donnemartin/system-design-primer/issues/127)* ∙ *[*Français*](https://github.com/donnemartin/system-design-primer/issues/250)* | *[*Add Translation*](https://github.com/donnemartin/system-design-primer/issues/28)
- + [*English*](README.md)* ∙ [日本語](README-ja.md) ∙ [简体中文](README-zh-Hans.md) ∙ [繁體中文](README-zh-TW.md) | [العَرَبِيَّة](https://github.com/donnemartin/system-design-primer/issues/170)[*‎*](https://github.com/donnemartin/system-design-primer/issues/170) ∙ [বাংলা](https://github.com/donnemartin/system-design-primer/issues/220) ∙ [*Português do Brasil*](https://github.com/donnemartin/system-design-primer/issues/40) ∙ [*Deutsch*](https://github.com/donnemartin/system-design-primer/issues/186) ∙ [*ελληνικά*](https://github.com/donnemartin/system-design-primer/issues/130) ∙ [עברית](https://github.com/donnemartin/system-design-primer/issues/272) ∙ [*Italiano*](https://github.com/donnemartin/system-design-primer/issues/104) ∙ [한국어](https://github.com/donnemartin/system-design-primer/issues/102) ∙ [فارسی](https://github.com/donnemartin/system-design-primer/issues/110) ∙ [*Polski*](https://github.com/donnemartin/system-design-primer/issues/68) ∙ [*русский язык*](https://github.com/donnemartin/system-design-primer/issues/87) ∙ [*Español*](https://github.com/donnemartin/system-design-primer/issues/136) ∙ [ภาษาไทย](https://github.com/donnemartin/system-design-primer/issues/187) ∙ [*Türkçe*](https://github.com/donnemartin/system-design-primer/issues/39) ∙ [*tiếng Việt*](https://github.com/donnemartin/system-design-primer/issues/127) ∙ [*Français*](https://github.com/donnemartin/system-design-primer/issues/250) | [*Add Translation*](https://github.com/donnemartin/system-design-primer/issues/28)
-   
-   **Help **[**translate**](TRANSLATIONS.md)** this guide!**
-   
 
 system-design-primer-readme: [pmJSON] op -1: PM JSON is not a round-trip fixpoint
 first difference at line 5746
