@@ -690,10 +690,12 @@ public enum Step {
         // Typed inverse: setSpec back to whatever spec the line carried
         // before this transform. Falls back to a content blob when the
         // prior storage didn't expose a structural spec — e.g. the
-        // line was empty or only carried inline runs.
+        // line was empty or only carried inline runs — and when the render
+        // rewrote the line's text, which a spec-only inverse cannot put
+        // back: a horizontal rule discards the paragraph it was made from.
         let priorSpec = priorBlockSpec(in: prior)
         let inverse: Step
-        if let priorSpec {
+        if let priorSpec, newAttr.string == prior.string {
             inverse = .setSpec(lineRange: mappedRange, priorSpec)
         } else {
             inverse = .replaceText(range: mappedRange, with: prior)
