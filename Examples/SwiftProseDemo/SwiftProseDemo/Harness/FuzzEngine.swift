@@ -381,10 +381,17 @@ struct OpGenerator {
     private mutating func anchor(at position: Int) -> Anchor {
         let string = textView.string as NSString
         let clamped = max(0, min(position, string.length))
+        // A needle cut through a surrogate pair comes back from the log as
+        // U+FFFD and never resolves again — the replay diverges at that op
+        // and every anchor after it, which is what makes a recorded failure
+        // look nondeterministic.
+        guard Self.isOnCharacterBoundary(clamped, in: string) else {
+            return Anchor(at: clamped)
+        }
         // 8–16 UTF-16 units of context before the position, disambiguated
         // by occurrence index.
         let span = Int.random(in: 8...16, using: &rng)
-        let start = max(0, clamped - span)
+        let start = Self.forwardToCharacterBoundary(max(0, clamped - span), in: string)
         guard start < clamped else { return Anchor(at: clamped) }
         let needle = string.substring(with: NSRange(location: start, length: clamped - start))
         guard !needle.contains("\u{FFFC}") else { return Anchor(at: clamped) }
@@ -400,6 +407,21 @@ struct OpGenerator {
             searchFrom = found.location + max(1, found.length)
         }
         return Anchor(at: clamped, after: needle, n: occurrence)
+    }
+
+    /// Whether `offset` falls between composed character sequences rather
+    /// than inside one.
+    private static func isOnCharacterBoundary(_ offset: Int, in string: NSString) -> Bool {
+        guard offset > 0, offset < string.length else { return true }
+        return string.rangeOfComposedCharacterSequence(at: offset).location == offset
+    }
+
+    /// `offset`, or the start of the next whole character when it lands
+    /// inside one.
+    private static func forwardToCharacterBoundary(_ offset: Int, in string: NSString) -> Int {
+        guard offset > 0, offset < string.length else { return offset }
+        let sequence = string.rangeOfComposedCharacterSequence(at: offset)
+        return sequence.location == offset ? offset : NSMaxRange(sequence)
     }
 
     private mutating func position() -> Int {
