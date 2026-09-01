@@ -179,7 +179,10 @@ public struct MarkdownTreeSerializer {
         ctx.output.append(blockLinePrefix(ctx))
         ctx.output.append(String(repeating: "#", count: lvl))
         ctx.output.append(" ")
-        ctx.output.append(renderInline(kids))
+        // The space after the hashes is the delimiter, and the parser eats
+        // any that follow it: emitting a heading whose content leads with
+        // whitespace writes a line that reads back shorter than it went in.
+        ctx.output.append(String(renderInline(kids).drop { $0 == " " || $0 == "\t" }))
         ctx.emitNewline()
         ctx.blocksAtThisLevel += 1
     }

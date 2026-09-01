@@ -259,4 +259,21 @@ struct MarkdownTreeSerializerTests {
             .serialize(ProseDocument(schema: .defaultMarkdown, root: root))
         #expect(out == "   x\n")
     }
+
+    @Test
+    func aHeadingDropsTheWhitespaceLeadingItsContent() {
+        // The space after the hashes is the delimiter and the parser eats
+        // the rest, so `#   Hi` reads back as `# Hi` — emitting the spaces
+        // makes the source disagree with itself on the next load.
+        let root = TreeNode.structural(
+            ProseNode(type: "doc"),
+            [.structural(
+                ProseNode(type: "heading", attrs: ["level": .int(1)]),
+                [.inline(text: "  Hi", marks: MarkSet())]
+            )]
+        )
+        let out = MarkdownTreeSerializer(schema: .defaultMarkdown)
+            .serialize(ProseDocument(schema: .defaultMarkdown, root: root))
+        #expect(out == "# Hi\n")
+    }
 }
