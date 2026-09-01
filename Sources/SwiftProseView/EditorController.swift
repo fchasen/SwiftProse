@@ -1510,6 +1510,40 @@ public final class EditorController {
         return openTextblock(kids[0], depth: depth + 1)
     }
 
+    /// True when a literal tab typed at the cursor would lead its block's
+    /// text, where markdown cannot hold it: the parser strips leading
+    /// whitespace off a heading, and reads an indented paragraph back as a
+    /// code block. Writing one produces a document that changes meaning the
+    /// next time it is loaded.
+    ///
+    /// A code block is exempt — there a tab is content.
+    public func tabWouldLeadBlockContent() -> Bool {
+        drainPendingEnvelopes()
+        let total = textStorage.length
+        // Nothing to lead but itself: a lone tab is an indented code block.
+        guard total > 0 else { return true }
+        let cursor = currentSelection.location
+        let probe = max(0, min(cursor, total - 1))
+        if textStorage.blockSpec(at: probe)?.isCodeBlock == true { return false }
+        let line = (textStorage.string as NSString)
+            .paragraphRange(for: NSRange(location: probe, length: 0))
+        // A list marker or checkbox occupies storage without being content.
+        var start = line.location
+        while start < NSMaxRange(line), isPresentationPrefix(at: start) { start += 1 }
+        return cursor <= start
+    }
+
+    private func isPresentationPrefix(at location: Int) -> Bool {
+        if (textStorage.attribute(.proseListMarker, at: location, effectiveRange: nil) as? Bool) == true {
+            return true
+        }
+        return textStorage.attribute(
+            NSAttributedString.Key("NSAttachment"),
+            at: location,
+            effectiveRange: nil
+        ) != nil
+    }
+
     /// Resolve the storage offset's enclosing block spec and return true
     /// when the cursor sits in a code block. Used by the paste / dictation
     /// dispatchers to flip the inCode branch.

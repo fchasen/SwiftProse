@@ -387,6 +387,9 @@ public struct ProseTextViewMac: NSViewRepresentable {
                     parent.controller.perform(.indent)
                     return true
                 }
+                // Refuse a tab the source cannot hold rather than write a
+                // document that reads differently once it is reloaded.
+                if parent.controller.tabWouldLeadBlockContent() { return true }
             }
             if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
                 if parent.controller.handleTabAtIsolatingBlock(forward: false) { return true }
