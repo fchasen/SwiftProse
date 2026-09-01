@@ -775,6 +775,9 @@ public final class EditorController {
         normalizeInsertedAttributes(in: editedRange)
         if demoteEmptyLines { demoteEmptyStyledLines(in: editedRange) }
         enforceDocumentInvariants(around: editedRange)
+        // Last of the passes: a cut shifts every offset after it, so
+        // nothing measured against the pre-cut buffer may follow.
+        cutStrandedListMarkers(in: editedRange)
         scheduleCodeBlockRehighlight()
         // Reconcile the trailing paragraph only when the edit reached the
         // document end. A mid-document keystroke can't change which block
@@ -886,7 +889,6 @@ public final class EditorController {
                 let next = line.location + line.length
                 cursor = next > cursor ? next : cursor + 1
             }
-            cutStrandedListMarkers(in: union)
             textStorage.endEditing()
         }
     }
@@ -1014,8 +1016,21 @@ public final class EditorController {
     /// serializes into the markdown as text.
     @discardableResult
     private func cutStrandedListMarkers(in range: NSRange) -> Bool {
+        guard let cuts = strandedListMarkers(in: range) else { return false }
+        proseStorage.withOrigin(.normalize, capturing: true) {
+            textStorage.beginEditing()
+            // Back to front: an earlier cut would move the later ranges.
+            for cut in cuts.sorted(by: { $0.location > $1.location }) {
+                textStorage.replaceCharacters(in: cut.clamped(to: textStorage.length), with: "")
+            }
+            textStorage.endEditing()
+        }
+        return true
+    }
+
+    private func strandedListMarkers(in range: NSRange) -> [NSRange]? {
         let ns = textStorage.string as NSString
-        guard ns.length > 0 else { return false }
+        guard ns.length > 0 else { return nil }
         let safe = range.clamped(to: ns.length)
         let anchor = min(safe.location, ns.length - 1)
         let scan = safe.length > 0
@@ -1033,12 +1048,7 @@ public final class EditorController {
             let next = NSMaxRange(line)
             cursor = next > cursor ? next : cursor + 1
         }
-        guard !cuts.isEmpty else { return false }
-        // Back to front: an earlier cut would move the later ranges.
-        for cut in cuts.sorted(by: { $0.location > $1.location }) {
-            textStorage.replaceCharacters(in: cut.clamped(to: textStorage.length), with: "")
-        }
-        return true
+        return cuts.isEmpty ? nil : cuts
     }
 
     /// The list marker on `line`, together with the whitespace the compiler
