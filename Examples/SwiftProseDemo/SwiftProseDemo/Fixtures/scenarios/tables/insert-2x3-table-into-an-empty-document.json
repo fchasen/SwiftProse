@@ -4,7 +4,7 @@
     "tables",
     "ui"
   ],
-  "intent": "An inserted table emits a blank line between the alignment row and the first body row, and pads empty cells to three spaces, so the source is not the canonical GFM form the command's own header row uses.",
+  "intent": "Inserting a table writes canonical GFM: a header row of placeholder labels, an alignment row, and one empty body row per requested row, each with a cell per column.",
   "doc": "",
   "ops": [
     {
@@ -23,6 +23,5 @@
     "tier0",
     "markdownFixpoint",
     "projection"
-  ],
-  "xfail": "markdown mismatch"
+  ]
 }

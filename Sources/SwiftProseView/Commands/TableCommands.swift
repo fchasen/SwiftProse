@@ -309,35 +309,56 @@ public struct InsertTableCommand: Command {
         return true
     }
     public func transaction(storage: NSTextStorage, selection: NSRange, env: StepEnvironment) -> Transaction? {
-        var lines: [String] = []
-        // Tree-sitter-markdown requires non-empty header cells; use
-        // placeholder labels rather than blanks so the table parses.
-        let headerCells = (1...columns).map { " Column \($0) " }
-        lines.append("|" + headerCells.joined(separator: "|") + "|")
-        let alignment = "|" + Array(repeating: " --- |", count: columns).joined()
-        lines.append(alignment)
+        // Built as a subtree, not as markdown: the grammar drops body rows
+        // whose cells are all empty, and every row of a new table is.
+        let alignments = Array(repeating: ProseAttrValue.null, count: columns)
+        var subtreeRows: [TreeNode] = [headerRow(columns: columns)]
         for _ in 0..<rows {
-            let body = "|" + Array(repeating: "   |", count: columns).joined()
-            lines.append(body)
+            subtreeRows.append(makeRow(isHeader: false, columnCount: columns, alignments: alignments))
         }
-        var markdown = lines.joined(separator: "\n") + "\n"
-        // Pipe-table block grammar requires the table to sit at column
-        // 0 of a fresh paragraph. Ensure two newlines (i.e. a blank
-        // line) precede the table source — needed when the cursor is
-        // mid-paragraph or right after one.
+        let subtree = TreeNode.structural(ProseNode(type: "table"), subtreeRows)
+        let table = env.compiler.compileTableSubtree(subtree, theme: env.theme)
+
+        // A table opens its own block: a blank line has to separate it from
+        // whatever the cursor was sitting in.
+        let result = NSMutableAttributedString()
         let ns = storage.string as NSString
+        let nl = unichar(("\n" as Character).asciiValue ?? 10)
         let last: unichar = selection.location > 0 ? ns.character(at: selection.location - 1) : 0
         let secondLast: unichar = selection.location > 1 ? ns.character(at: selection.location - 2) : 0
-        let nl = unichar(("\n" as Character).asciiValue ?? 10)
+        let separator = env.compiler.compile("\n\n", theme: env.theme)
         if selection.location == 0 {
             // start of document — no prefix needed
         } else if last != nl {
-            markdown = "\n\n" + markdown
+            result.append(separator)
         } else if secondLast != nl {
-            markdown = "\n" + markdown
+            result.append(env.compiler.compile("\n", theme: env.theme))
         }
-        let compiled = env.compiler.compile(markdown, theme: env.theme)
-        return Transaction(steps: [.replaceText(range: selection, with: compiled)])
+        result.append(table)
+        return Transaction(steps: [.replaceText(range: selection, with: result)])
+    }
+
+    /// Header cells carry placeholder labels: the grammar requires non-empty
+    /// header cells, and a blank header reads as no table at all on reload.
+    private func headerRow(columns: Int) -> TreeNode {
+        let row = ProseNode(type: "table_row", attrs: ["header": .bool(true)])
+        let cells: [TreeNode] = (1...columns).map { column in
+            let cell = ProseNode(
+                type: "table_header",
+                attrs: [
+                    "align": .null,
+                    "colspan": .int(1),
+                    "rowspan": .int(1),
+                    "colwidth": .null
+                ]
+            )
+            let paragraph = TreeNode.structural(
+                ProseNode(type: "paragraph"),
+                [.inline(text: "Column \(column)", marks: MarkSet())]
+            )
+            return .structural(cell, [paragraph])
+        }
+        return .structural(row, cells)
     }
 }
 

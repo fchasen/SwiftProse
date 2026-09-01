@@ -195,29 +195,38 @@ import SwiftProseRendering
             serializer: controller.serializer,
             theme: controller.theme
         )
-        // First sanity-check: compile the command's markdown directly to
-        // confirm tree-sitter parses it as a table.
-        let directCompile = controller.compiler.compile(
-            "\n| Column 1 | Column 2 |\n| --- | --- |\n|   |   |\n|   |   |\n",
-            theme: controller.theme
-        )
-        var sawTableInDirect = false
-        directCompile.enumerateNodePaths { _, path in
-            if path.leaf?.type == "table" { sawTableInDirect = true }
-        }
-        #expect(sawTableInDirect, "direct compile should produce a table attachment")
-
         let tx = try #require(cmd.transaction(
             storage: controller.textStorage,
             selection: NSRange(location: controller.textStorage.length, length: 0),
             env: env
         ))
         _ = controller.apply(tx)
-        // Debug: dump storage state.
         var pathDump: [String] = []
         controller.textStorage.enumerateNodePaths { runRange, path in
             pathDump.append("[\(runRange.location), \(runRange.length)]: \(path.nodes.map(\.type).joined(separator: "/"))")
         }
         #expect(tableAttachment(in: controller.textStorage) != nil, "paths: \(pathDump.joined(separator: "; "))")
+    }
+
+    @Test func insertTableEmitsCanonicalGFMWithACellPerColumn() throws {
+        let controller = try makeController("")
+        let cmd = InsertTableCommand(rows: 2, columns: 3)
+        let env = StepEnvironment(
+            compiler: controller.compiler,
+            serializer: controller.serializer,
+            theme: controller.theme
+        )
+        let tx = try #require(cmd.transaction(
+            storage: controller.textStorage,
+            selection: NSRange(location: 0, length: 0),
+            env: env
+        ))
+        _ = controller.apply(tx)
+        #expect(controller.markdown() == """
+        | Column 1 | Column 2 | Column 3 |
+        | --- | --- | --- |
+        |  |  |  |
+        |  |  |  |
+        """)
     }
 }

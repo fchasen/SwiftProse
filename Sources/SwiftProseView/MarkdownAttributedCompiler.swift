@@ -897,6 +897,29 @@ public final class MarkdownAttributedCompiler {
     /// Emit the actual attachment paragraph for a structural table
     /// subtree. Storage layout: one `\u{FFFC}` carrying the attachment +
     /// one `\n`, both stamped with `proseNodePath = [doc, blockquote*, table]`.
+    /// Emit a `table` subtree as its attachment paragraph without going
+    /// through markdown.
+    ///
+    /// The pipe-table grammar will not hold a body row whose cells are all
+    /// empty — which is every row of a freshly inserted table — so it ends
+    /// the table at the alignment row and the rest lands as a paragraph.
+    /// Building the attachment from the subtree is the way past that, the
+    /// same bypass nested list items take.
+    public func compileTableSubtree(
+        _ subtree: TreeNode,
+        blockquoteDepth: Int = 0,
+        theme: ProseTheme
+    ) -> NSAttributedString {
+        let out = NSMutableAttributedString()
+        appendTableAttachment(
+            subtree: subtree,
+            blockquoteDepth: blockquoteDepth,
+            theme: theme,
+            into: out
+        )
+        return out
+    }
+
     private func appendTableAttachment(
         subtree: TreeNode,
         blockquoteDepth depth: Int,
