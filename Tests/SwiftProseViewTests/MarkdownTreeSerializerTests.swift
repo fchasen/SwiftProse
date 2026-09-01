@@ -228,4 +228,35 @@ struct MarkdownTreeSerializerTests {
         let serializer = AttributedMarkdownSerializer()
         #expect(serializer.serializeLine(storage) == "- [ ] milk\n")
     }
+
+    @Test
+    func aMarkEndingInWhitespaceMovesItOutsideTheDelimiters() {
+        // `*q  *` is literal text to CommonMark — the closing delimiter is
+        // preceded by whitespace, so it never closes and the mark is gone
+        // on reload. Only reachable by editing; the parser never builds it.
+        func run(_ text: String, _ marks: [String]) -> TreeNode {
+            .inline(text: text, marks: MarkSet(marks.map { ProseMark(type: $0) }))
+        }
+        let root = TreeNode.structural(
+            ProseNode(type: "doc"),
+            [.structural(ProseNode(type: "paragraph"), [run("q  ", ["em"]), run("u v", [])])]
+        )
+        let out = MarkdownTreeSerializer(schema: .defaultMarkdown)
+            .serialize(ProseDocument(schema: .defaultMarkdown, root: root))
+        #expect(out == "*q*  u v\n")
+    }
+
+    @Test
+    func aMarkOverOnlyWhitespaceEmitsNoDelimiters() {
+        let root = TreeNode.structural(
+            ProseNode(type: "doc"),
+            [.structural(ProseNode(type: "paragraph"), [
+                .inline(text: "   ", marks: MarkSet([ProseMark(type: "strong")])),
+                .inline(text: "x", marks: MarkSet())
+            ])]
+        )
+        let out = MarkdownTreeSerializer(schema: .defaultMarkdown)
+            .serialize(ProseDocument(schema: .defaultMarkdown, root: root))
+        #expect(out == "   x\n")
+    }
 }

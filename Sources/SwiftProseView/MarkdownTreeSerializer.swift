@@ -486,6 +486,26 @@ public struct MarkdownTreeSerializer {
         return inner
     }
 
+    /// Split the whitespace off both ends of `text`.
+    ///
+    /// CommonMark's flanking rules refuse a delimiter run with whitespace
+    /// on its inner side: `*q  *` is literal text, not emphasis, so a mark
+    /// emitted that way is gone the next time the source is read. Moving
+    /// the whitespace outside the delimiters is what
+    /// `prosemirror-markdown` does for the same reason.
+    private static func expellingEnclosingWhitespace(
+        _ text: String
+    ) -> (lead: String, core: String, trail: String) {
+        let lead = text.prefix { $0.isWhitespace }
+        let rest = text.dropFirst(lead.count)
+        let trailCount = rest.reversed().prefix { $0.isWhitespace }.count
+        return (
+            String(lead),
+            String(rest.dropLast(trailCount)),
+            String(rest.suffix(trailCount))
+        )
+    }
+
     private func emitInline(text: String, marks: MarkSet) -> String {
         guard !text.isEmpty else { return "" }
         var inner = text
@@ -507,15 +527,24 @@ public struct MarkdownTreeSerializer {
         let bold = marks.contains(type: "strong")
         let em = marks.contains(type: "em")
         let strike = marks.contains(type: "strike")
-        if bold && em {
-            inner = "***\(inner)***"
-        } else if bold {
-            inner = "**\(inner)**"
-        } else if em {
-            inner = "*\(inner)*"
-        }
-        if strike {
-            inner = "~~\(inner)~~"
+        if bold || em || strike {
+            let (lead, core, trail) = Self.expellingEnclosingWhitespace(inner)
+            // A mark over nothing but whitespace has no delimiters that
+            // could hold it; emit the text bare.
+            if !core.isEmpty {
+                var wrapped = core
+                if bold && em {
+                    wrapped = "***\(wrapped)***"
+                } else if bold {
+                    wrapped = "**\(wrapped)**"
+                } else if em {
+                    wrapped = "*\(wrapped)*"
+                }
+                if strike {
+                    wrapped = "~~\(wrapped)~~"
+                }
+                inner = lead + wrapped + trail
+            }
         }
         if let link = ordered.first(where: { $0.type == "link" }) {
             let href = link.attrs["href"]?.stringValue ?? ""
