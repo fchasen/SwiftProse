@@ -874,6 +874,7 @@ public final class EditorController {
             )
         }
 
+        var strandedMarkers: [NSRange] = []
         proseStorage.withOrigin(.normalize, capturing: true) {
             textStorage.beginEditing()
             var cursor = union.location
@@ -882,9 +883,13 @@ public final class EditorController {
             while cursor < end, cursor < textStorage.length {
                 let line = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
                 guard line.length > 0 else { break }
-                normalizeLineAttributes(line, claimed: &claimed)
+                normalizeLineAttributes(line, claimed: &claimed, strandedMarkers: &strandedMarkers)
                 let next = line.location + line.length
                 cursor = next > cursor ? next : cursor + 1
+            }
+            // Back to front: an earlier cut would move the later ranges.
+            for marker in strandedMarkers.sorted(by: { $0.location > $1.location }) {
+                textStorage.replaceCharacters(in: marker.clamped(to: textStorage.length), with: "")
             }
             textStorage.endEditing()
         }
@@ -911,7 +916,11 @@ public final class EditorController {
     /// line after the first gets a node of its own here. Multi-line blocks
     /// — code fences, tables — are exempt: one node covering many lines is
     /// exactly what they are.
-    private func normalizeLineAttributes(_ line: NSRange, claimed: inout Set<ObjectIdentifier>) {
+    private func normalizeLineAttributes(
+        _ line: NSRange,
+        claimed: inout Set<ObjectIdentifier>,
+        strandedMarkers: inout [NSRange]
+    ) {
         var tally: [ObjectIdentifier: (box: NodePathBox, weight: Int)] = [:]
         var unstamped: [NSRange] = []
         textStorage.enumerateAttribute(.proseNodePath, in: line) { value, runRange, _ in
@@ -1002,7 +1011,33 @@ public final class EditorController {
         }
         if textStorage.blockSpec(at: line.location)?.isListItem != true {
             textStorage.removeAttribute(.proseListMarker, range: line)
+            // The flag is only half of it: the glyph is a real character,
+            // and left on a line that is no longer a list item it is a
+            // stray `\u{FFFC}` that serializes into the markdown as text.
+            // Deleting it here would invalidate the caller's line offsets,
+            // so it is collected and cut after the pass.
+            if let stray = strandedMarkerRun(in: line) { strandedMarkers.append(stray) }
         }
+    }
+
+    /// The marker glyph on `line`, together with the whitespace the
+    /// compiler laid down after it.
+    private func strandedMarkerRun(in line: NSRange) -> NSRange? {
+        let ns = textStorage.string as NSString
+        var start = -1
+        var i = line.location
+        while i < NSMaxRange(line), i < ns.length {
+            if ns.character(at: i) == 0xFFFC { start = i; break }
+            i += 1
+        }
+        guard start >= 0 else { return nil }
+        var end = start + 1
+        while end < NSMaxRange(line), end < ns.length {
+            let ch = ns.character(at: end)
+            guard ch == 0x20 || ch == 0x09 else { break }
+            end += 1
+        }
+        return NSRange(location: start, length: end - start)
     }
 
     /// Re-render the runs on `line` that belong to a different block kind
