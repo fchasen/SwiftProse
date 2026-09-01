@@ -7,7 +7,9 @@ import AppKit
 import UIKit
 #endif
 
-/// An `isolating` node whose content lives off-buffer (today: `table`)
+/// A block the source represents as a single object-replacement character
+/// — an `isolating` node whose content lives off-buffer (today: `table`),
+/// or a block-level leaf that has no text at all (`horizontal_rule`) —
 /// occupies exactly `\u{FFFC}\n` in storage, both characters stamped with
 /// one `proseNodePath` ending at the node. `ProseDocument.from(storage:)`
 /// lifts the subtree by looking for the attachment *at the run start*, so
@@ -45,7 +47,8 @@ extension EditorController {
     private func isolatingRun(at location: Int, in storage: NSTextStorage) -> NSRange? {
         guard location >= 0, location < storage.length else { return nil }
         guard let leaf = storage.nodePath(at: location)?.leaf,
-              compiler.schema.nodeType(leaf.type)?.isolating == true else { return nil }
+              let type = compiler.schema.nodeType(leaf.type),
+              type.isolating || (type.isBlock && type.isLeaf) else { return nil }
         // `effectiveRange` would stop at the `NSAttachment` run boundary,
         // handing back the `\u{FFFC}` without its newline.
         let line = (storage.string as NSString)
@@ -86,10 +89,14 @@ extension EditorController {
         let before = range.location <= run.location
         let at = before ? run.location : NSMaxRange(run)
         let env = makeStepEnvironment()
+        // Trailing newlines in the text are already the paragraph break the
+        // separator supplies: a typed newline opens an empty paragraph
+        // rather than three blank lines.
+        let body = text.trimmingCharacters(in: .newlines)
         // A blank line after the paragraph keeps the pipe-table grammar's
         // requirement that the table open a fresh block.
-        let compiled = env.compiler.compile(text + "\n\n", theme: env.theme)
-        let caret = at + (text as NSString).length
+        let compiled = env.compiler.compile(body + "\n\n", theme: env.theme)
+        let caret = at + (body as NSString).length
         var transaction = Transaction(
             steps: [.replaceText(range: NSRange(location: at, length: 0), with: compiled)],
             selection: .cursor(at: caret)
