@@ -89,13 +89,13 @@ final class Oracles {
     private(set) var opDurations: [Double] = []
 
     static let allIDs = [
-        "diagnostics", "length", "specLocal", "coverage", "schema",
+        "diagnostics", "length", "specLocal", "scalars", "coverage", "schema",
         "projection", "specFull", "offsets", "markdownFixpoint", "pmJSON",
         "history", "layout", "latency"
     ]
 
     /// The always-on set: cheap enough for every op on any document.
-    static let tier0 = ["diagnostics", "length", "specLocal"]
+    static let tier0 = ["diagnostics", "length", "specLocal", "scalars"]
 
     init(controller: EditorController, textView: NSTextView, cadence: Cadence = Cadence()) {
         self.controller = controller
@@ -182,6 +182,7 @@ final class Oracles {
         case "diagnostics": return checkDiagnostics(index)
         case "length": return checkLength(index)
         case "specLocal": return checkSpec(range: localRange(), index: index, id: id)
+        case "scalars": return checkScalars(index)
         case "coverage": return checkCoverage(index)
         case "schema": return checkSchema(index)
         case "projection": return checkProjection(index)
@@ -227,6 +228,41 @@ final class Oracles {
         case .markerWithoutListItem: return "markerWithoutListItem"
         case .listItemWithoutMarker: return "listItemWithoutMarker"
         }
+    }
+
+    /// No edit may cut a surrogate pair in half. A lone surrogate is not a
+    /// character: it survives in storage but every string that carries it
+    /// out — the markdown, the pasteboard, a recorded anchor — turns it
+    /// into U+FFFD, so the damage surfaces far from the edit that did it.
+    private func checkScalars(_ index: Int) -> [OracleFailure] {
+        let string = controller.textStorage.string as NSString
+        var i = 0
+        while i < string.length {
+            let unit = string.character(at: i)
+            let isHigh = (0xD800...0xDBFF).contains(unit)
+            let isLow = (0xDC00...0xDFFF).contains(unit)
+            if isHigh {
+                let next: unichar = i + 1 < string.length ? string.character(at: i + 1) : 0
+                guard (0xDC00...0xDFFF).contains(next) else {
+                    return [OracleFailure(
+                        oracle: "scalars",
+                        detail: "unpaired high surrogate at \(i)",
+                        opIndex: index
+                    )]
+                }
+                i += 2
+                continue
+            }
+            if isLow {
+                return [OracleFailure(
+                    oracle: "scalars",
+                    detail: "unpaired low surrogate at \(i)",
+                    opIndex: index
+                )]
+            }
+            i += 1
+        }
+        return []
     }
 
     private func checkLength(_ index: Int) -> [OracleFailure] {
