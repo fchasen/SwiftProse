@@ -1203,6 +1203,13 @@ public final class EditorController {
         if spec.kind == .paragraph, spec.blockquoteDepth == 0 { return false }
         if spec.isListItem { return false }
         if spec.isCodeBlock { return false }
+        // The strip above drops every `\u{FFFC}` so a bullet's marker
+        // doesn't read as content. A horizontal rule's is content — it is
+        // the whole node — so a line still holding one is not empty, and
+        // demoting it would leave a paragraph carrying a stray attachment.
+        // List items returned above, so any attachment left here is the
+        // rule; once it is deleted the line demotes like any other.
+        if spec.kind == .horizontalRule, lineText.contains("\u{FFFC}") { return false }
 
         textStorage.addAttributes(plainAttrs, range: lineRange)
         return true
