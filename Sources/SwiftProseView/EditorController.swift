@@ -660,6 +660,31 @@ public final class EditorController {
     private var pendingCompositionPreImage: NSAttributedString?
     private var committedCompositionLength = 0
 
+    /// Marked text has gone away. A commit consumes the baseline as it
+    /// drains; a composition that ends any other way — Escape, an IME that
+    /// drops it, a click elsewhere — leaves one behind, and it has to go.
+    ///
+    /// A stale baseline is not a small thing: every interim reports marked
+    /// text as *already* active, so the next composition never opens a
+    /// baseline of its own and commits against a range from the abandoned
+    /// one. That range no longer describes anything, the commit reads as
+    /// "the pre-image came back", and the composed text lands with no
+    /// normalization behind it.
+    ///
+    /// Deferred a tick so the commit's own envelope — queued by the same
+    /// `insertText` that unmarked — drains first and clears it properly.
+    func compositionDidEnd() {
+        guard compositionBaseline != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.isComposingIME else { return }
+            self.drainPendingEnvelopes()
+            guard !self.isComposingIME else { return }
+            self.compositionBaseline = nil
+            self.pendingCompositionPreImage = nil
+            self.committedCompositionLength = 0
+        }
+    }
+
     /// Decide what `record` was. First match wins.
     func classify(_ record: EditRecord) -> EditClass {
         if undoManager.isUndoing || undoManager.isRedoing { return .history }

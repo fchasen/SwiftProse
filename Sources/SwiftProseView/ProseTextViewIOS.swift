@@ -361,6 +361,13 @@ private func isCursorInListItem(controller: EditorController) -> Bool {
 final class ProseUITextView: UITextView {
     weak var proseController: EditorController?
 
+    /// The only signal that a composition ended without committing — the
+    /// marked text goes and nothing reaches storage after it.
+    override func unmarkText() {
+        super.unmarkText()
+        proseController?.compositionDidEnd()
+    }
+
     /// Route undo to the controller's stack, which now holds a typed
     /// inverse for every edit including typing.
     ///

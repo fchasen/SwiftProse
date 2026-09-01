@@ -241,5 +241,26 @@ final class HostedTypingTests: XCTestCase {
             .attribute(.font, at: heading.location - 2, effectiveRange: nil) as? NSFont
         XCTAssertEqual(font?.pointSize, h.controller.theme.bodyFont.pointSize)
     }
+
+    func testACancelledCompositionLeavesNoBaselineBehind() async throws {
+        let h = try host("Hello\n\nWorld\n")
+        h.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        h.textView.setMarkedText("z", selectedRange: NSRange(location: 1, length: 0),
+                                 replacementRange: NSRange(location: NSNotFound, length: 0))
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertNotNil(h.controller.compositionBaseline)
+
+        // Escape's shape: empty the marked range, then unmark.
+        h.textView.setMarkedText("", selectedRange: NSRange(location: 0, length: 0),
+                                 replacementRange: h.textView.markedRange())
+        h.textView.unmarkText()
+        try await Task.sleep(nanoseconds: 60_000_000)
+
+        // A baseline left open here is read as "already composing" by every
+        // later composition, which then commits against a dead range.
+        XCTAssertNil(h.controller.compositionBaseline)
+        XCTAssertEqual(h.controller.markdown(), "Hello\n\nWorld")
+    }
 }
 #endif

@@ -471,6 +471,13 @@ final class ProseNSTextView: NSTextView {
     /// so SwiftUI can tear down the text view without leaking the controller.
     weak var proseController: EditorController?
 
+    /// The only signal that a composition ended without committing —
+    /// Escape drops the marked text and nothing reaches storage after it.
+    override func unmarkText() {
+        super.unmarkText()
+        proseController?.compositionDidEnd()
+    }
+
     /// The shared Font panel is never used: styling comes from `ProseTheme`
     /// and mark commands, and nothing here implements `changeFont:`. Left
     /// armed, `setTypingAttributes:` calls this from inside AppKit's own

@@ -1,12 +1,29 @@
 {
-  "name" : "composition/composes-at-the-end-of-a-paragraph",
-  "tags" : ["composition", "ime"],
-  "intent" : "An IME commit at the end of a paragraph that is followed by another block does not append to that paragraph — it opens a new paragraph for the composed text and strands the caret on the blank line before it.",
-  "doc" : "Hello<|>\n\nWorld\n",
-  "ops" : [
-    { "op" : "compose", "interims" : ["z", "zh", "zhong"], "commit" : "中" }
+  "name": "composition/composes-at-the-end-of-a-paragraph",
+  "tags": [
+    "composition",
+    "ime"
   ],
-  "expect" : { "doc" : "Hello中<|>\n\nWorld\n", "blockKind" : "paragraph" },
-  "xfail" : "markdown mismatch",
-  "finally" : ["tier0", "projection", "markdownFixpoint"]
+  "intent": "An IME commit at the end of a paragraph that is followed by another block does not append to that paragraph — it opens a new paragraph for the composed text and strands the caret on the blank line before it.",
+  "doc": "Hello<|>\n\nWorld\n",
+  "ops": [
+    {
+      "op": "compose",
+      "interims": [
+        "z",
+        "zh",
+        "zhong"
+      ],
+      "commit": "中"
+    }
+  ],
+  "expect": {
+    "doc": "Hello中<|>\n\nWorld\n",
+    "blockKind": "paragraph"
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
 }
