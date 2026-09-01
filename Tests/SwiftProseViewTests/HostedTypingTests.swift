@@ -225,5 +225,21 @@ final class HostedTypingTests: XCTestCase {
         try await type("X", into: host.textView)
         XCTAssertEqual(host.controller.markdown(), "see [docs](https://example.com)X now")
     }
+
+    func testJoiningAHeadingIntoAParagraphDropsItsHeadingStyling() async throws {
+        let h = try host("introduction\n\n# Heading\n")
+        let heading = (h.controller.textStorage.string as NSString).range(of: "Heading")
+        h.textView.setSelectedRange(NSRange(location: heading.location, length: 0))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        for _ in 0..<2 {
+            h.textView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            try await Task.sleep(nanoseconds: 60_000_000)
+        }
+        // The heading's display bold must not come back as a literal mark.
+        XCTAssertEqual(h.controller.markdown(), "introductionHeading")
+        let font = h.controller.textStorage
+            .attribute(.font, at: heading.location - 2, effectiveRange: nil) as? NSFont
+        XCTAssertEqual(font?.pointSize, h.controller.theme.bodyFont.pointSize)
+    }
 }
 #endif

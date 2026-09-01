@@ -921,6 +921,14 @@ public final class EditorController {
             }
             return
         }
+        // Two block kinds on one line means a join pulled them together.
+        // Re-stamping the path alone leaves the losing half rendered as the
+        // block it came from — join a heading into a paragraph and its text
+        // stays heading-sized and bold, which `stampMarks` then reads back
+        // as a literal `strong` mark.
+        if tally.count > 1 {
+            restyleForeignRuns(in: line, winner: winner)
+        }
         let key = ObjectIdentifier(winner)
         // The multi-line exemption gates the whole re-stamp, not just the
         // `spansAnEarlierLine` half: a fence's second line finds its own box
@@ -970,6 +978,51 @@ public final class EditorController {
         if textStorage.blockSpec(at: line.location)?.isListItem != true {
             textStorage.removeAttribute(.proseListMarker, range: line)
         }
+    }
+
+    /// Re-render the runs on `line` that belong to a different block kind
+    /// than the one the line settled on, keeping each run's own marks.
+    ///
+    /// The block's base styling is read off a run that already belongs to
+    /// the winner and carries no marks — those characters were compiled for
+    /// this block, so they are the honest source. Only the block-level
+    /// attributes are overwritten: `addAttributes` merges, so a link or a
+    /// code span on a restyled run keeps the rest of its rendering.
+    private func restyleForeignRuns(in line: NSRange, winner: NodePathBox) {
+        guard let winnerKind = BlockSpec.fromNodePath(winner.path)?.kind else { return }
+        var base: [NSAttributedString.Key: Any]?
+        var foreign: [(range: NSRange, marks: MarkSet, isStyled: Bool)] = []
+        textStorage.enumerateAttributes(in: line, options: []) { attrs, runRange, _ in
+            let marks = (attrs[.proseMarks] as? MarkSetBox)?.marks ?? MarkSet()
+            guard let box = attrs[.proseNodePath] as? NodePathBox else { return }
+            if box === winner {
+                if base == nil, marks.isEmpty { base = attrs }
+                return
+            }
+            guard BlockSpec.fromNodePath(box.path)?.kind != winnerKind else { return }
+            let isStyled = attrs[.link] != nil || attrs[.proseLink] != nil
+                || attrs[.proseInline] != nil
+            foreign.append((runRange, marks, isStyled))
+        }
+        guard let base, !foreign.isEmpty else { return }
+        let baseFont = (base[.font] as? PlatformFont) ?? theme.bodyFont
+        for run in foreign {
+            var attrs: [NSAttributedString.Key: Any] = [.font: font(baseFont, with: run.marks)]
+            if let style = base[.paragraphStyle] { attrs[.paragraphStyle] = style }
+            if !run.isStyled, let color = base[.foregroundColor] {
+                attrs[.foregroundColor] = color
+            }
+            textStorage.addAttributes(attrs, range: run.range)
+        }
+    }
+
+    /// `base` with the font traits `marks` implies. The canonical mark set
+    /// is what decides, not the traits the run happens to carry.
+    private func font(_ base: PlatformFont, with marks: MarkSet) -> PlatformFont {
+        var font = marks.contains(type: "code") ? theme.monospaceFont : base
+        if marks.contains(type: "strong") { font = font.togglingProseTrait(.bold, enable: true) }
+        if marks.contains(type: "em") { font = font.togglingProseTrait(.italic, enable: true) }
+        return font
     }
 
     private func terminatorBox(of line: NSRange) -> NodePathBox? {
