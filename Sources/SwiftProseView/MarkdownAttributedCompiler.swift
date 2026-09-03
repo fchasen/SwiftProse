@@ -18,16 +18,22 @@ public final class MarkdownAttributedCompiler {
     /// supply one at init.
     public let schema: Schema
     public var codeBlockHighlighter: CodeBlockHighlighter?
+    public var inlineContentRules: [InlineContentRule]
+    public var inlineContentProvider: ProseInlineContentProvider?
 
     public init(
         codeBlockHighlighter: CodeBlockHighlighter? = nil,
-        schema: Schema = .defaultMarkdown
+        schema: Schema = .defaultMarkdown,
+        inlineContentRules: [InlineContentRule] = [],
+        inlineContentProvider: ProseInlineContentProvider? = nil
     ) throws {
         self.blockParser = try MarkdownParser(grammar: .block)
         self.inlineParser = try MarkdownParser(grammar: .inline)
         self.highlighter = try HighlightApplier()
         self.codeBlockHighlighter = codeBlockHighlighter
         self.schema = schema
+        self.inlineContentRules = inlineContentRules
+        self.inlineContentProvider = inlineContentProvider
     }
 
     public func compile(
@@ -252,6 +258,22 @@ public final class MarkdownAttributedCompiler {
                 stripRanges.append(NSRange(location: altEnd, length: imgEnd - altEnd))
             }
         }
+        let inlineContent = inlineContentMatches(
+            in: segRange,
+            source: nsSource,
+            inlineSpans: inlineSpans,
+            inlineRegions: inlineRegions,
+            markup: stripRanges
+        )
+        // Keep the match's first character as an anchor and strip the rest, so
+        // the later stamp is an equal-length replace and every projected offset
+        // computed from `stripped` stays valid.
+        for match in inlineContent {
+            stripRanges.append(NSRange(
+                location: match.sourceRange.location + 1,
+                length: match.sourceRange.length - 1
+            ))
+        }
         let strip = unionRanges(stripRanges)
 
         let stripped = stripCharacters(in: segRange, source: nsSource, stripping: strip)
@@ -387,6 +409,15 @@ public final class MarkdownAttributedCompiler {
 
         let blockBaseLength = out.length
         appendStyled(attributed, spec: BlockSpec(blockSegment: segment), into: out)
+        // Must run before `stampImageLeaves`, whose empty-alt branch inserts a
+        // character and invalidates every offset derived from `stripped`.
+        stampInlineContentLeaves(
+            in: out,
+            blockBase: blockBaseLength,
+            markerLen: markerLen,
+            stripped: stripped,
+            matches: inlineContent
+        )
         stampImageLeaves(
             in: out,
             blockBase: blockBaseLength,
@@ -404,6 +435,104 @@ public final class MarkdownAttributedCompiler {
     /// surrounding paragraph so the extended path keeps the paragraph's
     /// node id — letting the tree builder reattach the leaf to the same
     /// paragraph as the surrounding text.
+    private struct PendingInlineContent {
+        let sourceRange: NSRange
+        let kind: String
+        let raw: String
+        let attachment: NSTextAttachment
+    }
+
+    /// Runs the host's inline-content rules over one block's source range.
+    ///
+    /// A rule matches text, not markup: a match overlapping a code span, a
+    /// link, an image, markup this block already strips, or an earlier rule's
+    /// claim is skipped and its source stays visible. Anything else and the
+    /// leaf would end up owning characters that belong to something else, and
+    /// the source would not survive the round trip.
+    private func inlineContentMatches(
+        in segRange: NSRange,
+        source: NSString,
+        inlineSpans: [HighlightSpan],
+        inlineRegions: [InlineRegion],
+        markup: [NSRange]
+    ) -> [PendingInlineContent] {
+        guard !inlineContentRules.isEmpty, let provider = inlineContentProvider else { return [] }
+        let literalSpans = inlineSpans.filter { $0.tag == .textLiteral }
+        // A leaf inside a link label or an image's alt would lose its
+        // surrounding markup on the way back out, so those spans are off limits.
+        let excludedRegions = inlineRegions
+            .filter { rangesIntersect($0.range, segRange) }
+            .map(\.range)
+        var claimed: [NSRange] = []
+        var found: [PendingInlineContent] = []
+        for rule in inlineContentRules {
+            rule.regex.enumerateMatches(
+                in: source as String,
+                options: [],
+                range: segRange
+            ) { result, _, _ in
+                guard let result else { return }
+                let range = result.range
+                // A one-character match has no room for the anchor-plus-strip
+                // splice, and an empty match would loop.
+                guard range.length > 1 else { return }
+                guard !claimed.contains(where: { rangesIntersect($0, range) }) else { return }
+                guard !literalSpans.contains(where: { rangesIntersect($0.range, range) }) else { return }
+                guard !excludedRegions.contains(where: { rangesIntersect($0, range) }) else { return }
+                guard !markup.contains(where: { rangesIntersect($0, range) }) else { return }
+                var groups: [String?] = []
+                groups.reserveCapacity(result.numberOfRanges)
+                for index in 0..<result.numberOfRanges {
+                    let group = result.range(at: index)
+                    groups.append(group.location == NSNotFound ? nil : source.substring(with: group))
+                }
+                let raw = source.substring(with: range)
+                let match = InlineContentMatch(matched: raw, groups: groups)
+                guard let content = rule.content(match),
+                      let attachment = provider(content) else { return }
+                claimed.append(range)
+                found.append(PendingInlineContent(
+                    sourceRange: range,
+                    kind: content.kind,
+                    raw: raw,
+                    attachment: attachment
+                ))
+            }
+        }
+        return found
+    }
+
+    private func stampInlineContentLeaves(
+        in out: NSMutableAttributedString,
+        blockBase: Int,
+        markerLen: Int,
+        stripped: StripResult,
+        matches: [PendingInlineContent]
+    ) {
+        for match in matches {
+            let anchor = NSRange(location: match.sourceRange.location, length: 1)
+            guard let projected = stripped.project(sourceRange: anchor),
+                  projected.length == 1 else { continue }
+            let abs = NSRange(location: blockBase + markerLen + projected.location, length: 1)
+            guard abs.location >= 0, abs.location + abs.length <= out.length else { continue }
+            guard let basePath = out.nodePath(at: abs.location) else { continue }
+            var attrs = out.attributes(at: abs.location, effectiveRange: nil)
+            attrs[.attachment] = match.attachment
+            // `.proseListMarker` is the bullet/checkbox flag; on a non-list line
+            // it reads as a stranded marker and gets cut.
+            attrs.removeValue(forKey: .proseListMarker)
+            let node = ProseNode(type: InlineContentNode.type, attrs: [
+                InlineContentNode.kindAttr: .string(match.kind),
+                InlineContentNode.rawAttr: .string(match.raw)
+            ])
+            out.replaceCharacters(
+                in: abs,
+                with: NSAttributedString(string: "\u{FFFC}", attributes: attrs)
+            )
+            out.setNodePath(basePath.appending(node), in: abs)
+        }
+    }
+
     private func stampImageLeaves(
         in out: NSMutableAttributedString,
         blockBase: Int,
@@ -451,8 +580,14 @@ public final class MarkdownAttributedCompiler {
                 guard absLoc >= 0, absLoc <= out.length else { continue }
                 let probe = max(0, min(absLoc, out.length - 1))
                 guard out.length > 0,
-                      let basePath = out.nodePath(at: probe) else { continue }
-                let baseAttrs = out.attributes(at: probe, effectiveRange: nil)
+                      var basePath = out.nodePath(at: probe) else { continue }
+                var baseAttrs = out.attributes(at: probe, effectiveRange: nil)
+                // The probe can land on an inline-content attachment spliced
+                // just after the image. Its path and its glyph belong to it.
+                if InlineLeafRuns.isLiftable(basePath.leaf) {
+                    basePath = basePath.droppingLast()
+                    baseAttrs.removeValue(forKey: .attachment)
+                }
                 let extended = basePath.appending(imageNode)
                 let placeholder = NSAttributedString(
                     string: "\u{FFFC}",

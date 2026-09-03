@@ -237,9 +237,9 @@ public struct ProseMirrorCodec {
 
     private func appendTextblock(_ node: PMNode, spec: BlockSpec, into result: NSMutableAttributedString) {
         let line = NSMutableAttributedString()
-        // Image positions inside `line` (local coords) so the post-stamp
+        // Inline-leaf positions inside `line` (local coords) so the post-stamp
         // pass can replace their proseNodePath with the leaf-extended path.
-        var imagePositions: [(NSRange, [String: ProseAttrValue])] = []
+        var leafPositions: [(NSRange, String, [String: ProseAttrValue])] = []
         for child in node.content ?? [] {
             switch child.type {
             case "text":
@@ -263,7 +263,17 @@ public struct ProseMirrorCodec {
                 var imgAttrs: [String: ProseAttrValue] = ["src": .string(src)]
                 imgAttrs["alt"] = .string(alt)
                 imgAttrs["title"] = .string(title ?? "")
-                imagePositions.append((NSRange(location: before, length: line.length - before), imgAttrs))
+                leafPositions.append((NSRange(location: before, length: line.length - before), "image", imgAttrs))
+            case InlineContentNode.type:
+                // Decoded as its source, not as a placeholder: the codec has no
+                // access to the host's `inlineContentProvider`, and an
+                // attachment-less object-replacement character is an empty box
+                // nothing later repairs. The next compile collapses it.
+                let attrs = schemaMap.baseAttributes(for: spec, theme: theme)
+                let raw = child.attrs?[InlineContentNode.rawAttr]?.stringValue ?? ""
+                if !raw.isEmpty {
+                    line.append(NSAttributedString(string: raw, attributes: attrs))
+                }
             default:
                 continue
             }
@@ -283,7 +293,7 @@ public struct ProseMirrorCodec {
         let stampedLength = result.length - beforeLength
         if stampedLength > 0 {
             result.setBlockSpec(spec, in: NSRange(location: beforeLength, length: stampedLength))
-            for (localRange, imgAttrs) in imagePositions {
+            for (localRange, leafType, leafAttrs) in leafPositions {
                 let absRange = NSRange(
                     location: beforeLength + localRange.location,
                     length: localRange.length
@@ -291,9 +301,9 @@ public struct ProseMirrorCodec {
                 guard absRange.length > 0,
                       absRange.location + absRange.length <= result.length,
                       let basePath = result.nodePath(at: absRange.location) else { continue }
-                let imageNode = Schema.defaultMarkdown.nodeType("image")?.create(attrs: imgAttrs)
-                    ?? ProseNode(type: "image", attrs: imgAttrs)
-                let extended = basePath.appending(imageNode)
+                let leafNode = Schema.defaultMarkdown.nodeType(leafType)?.create(attrs: leafAttrs)
+                    ?? ProseNode(type: leafType, attrs: leafAttrs)
+                let extended = basePath.appending(leafNode)
                 result.setNodePath(extended, in: absRange)
             }
         }
@@ -560,6 +570,17 @@ public struct ProseMirrorCodec {
                     imgNode.marks = marks.marks.map { encodeMark($0) }
                 }
                 out.append(imgNode)
+            case .leaf(let pn, let marks) where pn.type == InlineContentNode.type:
+                var pmAttrs: [String: PMValue] = [:]
+                pmAttrs[InlineContentNode.kindAttr] =
+                    .string(pn.attrs[InlineContentNode.kindAttr]?.stringValue ?? "")
+                pmAttrs[InlineContentNode.rawAttr] =
+                    .string(pn.attrs[InlineContentNode.rawAttr]?.stringValue ?? "")
+                var contentNode = PMNode(type: InlineContentNode.type, attrs: pmAttrs)
+                if !marks.isEmpty {
+                    contentNode.marks = marks.marks.map { encodeMark($0) }
+                }
+                out.append(contentNode)
             case .leaf, .structural:
                 continue
             }

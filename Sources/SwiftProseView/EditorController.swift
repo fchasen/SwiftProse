@@ -24,6 +24,51 @@ public final class EditorController {
         }
     }
 
+    /// Host-supplied patterns whose matches the compiler collapses into a
+    /// single attachment character. Setting either these or
+    /// `inlineContentProvider` recompiles the document.
+    public var inlineContentRules: [InlineContentRule] = [] {
+        didSet { pushInlineContentConfiguration() }
+    }
+
+    public var inlineContentProvider: ProseInlineContentProvider? {
+        didSet { pushInlineContentConfiguration() }
+    }
+
+    private var isBatchingInlineContent = false
+
+    /// Set both halves in one shot — assigning them separately would compile
+    /// the document twice.
+    public func setInlineContent(
+        rules: [InlineContentRule],
+        provider: ProseInlineContentProvider?
+    ) {
+        isBatchingInlineContent = true
+        inlineContentRules = rules
+        inlineContentProvider = provider
+        isBatchingInlineContent = false
+        pushInlineContentConfiguration()
+    }
+
+    /// Both compilers must agree: the main one serves every `Step`, the
+    /// background one serves the async `setMarkdown` path. Configuring one
+    /// alone gives a token that renders on load and reverts on the next edit.
+    ///
+    /// The queue hop lands before `recompile()`'s own compile on the same
+    /// serial queue, so the recompile observes the new configuration.
+    private func pushInlineContentConfiguration() {
+        guard !isBatchingInlineContent else { return }
+        let rules = inlineContentRules
+        let provider = inlineContentProvider
+        compiler.inlineContentRules = rules
+        compiler.inlineContentProvider = provider
+        compileQueue.async { [backgroundCompiler] in
+            backgroundCompiler.inlineContentRules = rules
+            backgroundCompiler.inlineContentProvider = provider
+        }
+        recompile()
+    }
+
     /// Line-level segmentation of the current storage, derived on demand.
     ///
     /// O(document). Nothing in the editor reads this — it exists for hosts
@@ -345,13 +390,25 @@ public final class EditorController {
         commands: CommandRegistry = .makeDefault(),
         inputRules: InputRuleRunner = .makeDefault(),
         codeBlockHighlighter: CodeBlockHighlighter? = nil,
+        inlineContentRules: [InlineContentRule] = [],
+        inlineContentProvider: ProseInlineContentProvider? = nil,
         containerSize: CGSize = CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
     ) throws {
         self.theme = theme
         self.commands = commands
         self.inputRules = inputRules
-        self.compiler = try MarkdownAttributedCompiler(codeBlockHighlighter: codeBlockHighlighter)
-        self.backgroundCompiler = try MarkdownAttributedCompiler(codeBlockHighlighter: codeBlockHighlighter)
+        self.inlineContentRules = inlineContentRules
+        self.inlineContentProvider = inlineContentProvider
+        self.compiler = try MarkdownAttributedCompiler(
+            codeBlockHighlighter: codeBlockHighlighter,
+            inlineContentRules: inlineContentRules,
+            inlineContentProvider: inlineContentProvider
+        )
+        self.backgroundCompiler = try MarkdownAttributedCompiler(
+            codeBlockHighlighter: codeBlockHighlighter,
+            inlineContentRules: inlineContentRules,
+            inlineContentProvider: inlineContentProvider
+        )
         self.serializer = AttributedMarkdownSerializer()
         // Register the table view provider class once — TextKit 2 looks
         // up view providers by attachment file type, so the registration
@@ -917,13 +974,21 @@ public final class EditorController {
     private func normalizeLineAttributes(_ line: NSRange, claimed: inout Set<ObjectIdentifier>) {
         var tally: [ObjectIdentifier: (box: NodePathBox, weight: Int)] = [:]
         var unstamped: [NSRange] = []
+        // An inline-content leaf ends its path one level below the line's
+        // block. It is neither a candidate for the line's winning path nor a
+        // foreign block that dragged its styling in, so it sits out the
+        // election and is re-hung off the winner afterwards.
+        let captured = InlineLeafRuns.capture(in: textStorage, range: line)
+        let inlineLeafRuns = captured.leaves
         textStorage.enumerateAttribute(.proseNodePath, in: line) { value, runRange, _ in
             if let box = value as? NodePathBox {
+                guard !InlineLeafRuns.isLiftable(box.path.leaf) else { return }
                 tally[ObjectIdentifier(box), default: (box, 0)].weight += runRange.length
             } else {
                 unstamped.append(runRange)
             }
         }
+        unstamped.append(contentsOf: captured.demoted)
         // Ties are broken by the line terminator's node. A character
         // inserted into a line carries the *insertion point's* node
         // forward, which may belong to the block before it; the newline
@@ -947,6 +1012,7 @@ public final class EditorController {
             if let minted = textStorage.attribute(.proseNodePath, at: line.location, effectiveRange: nil) as? NodePathBox {
                 claimed.insert(ObjectIdentifier(minted))
             }
+            InlineLeafRuns.restamp(inlineLeafRuns, in: textStorage, lineRange: line)
             return
         }
         // Two block kinds on one line means a join pulled them together.
@@ -977,6 +1043,7 @@ public final class EditorController {
                 textStorage.addAttribute(.proseNodePath, value: winner, range: line)
             }
         }
+        InlineLeafRuns.restamp(inlineLeafRuns, in: textStorage, lineRange: line)
         // Inserted characters inherit the marks of the run before them;
         // there is nothing else they could reasonably belong to. PM
         // `ResolvedPos.marks()`: a mark that isn't inclusive ends with its
@@ -1518,7 +1585,7 @@ public final class EditorController {
     /// defining / isolating / allowed-marks semantics layer on top in
     /// follow-up work).
     @discardableResult
-    private func insertSlice(_ slice: Slice, replacing range: NSRange) -> Bool {
+    private func insertSlice(_ slice: Slice, replacing range: NSRange, label: String = "Paste") -> Bool {
         guard isEditable else { return false }
         guard !slice.isEmpty else { return false }
         let from = range.location
@@ -1526,9 +1593,30 @@ public final class EditorController {
         var transaction = Transaction(steps: [
             .replaceRange(from: from, to: to, slice: slice)
         ])
-        transaction.label = "Paste"
+        transaction.label = label
         _ = apply(transaction)
         return true
+    }
+
+    /// Insert markdown at the cursor, replacing the selection, compiled the
+    /// same way the document is — an `InlineContentRule` fires immediately, so
+    /// its source never shows as raw text waiting for another edit to
+    /// recompile. A single-paragraph fragment merges into the block the cursor
+    /// is in rather than starting one of its own.
+    @discardableResult
+    public func insertMarkdown(_ markdown: String, label: String = "Insert") -> Bool {
+        guard isEditable, !markdown.isEmpty else { return false }
+        drainPendingEnvelopes()
+        let compiled = compiler.compile(markdown, theme: theme)
+        let doc = ProseDocument.from(storage: compiled, schema: compiler.schema)
+        guard case .structural(_, let kids) = doc.root, !kids.isEmpty else { return false }
+        let slice: Slice
+        if kids.count == 1, let (inlineKids, depth) = Self.openTextblock(kids[0], depth: 1) {
+            slice = Slice(content: Fragment(inlineKids), openStart: depth, openEnd: depth)
+        } else {
+            slice = Slice(content: Fragment(kids), openStart: 0, openEnd: 0)
+        }
+        return insertSlice(slice, replacing: currentSelection, label: label)
     }
 
     /// Insert `event.text` as plain text. Code-block destinations keep
@@ -2446,7 +2534,14 @@ public final class EditorController {
         var attrs = theme.plainParagraphAttributes()
         if total > 0 {
             let probe = max(0, min(location, total - 1))
-            let raw = textStorage.safeAttributes(at: probe)
+            var raw = textStorage.safeAttributes(at: probe)
+            // The caret sitting just past an inline leaf probes the leaf's own
+            // character; typing there must not extend the leaf's path onto the
+            // new text.
+            if let box = raw[.proseNodePath] as? NodePathBox,
+               InlineLeafRuns.isLiftable(box.path.leaf) {
+                raw[.proseNodePath] = NodePathBox(box.path.droppingLast())
+            }
             // Carry forward only the paragraph-level attributes. Inline-only
             // flags (.proseListMarker, .proseInline, .attachment, .link,
             // .proseLink, .strikethroughStyle) deliberately do not appear in

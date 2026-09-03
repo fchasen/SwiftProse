@@ -16,6 +16,7 @@ public struct SwiftProseEditor: View {
     @Environment(\.proseConfiguration) private var configuration
     @Environment(\.proseTheme) private var theme
     @Environment(\.proseInlineContentProvider) private var inlineProvider
+    @Environment(\.proseInlineContentRules) private var inlineContentRules
     @Environment(\.proseControllerReady) private var onControllerReady
     @Environment(\.proseCodeBlockHighlighter) private var codeBlockHighlighter
     @Environment(\.isEnabled) private var isEnabled
@@ -68,9 +69,19 @@ public struct SwiftProseEditor: View {
             hosting.ensureController(
                 initialText: text,
                 theme: theme,
-                codeBlockHighlighter: codeBlockHighlighter
+                codeBlockHighlighter: codeBlockHighlighter,
+                inlineContentRules: inlineContentRules,
+                inlineContentProvider: inlineProvider
             )
             if let controller = hosting.controller {
+                // Ahead of `setMarkdown`, so an existing document's inline
+                // content renders on the first compile rather than waiting
+                // for an unrelated edit.
+                hosting.applyInlineContent(
+                    rules: inlineContentRules,
+                    provider: inlineProvider,
+                    to: controller
+                )
                 if controller.markdown() != text { controller.setMarkdown(text) }
                 controller.allowsCheckboxToggle = configuration.allowsCheckboxToggle
                 hosting.bindSelection(from: controller)
@@ -82,6 +93,16 @@ public struct SwiftProseEditor: View {
         }
         .onChange(of: theme) { _, newTheme in
             hosting.controller?.theme = newTheme
+        }
+        // Rules carry closures, so the array can't be Equatable; the ids are
+        // the observable projection.
+        .onChange(of: inlineContentRules.map(\.id)) { _, _ in
+            guard let controller = hosting.controller else { return }
+            hosting.applyInlineContent(
+                rules: inlineContentRules,
+                provider: inlineProvider,
+                to: controller
+            )
         }
     }
 
@@ -169,9 +190,9 @@ public struct SwiftProseEditor: View {
         guard !toolbar.isEmpty else { return nil }
         let textBinding = $text
         return { _, suggested in
-            var topLevel: [UIAction] = []
+            var topLevel: [UIMenuElement] = []
             var sections: [UIMenuElement] = []
-            var current: [UIAction] = []
+            var current: [UIMenuElement] = []
             func flush() {
                 if !current.isEmpty {
                     sections.append(UIMenu(title: "", options: .displayInline, children: current))
@@ -202,6 +223,24 @@ public struct SwiftProseEditor: View {
                         topLevel.append(action)
                     } else {
                         current.append(action)
+                    }
+                case .menu(_, let label, let symbol, let isTopLevel, let entries):
+                    let submenu = UIMenu(
+                        title: label,
+                        image: UIImage(systemName: symbol),
+                        children: entries.map { entry in
+                            UIAction(
+                                title: entry.title,
+                                image: entry.systemImage.flatMap { UIImage(systemName: $0) },
+                                handler: { _ in entry.action() }
+                            )
+                        }
+                    )
+                    if isTopLevel {
+                        flush()
+                        topLevel.append(submenu)
+                    } else {
+                        current.append(submenu)
                     }
                 case .divider, .spacer:
                     flush()
@@ -302,15 +341,32 @@ public final class ProseHosting: ObservableObject {
     func ensureController(
         initialText: String,
         theme: ProseTheme,
-        codeBlockHighlighter: CodeBlockHighlighter? = nil
+        codeBlockHighlighter: CodeBlockHighlighter? = nil,
+        inlineContentRules: [InlineContentRule] = [],
+        inlineContentProvider: ProseInlineContentProvider? = nil
     ) {
         if controller == nil {
             controller = try? EditorController(
                 initialMarkdown: initialText,
                 theme: theme,
-                codeBlockHighlighter: codeBlockHighlighter
+                codeBlockHighlighter: codeBlockHighlighter,
+                inlineContentRules: inlineContentRules,
+                inlineContentProvider: inlineContentProvider
             )
         }
+    }
+
+    /// Assigning either property recompiles, so skip the write when nothing
+    /// changed — `onAppear` runs on every re-entry into the view hierarchy.
+    func applyInlineContent(
+        rules: [InlineContentRule],
+        provider: ProseInlineContentProvider?,
+        to controller: EditorController
+    ) {
+        let sameRules = controller.inlineContentRules.map(\.id) == rules.map(\.id)
+        let sameProvider = (controller.inlineContentProvider == nil) == (provider == nil)
+        guard !sameRules || !sameProvider else { return }
+        controller.setInlineContent(rules: rules, provider: provider)
     }
 
     /// Wire the controller's selection + document callbacks so `selection`

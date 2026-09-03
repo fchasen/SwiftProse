@@ -25,8 +25,17 @@ final class HostedTypingTests: XCTestCase {
     }
 
     /// Mirrors `ProseTextViewMac.makeNSView`.
-    private func host(_ markdown: String) throws -> Host {
-        let controller = try EditorController(initialMarkdown: markdown, theme: .default)
+    private func host(
+        _ markdown: String,
+        inlineContentRules: [InlineContentRule] = [],
+        inlineContentProvider: ProseInlineContentProvider? = nil
+    ) throws -> Host {
+        let controller = try EditorController(
+            initialMarkdown: markdown,
+            theme: .default,
+            inlineContentRules: inlineContentRules,
+            inlineContentProvider: inlineContentProvider
+        )
         let representable = ProseTextViewMac(controller: controller, text: .constant(markdown))
         let coordinator = representable.makeCoordinator()
         let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
@@ -75,6 +84,55 @@ final class HostedTypingTests: XCTestCase {
             return true
         }
         return count
+    }
+
+    private func navHost(_ markdown: String) throws -> Host {
+        let rule = InlineContentRule(
+            id: "nav",
+            pattern: #"\{nav(?:\s+|\s*,\s*)icon=([A-Za-z0-9_\-]+)\s*,\s*name=([^}\n]*)\}"#
+        ) { match in
+            guard let icon = match.capture(1), let name = match.capture(2) else { return nil }
+            return .custom(kind: "navLabel", label: name, systemImage: icon)
+        }
+        return try host(
+            markdown,
+            inlineContentRules: [rule],
+            inlineContentProvider: { _ in NSTextAttachment() }
+        )
+    }
+
+    /// One `\u{FFFC}` is one character, so AppKit's own delete takes the
+    /// whole token — no `.proseListMarker`-style special case.
+    func testBackspaceRemovesAWholeInlineContentUnit() async throws {
+        let h = try navHost("{nav,  icon=sticky-note, name=note:} looks good\n")
+        XCTAssertEqual(h.controller.textStorage.string, "\u{FFFC} looks good\n")
+        h.textView.setSelectedRange(NSRange(location: 1, length: 0))
+        h.textView.deleteBackward(nil)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(h.controller.markdown(), " looks good")
+    }
+
+    func testTypingBesideAnInlineContentIconKeepsTheSource() async throws {
+        let h = try navHost("{nav,  icon=sticky-note, name=note:} looks good\n")
+        h.textView.setSelectedRange(NSRange(location: 1, length: 0))
+        try await type("!", into: h.textView)
+        XCTAssertEqual(
+            h.controller.markdown(),
+            "{nav,  icon=sticky-note, name=note:}! looks good"
+        )
+    }
+
+    func testUndoAfterEditingBesideAnIconRestoresTheSource() async throws {
+        let source = "{nav,  icon=sticky-note, name=note:} looks good\n"
+        let h = try navHost(source)
+        // End of the paragraph's text, before its terminator.
+        let end = (h.controller.textStorage.string as NSString).range(of: "\n").location
+        h.textView.setSelectedRange(NSRange(location: end, length: 0))
+        try await type("!", into: h.textView)
+        XCTAssertEqual(h.controller.markdown(), "{nav,  icon=sticky-note, name=note:} looks good!")
+        h.controller.undoManager.undo()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(h.controller.markdown(), "{nav,  icon=sticky-note, name=note:} looks good")
     }
 
     func testTypedCharactersLandInStorageAndLayout() async throws {

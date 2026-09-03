@@ -438,12 +438,21 @@ private func leafNode(for kind: BlockSpec.Kind, schema: Schema) -> ProseNode {
 // MARK: - NodePath → BlockSpec derivation
 
 public extension BlockSpec {
+    /// Node types that end an inline leaf's path. A `BlockSpec` describes the
+    /// enclosing block, so a path ending in one of these resolves to its
+    /// parent's spec rather than to no spec at all.
+    static let inlineLeafTypes: Set<String> = ["image", "hard_break", "inline_content"]
+
     /// Derive a `BlockSpec` view from a `NodePath`. The leaf node type
     /// determines `kind` (and any leaf attrs map back to the spec's
     /// per-kind associated values); blockquote ancestors count toward
     /// `blockquoteDepth`; list/list_item pair count toward `listLevel`.
     /// Returns `nil` for paths whose leaf isn't a known block type.
     static func fromNodePath(_ path: NodePath) -> BlockSpec? {
+        // An inline leaf hangs off its block; the spec is the block's.
+        if let last = path.leaf, BlockSpec.inlineLeafTypes.contains(last.type) {
+            return fromNodePath(path.droppingLast())
+        }
         guard let leaf = path.leaf else { return nil }
         let depth = path.nodes.reduce(0) { $0 + ($1.type == "blockquote" ? 1 : 0) }
         let listPairs = path.nodes.reduce(0) { acc, node in

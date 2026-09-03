@@ -123,6 +123,13 @@ public struct DOMSerializer {
             if !alt.isEmpty { attrs += " alt=\"\(escapeAttr(alt))\"" }
             if !title.isEmpty { attrs += " title=\"\(escapeAttr(title))\"" }
             return "<img \(attrs)>"
+        case InlineContentNode.type:
+            let kind = pn.attrs[InlineContentNode.kindAttr]?.stringValue ?? ""
+            let raw = pn.attrs[InlineContentNode.rawAttr]?.stringValue ?? ""
+            // `raw` rides an attribute, not the text node: HTML collapses
+            // whitespace in text, and the source has to come back byte-exact.
+            return "<span data-prose-leaf=\"inline_content\" data-kind=\"\(escapeAttr(kind))\""
+                + " data-raw=\"\(escapeAttr(raw))\">\(escapeText(raw))</span>"
         default:
             return "<span data-prose-leaf=\"\(escapeAttr(pn.type))\"></span>"
         }

@@ -229,7 +229,8 @@ public enum Step {
         return kids.allSatisfy { node in
             switch node {
             case .inline: return true
-            case .leaf(let pn, _): return pn.type == "hard_break" || pn.type == "image"
+            case .leaf(let pn, _):
+                return pn.type == "hard_break" || pn.type == "image" || pn.type == InlineContentNode.type
             case .structural: return false
             }
         }
@@ -585,6 +586,11 @@ public enum Step {
         guard safe.length > 0 else { return }
         var pairs: [(NSRange, BlockSpec)] = []
         storage.enumerateNodePaths(in: safe) { runRange, path in
+            // An inline leaf's run belongs to the block around it. Minting a
+            // block node over it would drop the leaf, and with it whatever the
+            // leaf's attrs are the only record of.
+            guard let leaf = path.leaf,
+                  !BlockSpec.inlineLeafTypes.contains(leaf.type) else { return }
             if let spec = BlockSpec.fromNodePath(path) {
                 pairs.append((runRange, spec))
             }
@@ -650,16 +656,23 @@ public enum Step {
         while cursor < end {
             let line = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
             guard line.length > 0 else { break }
+            // An inline-content leaf is a second path on the line by design,
+            // and it is never the line's block — it sits out the election and
+            // is re-hung off the winner. Characters sharing its run are not
+            // part of it and must take the winner too.
+            let captured = InlineLeafRuns.capture(in: storage, range: line)
             var tally: [ObjectIdentifier: (box: NodePathBox, weight: Int)] = [:]
             storage.enumerateAttribute(.proseNodePath, in: line) { value, runRange, _ in
                 guard let box = value as? NodePathBox else { return }
+                guard !InlineLeafRuns.isLiftable(box.path.leaf) else { return }
                 let key = ObjectIdentifier(box)
                 tally[key, default: (box, 0)].weight += runRange.length
             }
-            if tally.count > 1,
+            if tally.count > 1 || !captured.demoted.isEmpty,
                let winner = tally.values.max(by: { $0.weight < $1.weight })?.box {
                 storage.addAttribute(.proseNodePath, value: winner, range: line)
             }
+            InlineLeafRuns.restamp(captured.leaves, in: storage, lineRange: line)
             let next = line.location + line.length
             cursor = next > cursor ? next : cursor + 1
         }
@@ -685,6 +698,10 @@ public enum Step {
         storage.replaceCharacters(in: safe, with: newAttr)
         let mappedRange = NSRange(location: safe.location, length: newAttr.length)
         Step.restampPredecessorContext(in: storage, range: mappedRange)
+        // `restampPredecessorContext` mints a block node per path run, and an
+        // inline leaf is a run of its own — without this the re-specced line
+        // reads back as two blocks.
+        Step.unifyLineNodePaths(in: storage, range: mappedRange)
         storage.endEditing()
 
         // Typed inverse: setSpec back to whatever spec the line carried

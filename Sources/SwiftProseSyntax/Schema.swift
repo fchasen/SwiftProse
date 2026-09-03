@@ -410,7 +410,7 @@ private func makeDefaultMarkdownSchema() -> Schema {
         "link_reference",
         "table"
     ]
-    let inlineChildren: Set<String> = ["text", "hard_break", "image"]
+    let inlineChildren: Set<String> = ["text", "hard_break", "image", "inline_content"]
     let listItemChildren: Set<String> = [
         "paragraph",
         "bullet_list",
@@ -560,6 +560,15 @@ private func makeDefaultMarkdownSchema() -> Schema {
                     AttrSpec("title", defaultValue: .string(""))
                 ],
                 draggable: true
+            ),
+            NodeType(
+                name: "inline_content",
+                group: "inline",
+                isLeaf: true,
+                attrs: [
+                    AttrSpec("kind", defaultValue: .string("")),
+                    AttrSpec("raw", defaultValue: .string(""))
+                ]
             )
         ],
         markTypes: [

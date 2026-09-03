@@ -386,7 +386,13 @@ public extension ProseDocument {
                     accumulated.append(ns.substring(with: NSRange(location: cursor, length: segEnd - cursor)))
                     cursor = segEnd
                 }
-                let text = stripTrailingNewlines(accumulated)
+                // Strip only the newline that terminates the block. An inline
+                // leaf splits one block into several `proseNodePath` runs, and
+                // a run that stops at the leaf still has the rest of its
+                // paragraph after it.
+                let text = blockContinuesAfter(blockRange, path: blockPath, in: storage, schema: schema)
+                    ? accumulated
+                    : stripTrailingNewlines(accumulated)
                 if text.isEmpty { return }
                 openTo(parent: blockPath, at: blockRange.location, stack: &stack, openPath: &openPath)
                 append(
@@ -559,6 +565,27 @@ public extension ProseDocument {
             return true
         }
         return false
+    }
+
+    /// True when the character after `range` still belongs to the same block —
+    /// which happens when an inline leaf splits one block into several
+    /// `proseNodePath` runs.
+    private static func blockContinuesAfter(
+        _ range: NSRange,
+        path: NodePath,
+        in storage: NSAttributedString,
+        schema: Schema
+    ) -> Bool {
+        let next = NSMaxRange(range)
+        guard next < storage.length,
+              let ownBlock = path.leaf,
+              var following = storage.nodePath(at: next) else { return false }
+        if let leaf = following.leaf,
+           let type = schema.nodeType(leaf.type),
+           type.isLeaf, type.isInline {
+            following = following.droppingLast()
+        }
+        return following.leaf?.id == ownBlock.id
     }
 
     private static func stripTrailingNewlines(_ s: String) -> String {

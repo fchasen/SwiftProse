@@ -140,6 +140,7 @@ public struct PlainTextSerializer {
             switch pn.type {
             case "hard_break": return "\n"
             case "image": return pn.attrs["alt"]?.stringValue ?? ""
+            case InlineContentNode.type: return pn.attrs[InlineContentNode.rawAttr]?.stringValue ?? ""
             default: return ""
             }
         case .structural(_, let kids):

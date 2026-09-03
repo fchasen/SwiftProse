@@ -12,6 +12,30 @@ extension SwiftProseEditor {
         case divider
         case spacer
         case custom(id: String, label: String, systemImage: String, shortcut: KeyboardShortcut? = nil, topLevel: Bool = false, action: () -> Void)
+        /// A pull-down of related one-shot actions — a label picker, a table
+        /// of symbols. No `shortcut:`: SwiftUI keyboard shortcuts are
+        /// window-scoped and would fire in every editor in the scene.
+        case menu(id: String, label: String, systemImage: String, topLevel: Bool = false, entries: [MenuEntry])
+    }
+
+    /// One row inside a `.menu` toolbar item.
+    public struct MenuEntry {
+        public var id: String
+        public var title: String
+        public var systemImage: String?
+        public var action: () -> Void
+
+        public init(
+            id: String,
+            title: String,
+            systemImage: String? = nil,
+            action: @escaping () -> Void
+        ) {
+            self.id = id
+            self.title = title
+            self.systemImage = systemImage
+            self.action = action
+        }
     }
 
     public enum StatusItem: Sendable {

@@ -70,7 +70,8 @@ public struct DOMParser {
     private func isInlineLike(_ node: TreeNode) -> Bool {
         switch node {
         case .inline: return true
-        case .leaf(let pn, _): return pn.type == "hard_break" || pn.type == "image"
+        case .leaf(let pn, _):
+            return pn.type == "hard_break" || pn.type == "image" || pn.type == InlineContentNode.type
         case .structural: return false
         }
     }
@@ -253,6 +254,7 @@ public struct DOMParser {
         /// Whitespace handling: collapse runs of inter-tag whitespace
         /// (newlines, repeated spaces) per HTML's text model.
         var lastEmittedWasWhitespace: Bool = true
+        var suppressedTextDepth: Int = 0
 
         struct BlockFrame {
             let node: ProseNode?
@@ -352,6 +354,15 @@ public struct DOMParser {
             case "th":
                 let align = parseAlign(attrs["style"])
                 pushBlock(kind: .tableCell(align: align, header: true), node: ProseNode(type: "table_header", attrs: ["align": .string(align)]))
+            case "span" where attrs["data-prose-leaf"] == "inline_content":
+                let node = ProseNode(type: InlineContentNode.type, attrs: [
+                    InlineContentNode.kindAttr: .string(attrs["data-kind"] ?? ""),
+                    InlineContentNode.rawAttr: .string(attrs["data-raw"] ?? "")
+                ])
+                appendInline(.leaf(node, MarkSet(markStack)))
+                // The text node repeats `raw` for anything that can't read the
+                // attribute; here it would double the token.
+                suppressedTextDepth += 1
             case "div", "span", "section", "article", "main", "body", "html", "head", "tbody", "thead", "tfoot":
                 // Transparent — children flow into the current block.
                 break
@@ -362,6 +373,10 @@ public struct DOMParser {
         }
 
         private mutating func handleClose(tag: String) {
+            if tag == "span", suppressedTextDepth > 0 {
+                suppressedTextDepth -= 1
+                return
+            }
             switch tag {
             case "p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote",
                  "ul", "ol", "li", "table", "tr", "td", "th":
@@ -399,6 +414,7 @@ public struct DOMParser {
         }
 
         private mutating func handleText(_ text: String) {
+            if suppressedTextDepth > 0 { return }
             if inCodeBlock {
                 codeBlockText.append(text)
                 return

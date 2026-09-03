@@ -52,7 +52,8 @@ public struct MarkdownTreeSerializer {
     private func isInlineLike(_ node: TreeNode) -> Bool {
         switch node {
         case .inline: return true
-        case .leaf(let pn, _): return pn.type == "hard_break" || pn.type == "image"
+        case .leaf(let pn, _):
+            return pn.type == "hard_break" || pn.type == "image" || pn.type == InlineContentNode.type
         case .structural: return false
         }
     }
@@ -456,6 +457,9 @@ public struct MarkdownTreeSerializer {
                 result.append("  \n")
             case .leaf(let node, let marks) where node.type == "image":
                 result.append(emitImage(node, marks: marks))
+            case .leaf(let node, let marks) where node.type == InlineContentNode.type:
+                let raw = node.attrs[InlineContentNode.rawAttr]?.stringValue ?? ""
+                result.append(marks.isEmpty ? raw : emitInline(text: raw, marks: marks))
             case .leaf:
                 continue
             case .structural:

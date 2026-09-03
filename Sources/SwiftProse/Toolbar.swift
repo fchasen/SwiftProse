@@ -75,6 +75,8 @@ struct ProseToolbar: View {
                 isActive: false,
                 action: customPerform
             )
+        case let .menu(_, label, symbol, _, entries):
+            ToolbarMenuButton(systemImage: symbol, help: label, entries: entries)
         case .divider, .spacer:
             EmptyView()
         }
@@ -175,6 +177,33 @@ private func makeGroups(from items: [SwiftProseEditor.ToolbarItem]) -> [ToolbarG
     }
     flush()
     return groups
+}
+
+private struct ToolbarMenuButton: View {
+    let systemImage: String
+    let help: String
+    let entries: [SwiftProseEditor.MenuEntry]
+
+    var body: some View {
+        Menu {
+            ForEach(entries.indices, id: \.self) { i in
+                let entry = entries[i]
+                Button(action: entry.action) {
+                    if let symbol = entry.systemImage {
+                        Label(entry.title, systemImage: symbol)
+                    } else {
+                        Text(entry.title)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: systemImage)
+                .frame(width: ToolbarButtonMetrics.width, height: ToolbarButtonMetrics.height)
+        }
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(help)
+    }
 }
 
 private struct ToolbarActionButton: View {

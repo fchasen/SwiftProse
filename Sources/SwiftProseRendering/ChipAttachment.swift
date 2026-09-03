@@ -28,6 +28,9 @@ public enum ChipAttachment {
         case let .searchfoxLink(_, l, sym):
             label = sym ?? l
             symbolName = "magnifyingglass"
+        case let .custom(_, l, systemImage):
+            label = l
+            symbolName = systemImage
         }
 
         let attachment = ChipTextAttachment()

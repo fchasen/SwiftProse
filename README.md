@@ -68,7 +68,7 @@ SwiftProseEditor(text: $text)
     ))
 ```
 
-- **Toolbar** — `.action(...)`, `.divider`, `.spacer`, or `.custom(...)`. The default toolbar covers bold / italic / strikethrough, H1–H3, lists, blockquote, code span / block, link, and horizontal rule.
+- **Toolbar** — `.action(...)`, `.divider`, `.spacer`, `.custom(...)`, or `.menu(...)`. The default toolbar covers bold / italic / strikethrough, H1–H3, lists, blockquote, code span / block, link, and horizontal rule. `.menu` renders a pull-down of `MenuEntry` rows — a `Menu` on macOS, a nested `UIMenu` in the iOS edit menu, where `topLevel: true` hoists it out of the "Format" submenu.
 - **Status bar** — `.words`, `.characters`, `.cursor` (line:column).
 - **Sizing** — `.fitsContent` (height tracks content from `minHeight`) or `.fillContainer` (fixed height, scrolls internally).
 - **Context menu** — append `ContextMenuItem`s to the platform edit menu.
@@ -121,14 +121,28 @@ Bare fences (` ``` ` with no info string) trigger language detection — the bod
 
 ## Inline content (chips, mentions)
 
-Map host-level rich content (`URL`, bug ID, user mention, etc.) to a `ProseInlineContent` and the editor draws it as a SwiftUI-styled chip:
+An `InlineContentRule` names a pattern in the markdown source; the compiler removes the matched characters from the displayed text and splices one attachment in their place. The `.inlineContentProvider(_:)` closure turns the `ProseInlineContent` a rule produced into that attachment — `ChipAttachment.make(for:)` draws the built-in pill, or return your own `NSTextAttachment`.
 
 ```swift
 SwiftProseEditor(text: $text)
+    .inlineContentRules([
+        InlineContentRule(id: "bug", pattern: #"\bbug (\d+)\b"#) { match in
+            guard let id = match.capture(1).flatMap(Int.init) else { return nil }
+            return .bugLink(id: id, label: "bug \(id)")
+        }
+    ])
     .inlineContentProvider { content in
         ChipAttachment.make(for: content)
     }
 ```
+
+`ProseInlineContent` covers URLs, bug links, user mentions and Searchfox links; `.custom(kind:label:systemImage:)` carries anything else. Returning `nil` from either closure declines the match and leaves the source visible.
+
+The rules run inside the compiler, not as a plugin, so content renders on `setMarkdown` — a document loaded from the host shows its chips immediately, with no intervening edit.
+
+Round-tripping is byte-exact. The spliced character carries an `inline_content` leaf whose `raw` attr holds the matched source verbatim, and the serializer re-emits it unchanged; the leaf is one character, so Backspace takes the whole unit.
+
+A rule matches text, not markup. A match that overlaps a code span, a link, an image, or any markup the block strips for itself — a list marker, a heading's `#`, an emphasis delimiter — is declined and its source stays visible, rather than leaving the leaf owning characters that belong to something else. Write the pattern to cover the token alone; a leading `\s?` will make it decline inside a list item.
 
 ## Reading and writing markdown
 

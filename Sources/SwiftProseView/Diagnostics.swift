@@ -68,7 +68,7 @@ public enum SpecValidator {
     /// — end their path at that node, and `BlockSpec` has no case for it.
     /// Same reason isolating leaves are skipped: the missing spec says
     /// nothing about the buffer's health.
-    private static let inlineLeafTypes: Set<String> = ["image", "hard_break"]
+    private static let inlineLeafTypes: Set<String> = ["image", "hard_break", InlineContentNode.type]
 
     static func isUnderInlineLeaf(in storage: NSAttributedString, at index: Int) -> Bool {
         guard let leaf = storage.nodePath(at: index)?.leaf else { return false }

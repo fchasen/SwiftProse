@@ -15,7 +15,11 @@ private struct ConfigurationKey: EnvironmentKey {
 }
 
 private struct InlineContentProviderKey: EnvironmentKey {
-    static let defaultValue: ((ProseInlineContent) -> NSTextAttachment?)? = nil
+    static let defaultValue: ProseInlineContentProvider? = nil
+}
+
+private struct InlineContentRulesKey: EnvironmentKey {
+    static let defaultValue: [InlineContentRule] = []
 }
 
 private struct ControllerReadyKey: EnvironmentKey {
@@ -37,9 +41,14 @@ extension EnvironmentValues {
         set { self[ConfigurationKey.self] = newValue }
     }
 
-    public var proseInlineContentProvider: ((ProseInlineContent) -> NSTextAttachment?)? {
+    public var proseInlineContentProvider: ProseInlineContentProvider? {
         get { self[InlineContentProviderKey.self] }
         set { self[InlineContentProviderKey.self] = newValue }
+    }
+
+    public var proseInlineContentRules: [InlineContentRule] {
+        get { self[InlineContentRulesKey.self] }
+        set { self[InlineContentRulesKey.self] = newValue }
     }
 
     public var proseControllerReady: ((EditorController) -> Void)? {
@@ -62,10 +71,23 @@ extension View {
         environment(\.proseConfiguration, configuration)
     }
 
+    /// Render the content an `InlineContentRule` matched. Returning `nil`
+    /// leaves the matched source visible, so a host can decline a match it
+    /// doesn't recognise.
+    ///
+    /// Called on the compile queue as well as the main thread — build the
+    /// attachment here and draw it lazily from
+    /// `image(forBounds:textContainer:characterIndex:)`.
     public func inlineContentProvider(
-        _ provider: @escaping (ProseInlineContent) -> NSTextAttachment?
+        _ provider: @escaping ProseInlineContentProvider
     ) -> some View {
         environment(\.proseInlineContentProvider, provider)
+    }
+
+    /// Patterns the compiler collapses into inline content. Pairs with
+    /// `.inlineContentProvider(_:)`; without a provider the rules never fire.
+    public func inlineContentRules(_ rules: [InlineContentRule]) -> some View {
+        environment(\.proseInlineContentRules, rules)
     }
 
     /// Receive the live `EditorController` once the editor finishes setup.

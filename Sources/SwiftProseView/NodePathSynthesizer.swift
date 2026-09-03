@@ -39,8 +39,14 @@ public struct NodePathSynthesizer {
         storage.enumerateNodePaths(in: range) { blockRange, path in
             let intersection = NSIntersectionRange(blockRange, range)
             guard intersection.length > 0 else { return }
-            let leafType = path.leaf?.type ?? "paragraph"
-            stampMarks(in: storage, blockRange: intersection, leafType: leafType)
+            // An inline leaf's own type says nothing about the block's base
+            // styling; read through to the block or a heading's bold font
+            // comes back as a literal `strong` mark on the leaf.
+            var block = path.leaf
+            if let leaf = block, BlockSpec.inlineLeafTypes.contains(leaf.type) {
+                block = path.droppingLast().leaf
+            }
+            stampMarks(in: storage, blockRange: intersection, leafType: block?.type ?? "paragraph")
         }
         storage.endEditing()
     }
