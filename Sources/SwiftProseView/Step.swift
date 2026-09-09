@@ -1354,7 +1354,8 @@ public enum Step {
         case "strike":
             storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
         case "code":
-            storage.addAttribute(.font, value: theme.monospaceFont, range: range)
+            let base = Step.blockBaseFont(in: storage, at: range.location, theme: theme)
+            storage.addAttribute(.font, value: Step.monospace(matching: base), range: range)
             storage.addAttribute(.proseInline, value: InlineTag.codeSpan, range: range)
         case "link":
             storage.addAttribute(.foregroundColor, value: theme.linkColor, range: range)
@@ -1382,8 +1383,11 @@ public enum Step {
             storage.removeAttribute(.strikethroughStyle, range: range)
         case "code":
             storage.removeAttribute(.proseInline, range: range)
-            // Restore body font on the run.
-            storage.addAttribute(.font, value: theme.bodyFont, range: range)
+            storage.addAttribute(
+                .font,
+                value: Step.blockBaseFont(in: storage, at: range.location, theme: theme),
+                range: range
+            )
         case "link":
             storage.removeAttribute(.proseInline, range: range)
             storage.removeAttribute(.proseLink, range: range)
@@ -1391,6 +1395,33 @@ public enum Step {
             storage.addAttribute(.foregroundColor, value: theme.foregroundColor, range: range)
         default: break
         }
+    }
+
+    /// The font the compiler lays down for the block at `location` before
+    /// inline styling. A code span derives from it, so one inside a heading
+    /// is heading-sized, and removing `code` goes back to it.
+    static func blockBaseFont(
+        in storage: NSTextStorage,
+        at location: Int,
+        theme: ProseTheme
+    ) -> PlatformFont {
+        guard location >= 0,
+              location < storage.length,
+              let spec = storage.blockSpec(at: location) else { return theme.bodyFont }
+        if case .heading(let level) = spec.kind { return theme.headingFont(level: level) }
+        return theme.bodyFont
+    }
+
+    /// Monospace at the base run's size, semibold when the base is bold.
+    /// Mirrors the compiler's `mergedStyleFont` so a typed code span and a
+    /// compiled one carry the same font.
+    static func monospace(matching base: PlatformFont) -> PlatformFont {
+        let weight: PlatformFont.Weight = base.proseTraits.contains(.bold) ? .semibold : .regular
+        #if canImport(AppKit) && os(macOS)
+        return NSFont.monospacedSystemFont(ofSize: base.pointSize, weight: weight)
+        #else
+        return UIFont.monospacedSystemFont(ofSize: base.pointSize, weight: weight)
+        #endif
     }
 
     private func stampFontTrait(

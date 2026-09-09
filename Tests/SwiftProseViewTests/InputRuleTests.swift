@@ -735,6 +735,58 @@ import UIKit
 
     // MARK: - helpers
 
+    /// A typed code span derives its font from the block's base run, the
+    /// way the compiler does. In a heading that is heading-sized and bold;
+    /// the whole-line recompile used to get this free from the compiler.
+    @Test func typedCodeSpanInAHeadingKeepsTheHeadingFont() throws {
+        let theme = ProseTheme.default
+        let controller = try EditorController(initialMarkdown: "# Title code end\n", theme: theme)
+        wrapInBackticks("code", in: controller)
+        let at = (controller.textStorage.string as NSString).range(of: "code").location
+        let font = try #require(
+            controller.textStorage.attribute(.font, at: at, effectiveRange: nil) as? PlatformFont
+        )
+        let expected = theme.bodyFont.pointSize * (theme.headingScale[1] ?? 1.0)
+        #expect(font.isMonospace, "got \(font.fontName)")
+        #expect(abs(font.pointSize - expected) < 0.01,
+                "expected heading size \(expected), got \(font.pointSize)")
+        let compiled = try EditorController(initialMarkdown: "# Title `code` end\n", theme: theme)
+        let compiledFont = try #require(
+            compiled.textStorage.attribute(
+                .font,
+                at: (compiled.textStorage.string as NSString).range(of: "code").location,
+                effectiveRange: nil
+            ) as? PlatformFont
+        )
+        #expect(font.pointSize == compiledFont.pointSize,
+                "typed \(font.pointSize) vs compiled \(compiledFont.pointSize)")
+        #expect(font.fontName == compiledFont.fontName,
+                "typed \(font.fontName) vs compiled \(compiledFont.fontName)")
+    }
+
+    /// Undoing the rule restores the heading's own font, not the body font.
+    @Test func undoOfACodeSpanInAHeadingRestoresTheHeadingFont() throws {
+        let theme = ProseTheme.default
+        let controller = try EditorController(initialMarkdown: "# Title code end\n", theme: theme)
+        let before = try #require(
+            controller.textStorage.attribute(
+                .font,
+                at: (controller.textStorage.string as NSString).range(of: "code").location,
+                effectiveRange: nil
+            ) as? PlatformFont
+        )
+        wrapInBackticks("code", in: controller)
+        undoToTheBottom(controller)
+        let at = (controller.textStorage.string as NSString).range(of: "code").location
+        let after = try #require(
+            controller.textStorage.attribute(.font, at: at, effectiveRange: nil) as? PlatformFont
+        )
+        #expect(after.pointSize == before.pointSize,
+                "expected \(before.pointSize) back, got \(after.pointSize)")
+        #expect(after.fontName == before.fontName,
+                "expected \(before.fontName) back, got \(after.fontName)")
+    }
+
     private func marks(in controller: EditorController, at location: Int) -> [MarkType.Name] {
         let box = controller.textStorage.safeAttribute(.proseMarks, at: location) as? MarkSetBox
         return (box?.marks.marks ?? []).map(\.type)
