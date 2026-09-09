@@ -4,7 +4,7 @@
     "inputrules",
     "marks"
   ],
-  "intent": "Closing a backtick pair recompiles the line so the inner run carries the code mark.",
+  "intent": "Closing a backtick pair deletes the two delimiters and marks the run between them as code.",
   "doc": "",
   "ops": [
     {

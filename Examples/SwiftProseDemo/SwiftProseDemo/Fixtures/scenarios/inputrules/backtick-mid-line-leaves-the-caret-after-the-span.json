@@ -1,0 +1,31 @@
+{
+  "name": "inputrules/backtick-mid-line-leaves-the-caret-after-the-span",
+  "tags": [
+    "inputrules",
+    "marks"
+  ],
+  "intent": "An inline rule fired mid-line leaves the caret immediately after the span it styled, not at the end of the line.",
+  "doc": "alpha <|>beta gamma\n",
+  "ops": [
+    {
+      "op": "type",
+      "text": "`x`"
+    }
+  ],
+  "expect": {
+    "doc": "alpha `x`beta gamma\n",
+    "selection": [
+      7,
+      0
+    ],
+    "blockKind": "paragraph",
+    "marks": [
+      "code"
+    ]
+  },
+  "finally": [
+    "tier0",
+    "projection",
+    "markdownFixpoint"
+  ]
+}

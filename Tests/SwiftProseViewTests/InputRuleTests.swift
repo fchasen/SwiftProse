@@ -346,6 +346,237 @@ import UIKit
     }
     #endif
 
+    // MARK: - controller integration: inline rules, mid-line
+
+    /// The delimiters are deleted and the capture is marked; nothing else
+    /// on the line is re-rendered.
+    @Test func inlineRulesMidLineMarkTheCaptureAndConsumeTheDelimiters() throws {
+        let cases: [(trigger: String, mark: String, markdown: String)] = [
+            ("**x**", "strong", "alpha **x**beta gamma"),
+            ("*x*", "em", "alpha *x*beta gamma"),
+            ("~~x~~", "strike", "alpha ~~x~~beta gamma"),
+            ("`x`", "code", "alpha `x`beta gamma")
+        ]
+        for (trigger, mark, markdown) in cases {
+            let controller = try EditorController(initialMarkdown: "alpha beta gamma\n")
+            controller.testSelection = NSRange(location: 6, length: 0)
+            type(trigger, in: controller)
+            #expect(controller.textStorage.string == "alpha xbeta gamma\n",
+                    "\(trigger) left \(String(reflecting: controller.textStorage.string))")
+            #expect(marks(in: controller, at: 6) == [mark],
+                    "\(trigger) stamped \(marks(in: controller, at: 6))")
+            #expect(marks(in: controller, at: 7) == [],
+                    "\(trigger) leaked onto the character after the capture")
+            #expect(controller.markdown() == markdown,
+                    "\(trigger) serialized \(String(reflecting: controller.markdown()))")
+        }
+    }
+
+    /// Reloading the emitted markdown emits the same markdown.
+    @Test func inlineRulesMidLineLeaveAMarkdownFixpoint() throws {
+        for trigger in ["**x**", "*x*", "~~x~~", "`x`"] {
+            let controller = try EditorController(initialMarkdown: "alpha beta gamma\n")
+            controller.testSelection = NSRange(location: 6, length: 0)
+            type(trigger, in: controller)
+            let markdown = controller.markdown()
+            let reloaded = try EditorController(initialMarkdown: markdown)
+            #expect(reloaded.markdown() == markdown,
+                    "\(trigger) round-tripped \(String(reflecting: markdown)) to \(String(reflecting: reloaded.markdown()))")
+        }
+    }
+
+    /// Underscore emphasis has no input rule, so `_em_` sits in storage
+    /// literally. A rule firing later on the line must not consume it.
+    @Test func inlineRuleKeepsLiteralMarkupAheadOfTheMatch() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        controller.testSelection = NSRange(location: 0, length: 0)
+        type("see _em_ ", in: controller)
+        #expect(controller.textStorage.string == "see _em_ ")
+        type("`x`", in: controller)
+        #expect(controller.textStorage.string == "see _em_ x",
+                "expected the underscores to survive, got \(String(reflecting: controller.textStorage.string))")
+        #expect(controller.markdown() == "see _em_ `x`",
+                "got \(String(reflecting: controller.markdown()))")
+    }
+
+    /// A line whose text literally starts with `> ` — written straight
+    /// into storage, so the marker is content rather than a spec — keeps
+    /// those characters when a rule fires on it.
+    @Test func inlineRuleKeepsALiteralQuoteMarkerOnTheLine() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        let storage = controller.textStorage
+        controller.proseStorage.withOrigin(.load) {
+            storage.replaceCharacters(
+                in: NSRange(location: 0, length: 0),
+                with: NSAttributedString(string: "> alpha beta")
+            )
+        }
+        controller.testSelection = NSRange(location: 8, length: 0)
+        type("`x`", in: controller)
+        #expect(controller.textStorage.string == "> alpha xbeta",
+                "expected the literal marker to survive, got \(String(reflecting: controller.textStorage.string))")
+        #expect(controller.markdown() == "> alpha `x`beta")
+    }
+
+    /// A rule firing on the second line of a soft-broken paragraph leaves
+    /// one block. The delimiters are written under `.load` so the envelope
+    /// pipeline plays no part — this pins the rule's own steps.
+    @Test func inlineRuleOnASoftBrokenParagraphKeepsOneBlock() throws {
+        let controller = try EditorController(initialMarkdown: "one two\nthree four\n")
+        let storage = controller.textStorage
+        let four = (storage.string as NSString).range(of: "four").location
+        let donor = storage.attributes(at: four, effectiveRange: nil)
+        controller.proseStorage.withOrigin(.load) {
+            storage.replaceCharacters(
+                in: NSRange(location: four, length: 0),
+                with: NSAttributedString(string: "`x`", attributes: donor)
+            )
+        }
+        controller.testSelection = NSRange(location: four + 3, length: 0)
+        #expect(controller.evaluateInputRules() == true)
+        #expect(controller.textStorage.string == "one two\nthree xfour\n")
+        #expect(marks(in: controller, at: four) == ["code"])
+        #expect(controller.markdown() == "one two\nthree `x`four",
+                "expected one paragraph over two lines, got \(String(reflecting: controller.markdown()))")
+        guard case .structural(_, let blocks) = controller.document.root else {
+            Issue.record("expected a structural root")
+            return
+        }
+        #expect(blocks.count == 1, "expected one top-level block, got \(blocks.count)")
+    }
+
+    /// `code` is `excludesAll`, so marking a strong span as code drops the
+    /// strong mark rather than nesting the two.
+    @Test func codeSpanRuleOverAStrongSpanExcludesStrong() throws {
+        let controller = try EditorController(initialMarkdown: "")
+        controller.testSelection = NSRange(location: 0, length: 0)
+        type("**bold**", in: controller)
+        #expect(marks(in: controller, at: 0) == ["strong"])
+        controller.testSelection = NSRange(location: 0, length: 0)
+        type("`", in: controller)
+        controller.testSelection = NSRange(location: controller.textStorage.length, length: 0)
+        type("`", in: controller)
+        #expect(controller.textStorage.string == "bold")
+        #expect(marks(in: controller, at: 0) == ["code"],
+                "expected code to exclude strong, got \(marks(in: controller, at: 0))")
+        #expect(controller.markdown() == "`bold`")
+    }
+
+    /// The mark lands inside a nested list item too, delimiters gone.
+    @Test func inlineRuleInsideANestedListItemAppliesTheMark() throws {
+        let controller = try EditorController(initialMarkdown: "- alpha\n  - beta gamma\n")
+        let gamma = (controller.textStorage.string as NSString).range(of: "gamma").location
+        #expect(controller.textStorage.blockSpec(at: gamma)?.listLevel == 1)
+        controller.testSelection = NSRange(location: gamma, length: 0)
+        type("`x`", in: controller)
+        #expect(controller.textStorage.string == "\u{FFFC} alpha\n\u{FFFC} beta xgamma\n",
+                "expected the delimiters gone, got \(String(reflecting: controller.textStorage.string))")
+        #expect(marks(in: controller, at: gamma) == ["code"],
+                "expected the code mark inside a nested item, got \(marks(in: controller, at: gamma))")
+        #expect(controller.markdown() == "- alpha\n  - beta `x`gamma")
+    }
+
+    /// The rule is its own undo unit: one undo puts the delimiters back
+    /// and takes the mark off.
+    @Test func undoAfterAnInlineRuleRestoresTheDelimitersAndDropsTheMark() throws {
+        let controller = try EditorController(initialMarkdown: "alpha beta gamma\n")
+        controller.testSelection = NSRange(location: 6, length: 0)
+        type("**x**", in: controller)
+        #expect(controller.textStorage.string == "alpha xbeta gamma\n")
+        controller.undoManager.undo()
+        #expect(controller.textStorage.string == "alpha **x**beta gamma\n",
+                "got \(String(reflecting: controller.textStorage.string))")
+        #expect(marks(in: controller, at: 8) == [],
+                "expected no mark after undo, got \(marks(in: controller, at: 8))")
+    }
+
+    /// `addMark`'s typed inverse only removes its own type, so a mark the
+    /// new one excluded has to come off as its own `removeMark` step —
+    /// that inverse re-adds it, and undo to the bottom lands on the
+    /// document that was loaded.
+    @Test func undoAfterAnInlineRuleRestoresAMarkTheNewOneExcluded() throws {
+        let controller = try EditorController(initialMarkdown: "hello **bold** world")
+        #expect(marks(in: controller, at: 6) == ["strong"])
+        wrapInBackticks("bold", in: controller)
+        #expect(marks(in: controller, at: 6) == ["code"],
+                "expected code to exclude strong, got \(marks(in: controller, at: 6))")
+        #expect(controller.markdown() == "hello `bold` world")
+        undoToTheBottom(controller)
+        #expect(controller.textStorage.string == "hello bold world\n",
+                "got \(String(reflecting: controller.textStorage.string))")
+        #expect(marks(in: controller, at: 6) == ["strong"],
+                "expected strong back, got \(marks(in: controller, at: 6))")
+        #expect(controller.markdown() == "hello **bold** world",
+                "got \(String(reflecting: controller.markdown()))")
+    }
+
+    /// The restored mark keeps its attrs — `removeMark` captures the
+    /// placement it took off, href and all.
+    @Test func undoAfterAnInlineRuleRestoresALinkWithItsHref() throws {
+        let controller = try EditorController(initialMarkdown: "[lbl](https://e.com)")
+        #expect(mark("link", in: controller, at: 0)?.attrs["href"]?.stringValue == "https://e.com")
+        wrapInBackticks("lbl", in: controller)
+        #expect(marks(in: controller, at: 0) == ["code"])
+        undoToTheBottom(controller)
+        #expect(marks(in: controller, at: 0) == ["link"],
+                "expected the link back, got \(marks(in: controller, at: 0))")
+        #expect(mark("link", in: controller, at: 0)?.attrs["href"]?.stringValue == "https://e.com",
+                "expected the href back, got \(String(describing: mark("link", in: controller, at: 0)?.attrs))")
+        #expect(controller.markdown() == "[lbl](https://e.com)",
+                "got \(String(reflecting: controller.markdown()))")
+    }
+
+    /// A dropped mark takes its rendering projection with it. `code` over
+    /// a struck run must not keep painting the strikethrough, and over a
+    /// link must not keep the link's URL or underline.
+    @Test func aMarkTheNewOneExcludedLeavesNoRenderingAttribute() throws {
+        let struck = try EditorController(initialMarkdown: "~~s~~ tail")
+        #expect(marks(in: struck, at: 0) == ["strike"])
+        #expect(struck.textStorage.safeAttribute(.strikethroughStyle, at: 0) != nil)
+        wrapInBackticks("s", in: struck)
+        #expect(marks(in: struck, at: 0) == ["code"])
+        #expect(struck.textStorage.safeAttribute(.strikethroughStyle, at: 0) == nil,
+                "strikethrough survived under code: \(String(describing: struck.textStorage.safeAttribute(.strikethroughStyle, at: 0)))")
+
+        let linked = try EditorController(initialMarkdown: "[lbl](https://e.com)")
+        #expect(linked.textStorage.safeAttribute(.proseLink, at: 0) != nil)
+        wrapInBackticks("lbl", in: linked)
+        #expect(marks(in: linked, at: 0) == ["code"])
+        #expect(linked.textStorage.safeAttribute(.proseLink, at: 0) == nil,
+                "proseLink survived under code: \(String(describing: linked.textStorage.safeAttribute(.proseLink, at: 0)))")
+        #expect(linked.textStorage.safeAttribute(.underlineStyle, at: 0) == nil,
+                "underline survived under code: \(String(describing: linked.textStorage.safeAttribute(.underlineStyle, at: 0)))")
+    }
+
+    /// An emphasis capture that opens or closes on whitespace compiles to
+    /// literal text, so the rule leaves the typed characters alone. A code
+    /// span keeps its padding verbatim, so there it fires.
+    @Test func inlineRuleFlankingMatchesTheCompiler() throws {
+        for trigger in ["** **", "**  **", "**x **", "** x **", "*  *", "~~x ~~"] {
+            let controller = try EditorController(initialMarkdown: "alpha beta gamma\n")
+            controller.testSelection = NSRange(location: 6, length: 0)
+            type(trigger, in: controller)
+            #expect(controller.textStorage.string == "alpha \(trigger)beta gamma\n",
+                    "\(trigger) left \(String(reflecting: controller.textStorage.string))")
+            #expect(allMarks(in: controller) == [],
+                    "\(trigger) marked \(allMarks(in: controller))")
+        }
+        for (trigger, storage, marked) in [
+            ("` x `", "alpha  x beta gamma\n", NSRange(location: 6, length: 3)),
+            ("` `", "alpha  beta gamma\n", NSRange(location: 6, length: 1))
+        ] {
+            let controller = try EditorController(initialMarkdown: "alpha beta gamma\n")
+            controller.testSelection = NSRange(location: 6, length: 0)
+            type(trigger, in: controller)
+            #expect(controller.textStorage.string == storage,
+                    "\(trigger) left \(String(reflecting: controller.textStorage.string))")
+            #expect(allMarks(in: controller) == ["code@\(marked.location),\(marked.length)"],
+                    "\(trigger) marked \(allMarks(in: controller))")
+            #expect(controller.markdown() == "alpha \(trigger)beta gamma",
+                    "\(trigger) serialized \(String(reflecting: controller.markdown()))")
+        }
+    }
+
     // MARK: - fenced code block
 
     /// Typing ` ```Enter ` opens an empty fenced code block. The rule waits
@@ -503,6 +734,55 @@ import UIKit
     }
 
     // MARK: - helpers
+
+    private func marks(in controller: EditorController, at location: Int) -> [MarkType.Name] {
+        let box = controller.textStorage.safeAttribute(.proseMarks, at: location) as? MarkSetBox
+        return (box?.marks.marks ?? []).map(\.type)
+    }
+
+    private func mark(
+        _ type: MarkType.Name,
+        in controller: EditorController,
+        at location: Int
+    ) -> ProseMark? {
+        let box = controller.textStorage.safeAttribute(.proseMarks, at: location) as? MarkSetBox
+        return box?.marks.mark(of: type)
+    }
+
+    /// Every mark on the document as `type@location,length`.
+    private func allMarks(in controller: EditorController) -> [String] {
+        let storage = controller.textStorage
+        var found: [String] = []
+        storage.enumerateAttribute(
+            .proseMarks,
+            in: NSRange(location: 0, length: storage.length),
+            options: []
+        ) { value, range, _ in
+            for mark in (value as? MarkSetBox)?.marks.marks ?? [] {
+                found.append("\(mark.type)@\(range.location),\(range.length)")
+            }
+        }
+        return found
+    }
+
+    /// Types a backtick before and after `substring`, closing the pair so
+    /// the code-span rule fires.
+    private func wrapInBackticks(_ substring: String, in controller: EditorController) {
+        let opening = (controller.textStorage.string as NSString).range(of: substring)
+        controller.testSelection = NSRange(location: opening.location, length: 0)
+        type("`", in: controller)
+        let closing = (controller.textStorage.string as NSString).range(of: substring)
+        controller.testSelection = NSRange(location: closing.location + closing.length, length: 0)
+        type("`", in: controller)
+    }
+
+    private func undoToTheBottom(_ controller: EditorController, limit: Int = 16) {
+        var steps = 0
+        while controller.undoManager.canUndo, steps < limit {
+            controller.undoManager.undo()
+            steps += 1
+        }
+    }
 
     private func type(_ chars: String, in controller: EditorController) {
         for char in chars {

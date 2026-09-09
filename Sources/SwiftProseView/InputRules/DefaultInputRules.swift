@@ -184,17 +184,16 @@ public extension InputRule {
 
     // MARK: - inline rules
     //
-    // Inline rules re-run the line through the compiler using the current
-    // block spec. The compiler picks up the just-typed `**`, `~~`, and
-    // `` ` `` markers, applies inline styling, and the serializer restores
-    // the markdown delimiters on round-trip.
+    // Inline rules delete the two delimiter runs and add the mark over the
+    // capture. Nothing else on the line is re-rendered, so the text ahead of
+    // the match keeps its characters and the line keeps its node.
 
     static let bold = InputRule(
         id: "inputRule.bold",
         pattern: "\\*\\*([^*\\n]+)\\*\\*$",
         inCode: .skip
     ) { match in
-        recompileLine(match: match, label: "Bold")
+        markInputRule(match: match, markType: "strong", label: "Bold")
     }
 
     static let italic = InputRule(
@@ -202,7 +201,7 @@ public extension InputRule {
         pattern: "(?<![*])\\*([^*\\n]+)\\*$",
         inCode: .skip
     ) { match in
-        recompileLine(match: match, label: "Italic")
+        markInputRule(match: match, markType: "em", label: "Italic")
     }
 
     static let strikethrough = InputRule(
@@ -210,7 +209,7 @@ public extension InputRule {
         pattern: "~~([^~\\n]+)~~$",
         inCode: .skip
     ) { match in
-        recompileLine(match: match, label: "Strikethrough")
+        markInputRule(match: match, markType: "strike", label: "Strikethrough")
     }
 
     static let codeSpan = InputRule(
@@ -218,14 +217,88 @@ public extension InputRule {
         pattern: "`([^`\\n]+)`$",
         inCode: .skip
     ) { match in
-        recompileLine(match: match, label: "Inline code")
+        markInputRule(match: match, markType: "code", label: "Inline code", tightFlanks: false)
     }
 
-    private static func recompileLine(match: InputRule.Match, label: String) -> Transaction {
-        let current = currentSpec(at: match.lineRange.location, in: match.storage)
-        return Transaction(steps: [
-            .setSpecPreservingLineTerminator(lineRange: match.lineRange, current)
-        ], label: label)
+    /// Step ranges are pre-edit coordinates; `Transaction.apply` maps each
+    /// through the ones before it. The closing delimiter goes first so the
+    /// opening one needs no mapping. The caret is where the content ends
+    /// once the opening delimiter is gone.
+    ///
+    /// `tightFlanks` rejects a capture that opens or closes on whitespace,
+    /// which the compiler leaves literal — firing there would delete
+    /// characters a reload cannot bring back. A code span keeps its padding
+    /// verbatim and passes `false`.
+    private static func markInputRule(
+        match: InputRule.Match,
+        markType: MarkType.Name,
+        label: String,
+        tightFlanks: Bool = true
+    ) -> Transaction? {
+        guard match.captureRanges.count > 1 else { return nil }
+        let content = match.captureRanges[1]
+        guard content.location != NSNotFound else { return nil }
+        let matched = match.matchedRange
+        let openLength = content.location - matched.location
+        let closeStart = content.location + content.length
+        let closeLength = matched.location + matched.length - closeStart
+        guard content.length > 0, openLength > 0, closeLength > 0 else { return nil }
+        let text = match.capture(1) ?? ""
+        if tightFlanks {
+            guard let first = text.first, let last = text.last,
+                  !first.isWhitespace, !last.isWhitespace else { return nil }
+        }
+        let mark = ProseMark(type: markType)
+        guard let removals = excludedMarkRemovals(
+            for: mark,
+            over: content,
+            in: match.storage,
+            schema: match.env.compiler.schema
+        ) else { return nil }
+        return Transaction(
+            steps: [
+                .replaceText(
+                    range: NSRange(location: closeStart, length: closeLength),
+                    with: NSAttributedString()
+                ),
+                .replaceText(
+                    range: NSRange(location: matched.location, length: openLength),
+                    with: NSAttributedString()
+                )
+            ] + removals + [
+                .addMark(range: content, mark: mark)
+            ],
+            label: label,
+            selection: .cursor(at: matched.location + content.length)
+        )
+    }
+
+    /// One `removeMark` per run per type `mark` excludes. `addMark`'s typed
+    /// inverse only puts its own type back, so a mark `MarkSet.adding` drops
+    /// needs a step of its own whose inverse restores it with its attrs.
+    ///
+    /// Nil when an existing mark excludes `mark`: it cannot land, so the
+    /// rule must not eat the delimiters for it.
+    private static func excludedMarkRemovals(
+        for mark: ProseMark,
+        over range: NSRange,
+        in storage: NSTextStorage,
+        schema: Schema
+    ) -> [Step]? {
+        var steps: [Step] = []
+        var blocked = false
+        storage.enumerateAttribute(.proseMarks, in: range, options: []) { value, runRange, _ in
+            guard let current = (value as? MarkSetBox)?.marks, !current.isEmpty else { return }
+            let updated = current.adding(mark, in: schema)
+            guard updated.contains(type: mark.type) else {
+                blocked = true
+                return
+            }
+            for existing in current.marks where !updated.contains(type: existing.type) {
+                steps.append(.removeMark(range: runRange, markType: existing.type))
+            }
+        }
+        return blocked ? nil : steps
     }
 
     private static func currentSpec(at location: Int, in storage: NSTextStorage) -> BlockSpec {

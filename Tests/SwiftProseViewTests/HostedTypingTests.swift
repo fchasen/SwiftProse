@@ -176,6 +176,66 @@ final class HostedTypingTests: XCTestCase {
         XCTAssertEqual(h.controller.markdown(), "# Title")
     }
 
+    /// An inline mark rule leaves the caret immediately after the content
+    /// it styled, not at the end of the line.
+    func testInlineRulesLeaveTheCaretAfterTheStyledContent() async throws {
+        for (trigger, markdown) in [
+            ("**x**", "alpha **x**beta gamma"),
+            ("*x*", "alpha *x*beta gamma"),
+            ("~~x~~", "alpha ~~x~~beta gamma"),
+            ("`x`", "alpha `x`beta gamma")
+        ] {
+            let h = try host("alpha beta gamma\n")
+            h.textView.setSelectedRange(NSRange(location: 6, length: 0))
+            // The controller re-resolves typing attributes on the next tick;
+            // typing before it lands measures AppKit's defaults, not ours.
+            try await Task.sleep(nanoseconds: 50_000_000)
+            try await type(trigger, into: h.textView)
+            XCTAssertEqual(h.controller.textStorage.string, "alpha xbeta gamma\n", trigger)
+            XCTAssertEqual(h.textView.selectedRange(), NSRange(location: 7, length: 0), trigger)
+            XCTAssertEqual(h.controller.markdown(), markdown, trigger)
+        }
+    }
+
+    /// The caret offset is the capture length, padding included — the
+    /// compiler does not strip a code span's interior spaces.
+    func testCodeSpanRuleWithPaddedContentLandsTheCaretAfterThePadding() async throws {
+        let h = try host("alpha beta gamma\n")
+        h.textView.setSelectedRange(NSRange(location: 6, length: 0))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        try await type("` x `", into: h.textView)
+        XCTAssertEqual(h.controller.textStorage.string, "alpha  x beta gamma\n")
+        XCTAssertEqual(h.textView.selectedRange(), NSRange(location: 9, length: 0))
+    }
+
+    /// Literal markup ahead of the match is content, and stays content.
+    func testInlineRuleKeepsLiteralMarkupAheadOfTheMatch() async throws {
+        let h = try host("")
+        h.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await type("see _em_ ", into: h.textView)
+        try await type("`x`", into: h.textView)
+        XCTAssertEqual(h.controller.textStorage.string, "see _em_ x")
+        XCTAssertEqual(h.controller.markdown(), "see _em_ `x`")
+        XCTAssertEqual(h.textView.selectedRange(), NSRange(location: 10, length: 0))
+    }
+
+    /// A match that ends the line still collapses the caret to the end of
+    /// the content.
+    func testInlineRuleAtTheEndOfTheLineKeepsItsCaret() async throws {
+        let empty = try host("")
+        empty.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await type("**bold**", into: empty.textView)
+        XCTAssertEqual(empty.controller.textStorage.string, "bold")
+        XCTAssertEqual(empty.textView.selectedRange(), NSRange(location: 4, length: 0))
+
+        let h = try host("alpha\n")
+        h.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        try await type(" **x**", into: h.textView)
+        XCTAssertEqual(h.controller.textStorage.string, "alpha x\n")
+        XCTAssertEqual(h.textView.selectedRange(), NSRange(location: 7, length: 0))
+    }
+
     func testAppKitRegistersNothingOnTheControllersUndoStack() async throws {
         let h = try host("")
         XCTAssertNil(h.textView.undoManager)
