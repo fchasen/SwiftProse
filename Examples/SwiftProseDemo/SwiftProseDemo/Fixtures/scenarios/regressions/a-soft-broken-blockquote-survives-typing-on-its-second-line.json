@@ -1,0 +1,11 @@
+{
+  "name": "regressions/a-soft-broken-blockquote-survives-typing-on-its-second-line",
+  "tags": ["regression", "structure", "softbreak", "blockquote", "typing"],
+  "intent": "The same soft break inside a blockquote. Typing on the second line must leave one blockquote, not three.",
+  "doc": "> one two\n> three <|>four\n> five six\n",
+  "ops": [
+    { "op": "type", "text": "x" }
+  ],
+  "expect": { "doc": "> one two\n> three x<|>four\n> five six" },
+  "finally": ["tier0", "projection", "markdownFixpoint"]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "regressions/return-inside-a-soft-broken-paragraph-splits-only-there",
+  "tags": ["regression", "structure", "softbreak", "enter"],
+  "intent": "Enter inside a soft-broken paragraph splits it at the caret and no earlier. The lines after the new break move to the second block together.",
+  "doc": "one two\nthree <|>four\nfive six\n",
+  "ops": [
+    { "op": "key", "key": "Enter" }
+  ],
+  "expect": { "doc": "one two\nthree \n\n<|>four\nfive six", "blockKind": "paragraph" },
+  "finally": ["tier0", "projection", "markdownFixpoint"]
+}

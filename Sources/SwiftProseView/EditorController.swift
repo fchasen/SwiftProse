@@ -637,7 +637,11 @@ public final class EditorController {
             step = derivedStep(from: record)
         }
 
-        normalizeAfterEdit(in: userEditedRange, accumulateHighlight: false)
+        normalizeAfterEdit(
+            in: userEditedRange,
+            accumulateHighlight: false,
+            writtenSpans: writtenSpans(in: record)
+        )
         // The typed character already received our storedMarks via
         // typingAttributes; further typing should inherit naturally from
         // the new cursor position, not from the storedMark set.
@@ -825,11 +829,12 @@ public final class EditorController {
         in editedRange: NSRange,
         accumulateHighlight: Bool = true,
         scrub: Bool = true,
-        demoteEmptyLines: Bool = true
+        demoteEmptyLines: Bool = true,
+        writtenSpans: [NSRange] = []
     ) {
         if accumulateHighlight { accumulateHighlightRange(editedRange) }
         if scrub { scrubTypedAttributes(in: editedRange) }
-        normalizeInsertedAttributes(in: editedRange)
+        normalizeInsertedAttributes(in: editedRange, writtenSpans: writtenSpans)
         if demoteEmptyLines { demoteEmptyStyledLines(in: editedRange) }
         enforceDocumentInvariants(around: editedRange)
         // Last of the passes: a cut shifts every offset after it, so
@@ -910,7 +915,8 @@ public final class EditorController {
     /// new list ancestor, splitting one list into two and losing the
     /// numbering. Here the line's dominant existing `NodePathBox` is
     /// reused, so identity survives every edit.
-    private func normalizeInsertedAttributes(in edited: NSRange) {
+    private func normalizeInsertedAttributes(in edited: NSRange, writtenSpans: [NSRange] = []) {
+        let writtenBreaks = Self.lineBreaks(in: writtenSpans, of: textStorage.string as NSString)
         let total = textStorage.length
         guard total > 0 else { return }
         guard edited.location >= 0, edited.location <= total else { return }
@@ -923,7 +929,7 @@ public final class EditorController {
         // terminates the paragraph it belongs to, so `paragraphRange` alone
         // never reaches the new block. Without this the two halves keep one
         // node and serialize as a single paragraph containing a newline.
-        if editedRangeIntroducedALineBreak(probe, in: ns),
+        if writtenBreaks.contains(where: { $0 >= probe.location && $0 < NSMaxRange(probe) }),
            union.location + union.length < total {
             let next = ns.paragraphRange(
                 for: NSRange(location: union.location + union.length, length: 0)
@@ -942,23 +948,172 @@ public final class EditorController {
             while cursor < end, cursor < textStorage.length {
                 let line = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
                 guard line.length > 0 else { break }
-                normalizeLineAttributes(line, claimed: &claimed)
+                normalizeLineAttributes(line, claimed: &claimed, writtenSpans: writtenSpans)
                 let next = line.location + line.length
                 cursor = next > cursor ? next : cursor + 1
             }
+            splitNodesAtWrittenBreaks(writtenBreaks)
             textStorage.endEditing()
         }
     }
 
-    private func editedRangeIntroducedALineBreak(_ range: NSRange, in ns: NSString) -> Bool {
-        guard range.length > 0 else { return false }
-        let end = min(range.location + range.length, ns.length)
-        var i = max(0, range.location)
-        while i < end {
-            if ns.character(at: i) == 0x0A { return true }
-            i += 1
+    /// The post-edit span this edit actually changed.
+    ///
+    /// `pre` and the text now at `location` are trimmed of their common
+    /// prefix and suffix; only what lies between changed, so a terminator
+    /// outside it predates the edit. A newline the edit wrote is a block
+    /// boundary; one it merely typed beside is a soft break.
+    func writtenSpan(
+        replacing pre: NSString,
+        at location: Int,
+        insertedLength: Int
+    ) -> NSRange? {
+        let ns = textStorage.string as NSString
+        guard location >= 0, location <= ns.length, insertedLength > 0 else { return nil }
+        let end = min(location + insertedLength, ns.length)
+        guard end > location else { return nil }
+        let postLength = end - location
+        let shared = min(pre.length, postLength)
+        var prefix = 0
+        while prefix < shared, pre.character(at: prefix) == ns.character(at: location + prefix) {
+            prefix += 1
         }
-        return false
+        var suffix = 0
+        while suffix < shared - prefix,
+              pre.character(at: pre.length - 1 - suffix) == ns.character(at: end - 1 - suffix) {
+            suffix += 1
+        }
+        let lo = location + prefix
+        let hi = end - suffix
+        guard hi > lo else { return nil }
+        return NSRange(location: lo, length: hi - lo)
+    }
+
+    /// How much of `range` lies outside every span in `spans`.
+    private static func lengthOutside(_ spans: [NSRange], of range: NSRange) -> Int {
+        guard !spans.isEmpty else { return range.length }
+        var outside = 0
+        var index = range.location
+        let end = NSMaxRange(range)
+        while index < end {
+            if !spans.contains(where: { NSLocationInRange(index, $0) }) { outside += 1 }
+            index += 1
+        }
+        return outside
+    }
+
+    /// The newline positions inside `spans`.
+    private static func lineBreaks(in spans: [NSRange], of ns: NSString) -> Set<Int> {
+        var out: Set<Int> = []
+        for span in spans {
+            var index = max(0, span.location)
+            let end = min(NSMaxRange(span), ns.length)
+            while index < end {
+                if ns.character(at: index) == 0x0A { out.insert(index) }
+                index += 1
+            }
+        }
+        return out
+    }
+
+    /// True when no character of `line`, terminator aside, predates this
+    /// edit. Such a line is content the edit added past the end of the block
+    /// above it, not a continuation of it.
+    private static func lineIsEntirelyWritten(
+        _ line: NSRange,
+        writtenSpans: [NSRange],
+        in ns: NSString
+    ) -> Bool {
+        guard !writtenSpans.isEmpty else { return false }
+        var index = max(0, line.location)
+        let end = min(NSMaxRange(line), ns.length)
+        var sawText = false
+        while index < end {
+            if ns.character(at: index) != 0x0A {
+                sawText = true
+                if !writtenSpans.contains(where: { NSLocationInRange(index, $0) }) { return false }
+            }
+            index += 1
+        }
+        return sawText
+    }
+
+    /// True when the line above `line` holds content, so a block may run
+    /// from it into this one. A blank line above ends the block.
+    private func continuesPreviousLine(_ line: NSRange) -> Bool {
+        guard line.location > 0 else { return false }
+        let ns = textStorage.string as NSString
+        let previous = ns.paragraphRange(for: NSRange(location: line.location - 1, length: 0))
+        return !Self.lineIsBlank(previous, in: ns)
+    }
+
+    private static func lineIsBlank(_ line: NSRange, in ns: NSString) -> Bool {
+        var index = max(0, line.location)
+        let end = min(NSMaxRange(line), ns.length)
+        while index < end {
+            let ch = ns.character(at: index)
+            if ch != 0x0A, ch != 0x20, ch != 0x09 { return false }
+            index += 1
+        }
+        return true
+    }
+
+    /// One span per character mutation in the group. A group can hold
+    /// several — a drag-move is a delete plus an insert inside one bracket.
+    func writtenSpans(in record: EditRecord) -> [NSRange] {
+        var out: [NSRange] = []
+        for capture in record.captures {
+            guard case .characters(let inserted) = capture.kind else { continue }
+            if let span = writtenSpan(
+                replacing: capture.preImage.string as NSString,
+                at: capture.range.location,
+                insertedLength: inserted
+            ) {
+                out.append(span)
+            }
+        }
+        return out
+    }
+
+    /// Cut the node in front of each written break, and give everything
+    /// after the break that still belongs to it one node of its own.
+    ///
+    /// The whole run moves, not the next line: a three-line block split at
+    /// its second line would otherwise leave the third on the old node, and
+    /// one box owning two disjoint runs projects as three blocks.
+    private func splitNodesAtWrittenBreaks(_ breaks: Set<Int>) {
+        guard !breaks.isEmpty else { return }
+        let ns = textStorage.string as NSString
+        let full = NSRange(location: 0, length: textStorage.length)
+        for position in breaks.sorted(by: >) {
+            guard position >= 0, position + 1 < ns.length else { continue }
+            guard ns.character(at: position) == 0x0A else { continue }
+            guard let owner = textStorage.attribute(
+                .proseNodePath, at: position, effectiveRange: nil
+            ) as? NodePathBox else { continue }
+            guard let follower = textStorage.attribute(
+                .proseNodePath, at: position + 1, effectiveRange: nil
+            ) as? NodePathBox, follower === owner else { continue }
+            guard !isMultiLineBlock(owner.path) else { continue }
+            var effective = NSRange(location: 0, length: 0)
+            _ = textStorage.safeAttribute(
+                .proseNodePath,
+                at: position + 1,
+                longestEffectiveRange: &effective,
+                in: full
+            )
+            let tail = NSRange(
+                location: position + 1,
+                length: max(0, NSMaxRange(effective) - position - 1)
+            )
+            guard tail.length > 0 else { continue }
+            let captured = InlineLeafRuns.capture(in: textStorage, range: tail)
+            textStorage.setBlockSpec(
+                BlockSpec.fromNodePath(owner.path) ?? BlockSpec(kind: .paragraph),
+                in: tail
+            )
+            InlineLeafRuns.restamp(captured.leaves, in: textStorage, lineRange: tail)
+        }
     }
 
     /// One line: every character carries the same `proseNodePath` box, and
@@ -971,8 +1126,13 @@ public final class EditorController {
     /// line after the first gets a node of its own here. Multi-line blocks
     /// — code fences, tables — are exempt: one node covering many lines is
     /// exactly what they are.
-    private func normalizeLineAttributes(_ line: NSRange, claimed: inout Set<ObjectIdentifier>) {
+    private func normalizeLineAttributes(_ line: NSRange, claimed: inout Set<ObjectIdentifier>, writtenSpans: [NSRange] = []) {
         var tally: [ObjectIdentifier: (box: NodePathBox, weight: Int)] = [:]
+        // A character this edit inserted carries whatever the platform's
+        // typing attributes handed it, which says nothing about which block
+        // it belongs to. Where the line still holds older characters, they
+        // are the ones with standing.
+        var priorTally: [ObjectIdentifier: (box: NodePathBox, weight: Int)] = [:]
         var unstamped: [NSRange] = []
         // An inline-content leaf ends its path one level below the line's
         // block. It is neither a candidate for the line's winning path nor a
@@ -984,6 +1144,10 @@ public final class EditorController {
             if let box = value as? NodePathBox {
                 guard !InlineLeafRuns.isLiftable(box.path.leaf) else { return }
                 tally[ObjectIdentifier(box), default: (box, 0)].weight += runRange.length
+                let older = Self.lengthOutside(writtenSpans, of: runRange)
+                if older > 0 {
+                    priorTally[ObjectIdentifier(box), default: (box, 0)].weight += older
+                }
             } else {
                 unstamped.append(runRange)
             }
@@ -996,7 +1160,8 @@ public final class EditorController {
         // `Dictionary` iteration order decides, and a one-character line
         // resolves differently from run to run.
         let terminator = terminatorBox(of: line)
-        guard let winner = tally.values.max(by: { lhs, rhs in
+        let electorate = priorTally.isEmpty ? tally : priorTally
+        guard let winner = electorate.values.max(by: { lhs, rhs in
             if lhs.weight != rhs.weight { return lhs.weight < rhs.weight }
             let lhsIsTerminator = terminator.map { $0 === lhs.box } ?? false
             let rhsIsTerminator = terminator.map { $0 === rhs.box } ?? false
@@ -1024,12 +1189,23 @@ public final class EditorController {
             restyleForeignRuns(in: line, winner: winner)
         }
         let key = ObjectIdentifier(winner)
-        // The multi-line exemption gates the whole re-stamp, not just the
-        // `spansAnEarlierLine` half: a fence's second line finds its own box
-        // already `claimed` by its first, and re-stamping there is what split
-        // one code block into one block per line.
-        if !isMultiLineBlock(winner.path),
-           claimed.contains(key) || spansAnEarlierLine(winner, line: line) {
+        // A box that reaches this line from the one above is a block
+        // spanning a soft break, which is what it is meant to be. Mint only
+        // when an earlier line in this pass claimed the box and its run does
+        // NOT reach here — one box owning two disjoint runs is the corrupt
+        // state. Splitting at a break the edit wrote is a separate pass.
+        let spans = spansAnEarlierLine(winner, line: line)
+        // One box owning two disjoint runs is the corrupt state. A blank
+        // line ends a block in markdown, so a run may not cross one into
+        // content either.
+        let disjoint = claimed.contains(key) && !spans
+        let crossedABlankLine = spans && !continuesPreviousLine(line)
+        // The run grew past the terminator it used to end at: every
+        // character on this line is new, so the box never reached here.
+        let allNewText = spans && Self.lineIsEntirelyWritten(
+            line, writtenSpans: writtenSpans, in: textStorage.string as NSString
+        )
+        if !isMultiLineBlock(winner.path), disjoint || crossedABlankLine || allNewText {
             textStorage.setBlockSpec(
                 BlockSpec.fromNodePath(winner.path) ?? BlockSpec(kind: .paragraph),
                 in: line
@@ -2480,7 +2656,18 @@ public final class EditorController {
         let delta = textStorage.length - preLength
         let postRange = NSRange(location: preRange.location, length: max(0, preRange.length + delta))
 
-        normalizeAfterEdit(in: postRange, scrub: false, demoteEmptyLines: demoteEmptyLines)
+        normalizeAfterEdit(
+            in: postRange,
+            scrub: false,
+            demoteEmptyLines: demoteEmptyLines,
+            writtenSpans: [
+                writtenSpan(
+                    replacing: pre.string as NSString,
+                    at: preRange.location,
+                    insertedLength: max(0, preRange.length + delta)
+                )
+            ].compactMap { $0 }
+        )
         clearStoredInlineMarks()
         let normalizationInverses = collectingInverses ?? []
         collectingInverses = outerCollecting

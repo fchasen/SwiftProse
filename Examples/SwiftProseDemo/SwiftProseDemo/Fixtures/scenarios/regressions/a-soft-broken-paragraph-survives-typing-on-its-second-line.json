@@ -1,0 +1,11 @@
+{
+  "name": "regressions/a-soft-broken-paragraph-survives-typing-on-its-second-line",
+  "tags": ["regression", "structure", "softbreak", "typing"],
+  "intent": "A markdown soft break keeps one paragraph across two storage lines. Typing on the second line must not tear it into two blocks.",
+  "doc": "one two\nthree <|>four\n",
+  "ops": [
+    { "op": "type", "text": "x" }
+  ],
+  "expect": { "doc": "one two\nthree x<|>four", "blockKind": "paragraph" },
+  "finally": ["tier0", "projection", "markdownFixpoint"]
+}
