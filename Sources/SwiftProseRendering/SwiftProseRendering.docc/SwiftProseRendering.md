@@ -12,7 +12,7 @@ theme.blockquote.barColor = .systemTeal
 theme.lineHeightMultiple = 1.2
 ```
 
-``ListMarker`` and ``QuoteBar`` describe what the layout fragments draw beside a paragraph: a bullet, number or checkbox, and the bars of each enclosing blockquote. ``CheckboxAttachment`` draws a task checkbox inline.
+``ListMarker`` and ``QuoteBar`` describe what the layout fragments draw beside a paragraph: a bullet, number or checkbox, and the bars of each enclosing blockquote. ``OrderedMarkerStyle`` picks decimal, lower-alpha or lower-roman numbering from list depth. ``CheckboxAttachment`` draws a task checkbox inline.
 
 ## Topics
 
@@ -28,5 +28,6 @@ theme.lineHeightMultiple = 1.2
 ### Markers and attachments
 
 - ``ListMarker``
+- ``OrderedMarkerStyle``
 - ``QuoteBar``
 - ``CheckboxAttachment``

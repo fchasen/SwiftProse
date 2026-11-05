@@ -388,7 +388,7 @@ This release replaces the editor core. The ProseMirror-aligned model is removed;
 | `MarkdownParser`, `HighlightApplier`, `BlockClassifier`, `BlockSegmenter`, `BlockSegment`, `BlockKind`, `BlockRegion`, `BlockTag`, `InlineClassifier`, `InlineKind`, `InlineRegion`, `InlineTag`, `ListItemKind`, `PipeTableAlignment` | Removed |
 | `MarkdownAttributedCompiler`, `MarkdownTreeSerializer`, `AttributedMarkdownSerializer`, `NodePathSynthesizer`, `Operations`, `InsertNewline` | Removed |
 | `ClipboardParser`, `ClipboardSerializer`, `DOMParser`, `DOMSerializer`, `PlainTextSerializer` | Removed |
-| `ProseSubtreeAttachment`, `TableScrollContainer`, `CellView`, `BulletAttachment`, `BulletGlyphAttachment`, `OrderedMarkerFormatter`, `OrderedMarkerStyle`, `BlockquoteLayoutFragment`, `IndentedCodeBlockLayoutFragment`, `ProseHosting`, `InlineContentNode` | Removed |
+| `ProseSubtreeAttachment`, `TableScrollContainer`, `CellView`, `BulletAttachment`, `BulletGlyphAttachment`, `OrderedMarkerFormatter`, `BlockquoteLayoutFragment`, `IndentedCodeBlockLayoutFragment`, `ProseHosting`, `InlineContentNode` | Removed |
 | `ProseTheme.markupColor`, `linkURLColor`, `PluginProps.handleDrop` | Removed |
 | `controller.blocks`, `text`, `recompile()`, `sliceForRange`, `dispatchPaste`, `useStructuredBulkInsert`, `lastInputRule`, `undoInputRule()` | Removed |
 
