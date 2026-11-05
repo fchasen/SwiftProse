@@ -496,10 +496,13 @@ private struct InlineExtractor {
             var intentRange = NSRange()
             var linkRange = NSRange()
             var literalRange = NSRange()
+            var styleRange = NSRange()
             let intentValue = storage.attribute(.markdownInlineIntent, at: location, effectiveRange: &intentRange)
             let linkValue = storage.attribute(.link, at: location, effectiveRange: &linkRange)
             let literalValue = storage.attribute(.markdownLiteral, at: location, effectiveRange: &literalRange)
-            let end = min(limit, NSMaxRange(intentRange), NSMaxRange(linkRange), NSMaxRange(literalRange))
+            let styleValue = storage.attribute(.markdownLinkStyle, at: location, effectiveRange: &styleRange)
+            let end = min(limit, NSMaxRange(intentRange), NSMaxRange(linkRange), NSMaxRange(literalRange), NSMaxRange(styleRange))
+            let firstRun = runs.count
             let intentBits = (intentValue as? NSNumber)?.uintValue
                 ?? MarkdownInlineIntent(attributeValue: intentValue)?.rawValue ?? 0
             let marks = Self.marks(fromIntentBits: intentBits)
@@ -524,6 +527,11 @@ private struct InlineExtractor {
                 index += 1
             }
             appendText(NSRange(location: start, length: end - start), marks: marks, link: link, literal: literal, to: &runs)
+            if link != nil, let style = (styleValue as? String).flatMap(EditorDocument.LinkStyle.init(rawValue:)) {
+                for index in firstRun..<runs.count where runs[index].link != nil {
+                    runs[index].linkStyle = style
+                }
+            }
             location = end
         }
         return runs

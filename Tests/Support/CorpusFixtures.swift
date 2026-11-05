@@ -133,6 +133,8 @@ package enum CorpusFixtures {
         CorpusSample("intraword marks", "**a**b a**b** *a*b a*b* _a_b x ~~~ y"),
         CorpusSample("email at line start", "dev@mozilla.org\nnext line &amp; more"),
         CorpusSample("indented code", "    let x = 1\n    print(x)"),
+        CorpusSample("angle autolink", "See <https://example.com>."),
+        CorpusSample("angle autolinks", "<https://angle.com> and <me@x.com>"),
     ]
 
     package static let phabricator: [CorpusSample] = [
@@ -186,7 +188,6 @@ package enum CorpusFixtures {
         CorpusSample("plus bullets", "+ plus\n+ list", expected: "- plus\n- list"),
         CorpusSample("setext h1", "Setext\n======", expected: "# Setext"),
         CorpusSample("closing hashes", "# Title #\n\n## Two ##", expected: "# Title\n\n## Two"),
-        CorpusSample("angle autolinks", "<https://angle.com> and <me@x.com>", expected: "https://angle.com and me@x.com"),
         CorpusSample("reference link", "[ref][r]\n\n[r]: https://r.com", expected: "[ref](https://r.com)"),
         CorpusSample("backslash hard break", "Back\\\nslash", expected: "Back  \nslash"),
         CorpusSample("lazy quote continuation", "> quote\nlazy", expected: "> quote\n> lazy"),

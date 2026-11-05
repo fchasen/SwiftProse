@@ -594,11 +594,22 @@ enum InlineSerializer {
             for member in members { shared = shared.and(member.marks) }
             let previous = index > 0 ? lastCharacter(of: runs[index - 1]) : nil
             let next = end < runs.count ? firstCharacter(of: runs[end]) : nil
-            let bare = bareAutolink(members, url: url, outer: shared, previous: previous, next: next)
+            let bare = angleAutolink(members, url: url, outer: shared)
+                ?? bareAutolink(members, url: url, outer: shared, previous: previous, next: next)
             items.append(.link(url: url, marks: shared, runs: members, bare: bare))
             index = end
         }
         return items
+    }
+
+    private static func angleAutolink(_ members: [Run], url: String, outer: Marks) -> String? {
+        guard members.count == 1, members[0].linkStyle == .angle,
+              case .text(let text) = members[0].content,
+              members[0].marks.minus(outer).rawValue == 0,
+              text == url || (text.contains("@") && "mailto:" + text == url),
+              !text.unicodeScalars.contains(where: { $0.value <= 0x20 || $0.value == 0x7F || $0 == "<" || $0 == ">" })
+        else { return nil }
+        return "<" + text + ">"
     }
 
     private static func bareAutolink(_ members: [Run], url: String, outer: Marks, previous: Character?, next: Character?) -> String? {
