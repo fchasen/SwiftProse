@@ -77,9 +77,18 @@ struct LoaderInline {
             }
             projection += run.text
             if run.inline.isDisjoint(with: [.softBreak, .lineBreak]) { breaklessProjection += run.text }
+            let outStart = out.length
+            let isAngle = forcedLink == nil && Self.isAngleAutolink(run, byteRange: byteRange, in: source)
             defer {
                 if let byteRange { cursor = max(cursor, byteRange.upperBound) }
                 index += 1
+                if isAngle, out.length > outStart {
+                    out.addAttribute(
+                        .markdownLinkStyle,
+                        value: EditorDocument.LinkStyle.angle.rawValue,
+                        range: NSRange(location: outStart, length: out.length - outStart)
+                    )
+                }
             }
 
             if !run.inline.isDisjoint(with: [.softBreak, .lineBreak]) {
@@ -233,6 +242,14 @@ struct LoaderInline {
         while lower > 0, lower <= bytes.count, bytes[lower - 1] == UInt8(ascii: "`") { lower -= 1 }
         while upper >= 0, upper < bytes.count, bytes[upper] == UInt8(ascii: "`") { upper += 1 }
         return lower..<upper
+    }
+
+    static func isAngleAutolink(_ run: LoaderRun, byteRange: Range<Int>?, in source: MarkdownSourceText) -> Bool {
+        guard let link = run.link, let byteRange, byteRange.lowerBound > 0, byteRange.upperBound < source.bytes.count,
+              source.bytes[byteRange.lowerBound - 1] == UInt8(ascii: "<"),
+              source.bytes[byteRange.upperBound] == UInt8(ascii: ">")
+        else { return false }
+        return isAutolinkText(run.text, url: link)
     }
 
     static func isAutolinkText(_ text: String, url: URL) -> Bool {

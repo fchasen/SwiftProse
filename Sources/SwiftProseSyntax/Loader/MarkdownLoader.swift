@@ -81,11 +81,12 @@ public struct MarkdownLoader {
                 paragraphs.append((content, block, lists))
             case .code(let language):
                 let group = GroupToken.mint()
+                let style = structure.codeStyle(of: leaf)
                 var lines = leaf.runs.map(\.text).joined().components(separatedBy: "\n")
                 if lines.count > 1, lines.last == "" { lines.removeLast() }
                 for (index, line) in lines.enumerated() {
                     let block = MarkdownBlock(
-                        leaf: .code(language: language, group: group),
+                        leaf: .code(language: language, group: group, style: style),
                         containers: containers,
                         isContinuation: !lists.isEmpty && (leaf.isContinuation || index > 0)
                     )

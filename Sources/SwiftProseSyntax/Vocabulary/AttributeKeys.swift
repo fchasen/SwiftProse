@@ -12,6 +12,7 @@ extension NSAttributedString.Key {
     public static let markdownLiteral = NSAttributedString.Key("swiftprose.literal")
     public static let markdownInlineIntent = NSAttributedString.Key("swiftprose.inline")
     public static let markdownTableSeparator = NSAttributedString.Key("swiftprose.tableSeparator")
+    package static let markdownLinkStyle = NSAttributedString.Key("swiftprose.linkStyle")
 }
 
 extension MarkdownInlineIntent {

@@ -95,7 +95,11 @@ private struct LineOutput {
                 line(rendered.isEmpty ? marker : marker + " " + rendered)
             case .code(let code):
                 separate(block, after: previous, context: context)
-                write(code)
+                if Self.writesIndented(code, after: previous, context: context) {
+                    for body in code.lines { line(body.isEmpty ? body : "    " + body) }
+                } else {
+                    write(code)
+                }
             case .thematicBreak:
                 separate(block, after: previous, context: context)
                 line(MarkdownWriter.thematicBreak(source: "---", itemBullet: firstBullet))
@@ -133,7 +137,9 @@ private struct LineOutput {
             var startsAtOne = true
             if case .ordered(let start) = list.kind { startsAtOne = start == 1 }
             needsBlankLine = !startsAtOne || Self.rendersNothing(list.items[0].blocks)
-        case .code, .heading, .quote:
+        case .code(let code):
+            needsBlankLine = Self.writesIndented(code, after: previous, context: context)
+        case .heading, .quote:
             needsBlankLine = false
         case .paragraph, .thematicBreak, .atom, .table:
             needsBlankLine = true
@@ -150,6 +156,26 @@ private struct LineOutput {
         default:
             return false
         }
+    }
+
+    private static func writesIndented(
+        _ code: EditorDocument.CodeBlock,
+        after previous: EditorDocument.Block?,
+        context: Context
+    ) -> Bool {
+        guard code.isIndented, code.language == nil,
+              let first = code.lines.first, let last = code.lines.last,
+              !isBlankLine(first), !isBlankLine(last)
+        else { return false }
+        switch previous {
+        case .list?: return false
+        case nil: return context != .item
+        default: return true
+        }
+    }
+
+    private static func isBlankLine(_ line: String) -> Bool {
+        line.utf8.allSatisfy { $0 == 0x20 || $0 == 0x09 }
     }
 
     private static func protectingLeadingIndent(_ rendered: String) -> String {
@@ -568,11 +594,22 @@ enum InlineSerializer {
             for member in members { shared = shared.and(member.marks) }
             let previous = index > 0 ? lastCharacter(of: runs[index - 1]) : nil
             let next = end < runs.count ? firstCharacter(of: runs[end]) : nil
-            let bare = bareAutolink(members, url: url, outer: shared, previous: previous, next: next)
+            let bare = angleAutolink(members, url: url, outer: shared)
+                ?? bareAutolink(members, url: url, outer: shared, previous: previous, next: next)
             items.append(.link(url: url, marks: shared, runs: members, bare: bare))
             index = end
         }
         return items
+    }
+
+    private static func angleAutolink(_ members: [Run], url: String, outer: Marks) -> String? {
+        guard members.count == 1, members[0].linkStyle == .angle,
+              case .text(let text) = members[0].content,
+              members[0].marks.minus(outer).rawValue == 0,
+              text == url || (text.contains("@") && "mailto:" + text == url),
+              !text.unicodeScalars.contains(where: { $0.value <= 0x20 || $0.value == 0x7F || $0 == "<" || $0 == ">" })
+        else { return nil }
+        return "<" + text + ">"
     }
 
     private static func bareAutolink(_ members: [Run], url: String, outer: Marks, previous: Character?, next: Character?) -> String? {

@@ -147,11 +147,13 @@ private final class ListNode {
 private final class CodeNode {
     let language: String?
     let group: GroupToken
+    let isIndented: Bool
     var lines: [String] = []
 
-    init(language: String?, group: GroupToken) {
+    init(language: String?, group: GroupToken, isIndented: Bool) {
         self.language = language
         self.group = group
+        self.isIndented = isIndented
     }
 }
 
@@ -332,12 +334,12 @@ private struct TreeBuilder {
 
     private mutating func append(_ paragraph: ScannedParagraph, block: MarkdownBlock, to host: BlockHost) {
         switch block.leaf {
-        case .code(let language, let group):
+        case .code(let language, let group, let style):
             let lines = inline.codeLines(in: paragraph.content)
             if let code = openCode, code.group == group, case .code(let last) = host.blocks.last, last === code {
                 code.lines.append(contentsOf: lines)
             } else {
-                let code = CodeNode(language: language, group: group)
+                let code = CodeNode(language: language, group: group, isIndented: style == .indented)
                 code.lines = lines
                 host.blocks.append(.code(code))
                 openCode = code
@@ -385,7 +387,7 @@ private struct TreeBuilder {
             case .leaf(let leaf):
                 return leaf
             case .code(let node):
-                return .code(EditorDocument.CodeBlock(language: node.language, lines: node.lines))
+                return .code(EditorDocument.CodeBlock(language: node.language, lines: node.lines, isIndented: node.isIndented))
             case .table(let node):
                 return .table(EditorDocument.TableBlock(
                     alignments: node.alignments,
@@ -494,10 +496,13 @@ private struct InlineExtractor {
             var intentRange = NSRange()
             var linkRange = NSRange()
             var literalRange = NSRange()
+            var styleRange = NSRange()
             let intentValue = storage.attribute(.markdownInlineIntent, at: location, effectiveRange: &intentRange)
             let linkValue = storage.attribute(.link, at: location, effectiveRange: &linkRange)
             let literalValue = storage.attribute(.markdownLiteral, at: location, effectiveRange: &literalRange)
-            let end = min(limit, NSMaxRange(intentRange), NSMaxRange(linkRange), NSMaxRange(literalRange))
+            let styleValue = storage.attribute(.markdownLinkStyle, at: location, effectiveRange: &styleRange)
+            let end = min(limit, NSMaxRange(intentRange), NSMaxRange(linkRange), NSMaxRange(literalRange), NSMaxRange(styleRange))
+            let firstRun = runs.count
             let intentBits = (intentValue as? NSNumber)?.uintValue
                 ?? MarkdownInlineIntent(attributeValue: intentValue)?.rawValue ?? 0
             let marks = Self.marks(fromIntentBits: intentBits)
@@ -522,6 +527,11 @@ private struct InlineExtractor {
                 index += 1
             }
             appendText(NSRange(location: start, length: end - start), marks: marks, link: link, literal: literal, to: &runs)
+            if link != nil, let style = (styleValue as? String).flatMap(EditorDocument.LinkStyle.init(rawValue:)) {
+                for index in firstRun..<runs.count where runs[index].link != nil {
+                    runs[index].linkStyle = style
+                }
+            }
             location = end
         }
         return runs

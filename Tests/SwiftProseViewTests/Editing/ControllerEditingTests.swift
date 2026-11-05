@@ -218,6 +218,15 @@ struct ControllerKeyRuleTests {
         #expect(harness.markdown == "```\nx\ny\n```\n\nz")
     }
 
+    @Test func indentedCodeReturnKeepsIndentation() {
+        let harness = EditorHarness(markdown: "    x")
+        harness.select(1)
+        harness.insertNewline()
+        harness.type("y")
+        #expect(harness.block(at: 2)?.codeStyle == .indented)
+        #expect(harness.markdown == "    x\n    y")
+    }
+
     @Test func commandReturnExitsCodeBlock() {
         let harness = EditorHarness(markdown: "```\nx\ny\n```\n\nafter")
         harness.select(1)
@@ -446,6 +455,73 @@ struct ControllerInputRuleTests {
         harness.typeEach(" **b**")
         harness.settle()
         #expect(harness.string == "x **b**")
+    }
+}
+
+@Suite("Controller smart typography (macOS, .serialized)")
+@MainActor
+struct ControllerSmartTypographyTests {
+    private func harness(_ markdown: String = "", options: SmartTypographyOptions = .all) -> EditorHarness {
+        let harness = EditorHarness(markdown: markdown)
+        harness.controller.smartTypography = options
+        harness.select(harness.string.utf16.count)
+        return harness
+    }
+
+    @Test func typingThreeDotsBecomesEllipsisWhenEnabled() {
+        let enabled = harness()
+        enabled.typeEach("Wait...")
+        #expect(enabled.string == "Wait\u{2026}")
+        #expect(enabled.markdown == "Wait\u{2026}")
+        enabled.undo()
+        enabled.settle()
+        #expect(enabled.string == "Wait...")
+
+        let off = EditorHarness(markdown: "")
+        #expect(off.controller.smartTypography.isEmpty)
+        off.typeEach("Wait...")
+        #expect(off.string == "Wait...")
+    }
+
+    @Test func quotesCurlByPosition() {
+        let editor = harness()
+        editor.typeEach("He said \"it's (\"fine\")\" 'ok'")
+        #expect(editor.string == "He said \u{201C}it\u{2019}s (\u{201C}fine\u{201D})\u{201D} \u{2018}ok\u{2019}")
+    }
+
+    @Test func doubleHyphenBecomesEmDashAfterText() {
+        let editor = harness()
+        editor.typeEach("a--b")
+        #expect(editor.string == "a\u{2014}b")
+        let rule = harness()
+        rule.typeEach("---")
+        #expect(rule.string == "---")
+    }
+
+    @Test func optionsAreIndependent() {
+        let editor = harness(options: .emDash)
+        editor.typeEach("\"a\"... b--")
+        #expect(editor.string == "\"a\"... b\u{2014}")
+    }
+
+    @Test func smartTypographySkipsCodeAndLiterals() {
+        let block = harness("```\nx\n```")
+        block.select(1)
+        block.typeEach(" \"a\"...")
+        #expect(block.string == "x \"a\"...")
+
+        let span = harness("a `b` c")
+        span.select(3)
+        span.typeEach("...")
+        #expect(span.string == "a b... c")
+
+        let escaped = harness()
+        escaped.typeEach("\\\"")
+        #expect(escaped.string == "\\\"")
+
+        let literal = harness("a \\.\\.")
+        literal.typeEach(".")
+        #expect(literal.string == "a ...")
     }
 }
 
