@@ -2931,7 +2931,7 @@ public final class EditorController {
                     proseStorage.withOrigin(.transaction) {
                         resulting = InsertNewline.handle(
                             in: textStorage,
-                            cursor: cursor,
+                            selection: currentSelection,
                             compiler: compiler,
                             serializer: serializer,
                             theme: theme

@@ -33,6 +33,18 @@ import UIKit
         )
     }
 
+    private func handle(in storage: NSTextStorage, selection: NSRange) throws -> NSRange? {
+        let compiler = try MarkdownAttributedCompiler()
+        let serializer = AttributedMarkdownSerializer()
+        return InsertNewline.handle(
+            in: storage,
+            selection: selection,
+            compiler: compiler,
+            serializer: serializer,
+            theme: .default
+        )
+    }
+
     @Test func nonListReturnsNil() throws {
         let s = try storage(from: "hello\n")
         #expect(try handle(in: s, cursor: 5) == nil)
@@ -82,6 +94,86 @@ import UIKit
         let out = serialize(s)
         #expect(out.contains("- [x] done"))
         #expect(out.contains("- [ ] "))
+    }
+
+    @Test func returnAtItemStartOpensEmptyItemAbove() throws {
+        let s = try storage(from: "- one\n")
+        let result = try handle(in: s, cursor: 2)
+        #expect(serialize(s) == "- \n- one\n")
+        #expect(result == NSRange(location: 5, length: 0))
+    }
+
+    @Test func returnBeforeMarkerCountsAsItemStart() throws {
+        let s = try storage(from: "- one\n")
+        let result = try handle(in: s, cursor: 0)
+        #expect(serialize(s) == "- \n- one\n")
+        #expect(result == NSRange(location: 5, length: 0))
+    }
+
+    @Test func returnMidItemMovesTailToNewItem() throws {
+        let s = try storage(from: "- onetwo\n")
+        let result = try handle(in: s, cursor: 5)
+        #expect(serialize(s) == "- one\n- two\n")
+        #expect(result == NSRange(location: 8, length: 0))
+    }
+
+    @Test func returnWithSelectionInsideItemDeletesItFirst() throws {
+        let s = try storage(from: "- onetwo\n")
+        let result = try handle(in: s, selection: NSRange(location: 4, length: 2))
+        #expect(serialize(s) == "- on\n- wo\n")
+        #expect(result == NSRange(location: 7, length: 0))
+    }
+
+    @Test func returnAtItemStartKeepsOneList() throws {
+        let controller = try EditorController(initialMarkdown: "- one\n- two\n")
+        controller.testSelection = NSRange(location: 2, length: 0)
+        #expect(controller.handleNewline())
+        #expect(controller.markdown() == "- \n- one\n- two")
+        guard case .structural(_, let kids) = controller.document.root else {
+            Issue.record("root is not structural")
+            return
+        }
+        #expect(kids.count == 1)
+    }
+
+    @Test func returnMidItemKeepsOneList() throws {
+        let controller = try EditorController(initialMarkdown: "- one\n- twothree\n")
+        controller.testSelection = NSRange(location: 11, length: 0)
+        #expect(controller.handleNewline())
+        #expect(controller.markdown() == "- one\n- two\n- three")
+        guard case .structural(_, let kids) = controller.document.root else {
+            Issue.record("root is not structural")
+            return
+        }
+        #expect(kids.count == 1)
+    }
+
+    @Test func returnAtOrderedItemStartRenumbers() throws {
+        let controller = try EditorController(initialMarkdown: "1. apple\n2. pear\n")
+        controller.testSelection = NSRange(location: 12, length: 0)
+        #expect(controller.handleNewline())
+        #expect(controller.markdown() == "1. apple\n2. \n3. pear")
+    }
+
+    @Test func returnAtCheckedTaskStartKeepsCheckOnContent() throws {
+        let controller = try EditorController(initialMarkdown: "- [x] done\n")
+        controller.testSelection = NSRange(location: 2, length: 0)
+        #expect(controller.handleNewline())
+        #expect(controller.markdown() == "- [ ] \n- [x] done")
+    }
+
+    @Test func returnAtNestedItemStartStaysNested() throws {
+        let controller = try EditorController(initialMarkdown: "- one\n  - two\n")
+        controller.testSelection = NSRange(location: 8, length: 0)
+        #expect(controller.handleNewline())
+        #expect(controller.markdown() == "- one\n  - \n  - two")
+    }
+
+    @Test func returnMidItemKeepsMarksOnMovedText() throws {
+        let controller = try EditorController(initialMarkdown: "- one**two**\n")
+        controller.testSelection = NSRange(location: 5, length: 0)
+        #expect(controller.handleNewline())
+        #expect(controller.markdown() == "- one\n- **two**")
     }
 
     @Test func nestedOrderedRendersAsAlpha() throws {
