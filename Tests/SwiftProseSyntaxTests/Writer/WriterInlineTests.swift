@@ -160,6 +160,24 @@ struct WriterInlineTests {
         #expect(WF.inline(WF.t("e.com", link: "e.com")) == "[e.com](e.com)")
     }
 
+    @Test func angleAutolinksKeepTheirForm() {
+        let storage = Corpus.load("See <https://example.com>, <me@x.com> and [t](https://t.com).")
+        #expect(storage.attribute(.markdownLinkStyle, at: 4, effectiveRange: nil) as? String == "angle")
+        var runs: [EditorDocument.InlineRun] = []
+        if case .paragraph(let paragraph)? = StorageReader().document(from: storage).blocks.first { runs = paragraph }
+        #expect(runs.filter { $0.link != nil }.map(\.linkStyle) == [.angle, .angle, .inline])
+        #expect(Corpus.write(storage) == "See <https://example.com>, <me@x.com> and [t](https://t.com).")
+
+        let edited = NSMutableAttributedString(attributedString: storage)
+        edited.replaceCharacters(in: NSRange(location: 4, length: 5), with: "ftp")
+        #expect(Corpus.write(edited).hasPrefix("See [ftp://example.com](https://example.com), <me@x.com>"))
+
+        let angle = WF.t("https://e.com", link: "https://e.com").mutableCopy() as! NSMutableAttributedString
+        angle.addAttribute(.markdownLinkStyle, value: "angle", range: NSRange(location: 0, length: angle.length))
+        #expect(WF.inline(WF.t("x"), angle) == "x<https://e.com>")
+        #expect(WF.inline(angle, WF.t(".")) == "<https://e.com>.")
+    }
+
     @Test func breaks() {
         #expect(WF.inline(WF.t("a"), WF.hard, WF.t("b")) == "a  \nb")
         #expect(WF.inline(WF.t("a"), WF.soft, WF.t("b")) == "a\nb")

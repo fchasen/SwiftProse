@@ -37,6 +37,7 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
     public var keymap: Keymap = .mac
     public var isEditable: Bool = true
     public var allowsCheckboxToggle: Bool = false
+    public var smartTypography: SmartTypographyOptions = []
 
     public weak var hostTextView: PlatformTextView? {
         didSet {

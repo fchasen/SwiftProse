@@ -185,7 +185,7 @@ struct ProseInspector: View {
         switch block.leaf {
         case .paragraph: parts = ["paragraph"]
         case .heading(let level): parts = ["h\(level)"]
-        case .code(let language, _): parts = ["code(\(language ?? "?"))"]
+        case .code(let language, _, _): parts = ["code(\(language ?? "?"))"]
         case .thematicBreak: parts = ["hr"]
         case .tableRow(_, _, let isHeader): parts = [isHeader ? "table header" : "table row"]
         case .html: parts = ["html"]

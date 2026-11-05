@@ -9,8 +9,8 @@ The CommandLineTools toolchain doesn't ship Swift Testing, so always point `swif
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter SwiftProseViewTests.StepInverseRoundTripTests
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter SwiftProseViewTests.StepInverseRoundTripTests/replaceTextRoundTrips
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter SwiftProseViewTests.ControllerKeyRuleTests
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter SwiftProseViewTests.ControllerKeyRuleTests/tabNestsAnywhereInItemAndShiftTabOutdents
 ```
 
 DocC is opt-in so downstream apps don't resolve the plugin:
@@ -35,209 +35,134 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
   -scheme SwiftProseDemo -destination 'platform=macOS'
 ```
 
-That runs `SwiftProseDemoTests` — driver canaries, the corpus ledger, ~150
+That runs `SwiftProseDemoTests` — driver canaries, the corpus ledger, ~165
 scripted edit scenarios, and a seeded fuzz smoke — and skips the
 permission-gated `SwiftProseDemoUITests`. See
 `Examples/SwiftProseDemo/README.md` for the op vocabulary, the oracles, the
 fuzz / replay / shrink CLI, and how to add a scenario.
 
-The harness reaches four `@_spi(Harness)` seams on `EditorController`
-(`Sources/SwiftProseView/HarnessSPI.swift`): `hasPendingEnvelopes`,
-`drainPendingEnvelopesForHarness()`, `harnessAssertsOnDiagnostics`, and
-`harnessClassificationProbe`. They keep the demo off `@testable import` and
-the public API clean; add to that file rather than widening real API.
+The harness reaches seven `@_spi(Harness)` seams on `EditorController`
+(`Sources/SwiftProseView/HarnessSPI.swift`): `settleForHarness()`,
+`hasPendingWorkForHarness`, `activeUndoManagerForHarness`,
+`breakUndoCoalescingForHarness()`, `harnessEditRouteProbe`,
+`harnessNormalizationDrift()` and `harnessTableGeometry(at:)`. They keep the
+demo off `@testable import` and the public API clean; add to that file when
+the harness needs more.
 
 Targets `macOS 26` / `iOS 26` (SDK 26+ required — older Xcodes won't build).
 
 ## Architecture
 
-Four SPM targets in a strict dependency chain (see `Package.swift`):
+Five SPM targets (see `Package.swift`). The four core targets form a chain; `SwiftProseTreeSitter` hangs off `SwiftProseSyntax`:
 
 ```
-SwiftProseSyntax  ← pure Swift, no UI. Tree-sitter, schema, document tree, classifiers, codecs.
+SwiftProseSyntax     ← vocabulary, loader, reader, writer, EditorDocument, source-mode model,
+   ↑                   atom attachments, EditorAction, highlighter contract, platform aliases
+SwiftProseRendering  ← ProseTheme and its styles, CheckboxAttachment, ListMarker, QuoteBar
    ↑
-SwiftProseRendering  ← NSTextAttachment subclasses + custom NSTextLayoutFragments.
-   ↑
-SwiftProseView  ← TextKit 2 controller, compiler/serializer, steps, commands, input rules,
-                  ProseMirror codec, theme, keymap, plugins, NS/UITextView wrappers.
-   ↑
-SwiftProse  ← SwiftUI surface (`SwiftProseEditor`), env modifiers, toolbar, status bar.
+SwiftProseView       ← EditorController, SourceEditorController, EditorHandle, editing rules,
+   ↑                   Normalizer, Restyler, highlighting sessions, plugins, layout fragments,
+   ↑                   NS/UITextView representables, clipboard, HarnessSPI
+SwiftProse           ← SwiftUI surface (SwiftProseEditor), modifiers, toolbar, status bar,
+                       completion overlay, table structure sheet
+
+SwiftProseTreeSitter ← TreeSitterCodeBlockHighlighter, CodePalette, language detection
+                       (depends on SwiftProseSyntax + swift-tree-sitter)
 ```
 
-`SwiftProse` `@_exported`s the lower three — downstream apps just `import SwiftProse`. When adding code, place it in the lowest layer that satisfies its imports; don't reach upward.
+`SwiftProse` `@_exported`s the three core targets below it. Place code in the lowest layer that satisfies its imports.
 
-### Input pipeline (envelopes)
+**Layering rule.** `SwiftProseSyntax` imports Foundation, CoreGraphics / CoreText, and AppKit / UIKit for attributed-string level types only: `NSAttributedString.Key`, `NSParagraphStyle` / `NSTextList`, self-drawing `NSTextAttachment` subclasses, `PlatformFont` / `PlatformColor`. SwiftUI, `NSTextView` / `UITextView`, `NSTextLayoutManager`, `NSTextContentStorage`, `NSTextLayoutFragment`, pasteboards and View-layer types belong in `SwiftProseView` or above. This keeps `MarkdownLoader` and `MarkdownWriter` headless and testable from `SwiftProseSyntaxTests`. The layout fragments read `controller.decorationCache`, `MarkdownTextList.effectiveTextLists` and `Restyler` constants, so they live in `SwiftProseView/Layout/`. `swift-tree-sitter` is linked only by `SwiftProseTreeSitter`; the core targets use Apple frameworks only.
 
-Platform edits do not reach the controller as notifications. `ProseTextStorage` (a `NSTextStorage` subclass) captures the pre-image of every mutation and tags it with an `EditOrigin` — `.platform`, `.transaction`, `.history`, `.normalize`, `.load` — pushed by `withOrigin(_:capturing:)` scopes around the controller's own writes.
+### Canonical state: the text storage
 
-```
-text view mutates storage
-  ↓  ProseTextStorage captures pre-image + EditOrigin
-processEditing → EditRecord (queued, flushed after the outermost mutation unwinds)
-  ↓  .platform only
-PendingEnvelope → drain (sync when headless, next tick when hosted)
-  ↓
-classify → EditClass (typing / deletion / correction / bulk / compositionInterim /
-            compositionCommit / dictationInterim / attributeOnly / history)
-  ↓
-normalize → publish DocumentChange → input rules (typing only) → append transactions
-```
+`EditorController.textStorage` is the document; the live editing path reads and writes only it.
 
-Records are flushed **after** the outermost mutation unwinds, never from inside `processEditing`: `NSTextStorage` folds mutations made during that pass into it rather than starting a new one, so an observer that edits from there gets no record of its own and leaks its captures into the next unrelated edit.
+- **One paragraph per block.** Every character, including the paragraph's `\n`, carries `.markdownBlock` (`MarkdownBlock`, raw key `swiftprose.block`). `MarkdownBlock` has a `leaf` (`paragraph`, `heading(level:)`, `code(language:group:)`, `thematicBreak`, `tableRow(group:alignments:isHeader:)`, `html`), outer-to-inner `containers` (`quote(GroupToken)`, `listItem`), `isContinuation` for the second and later paragraphs of a list item, and an optional `task`. The value is uniform across the paragraph.
+- **Inline marks** are `InlinePresentationIntent` bits in `.markdownInlineIntent` (`stronglyEmphasized`, `emphasized`, `code`, `strikethrough`). Links are `.link`.
+- **Literals.** `.markdownLiteral` holds the source of an escape or entity on the one rendered character (two UTF-16 units for a surrogate pair) that stands for it.
+- **Atoms** are U+FFFC attachments conforming to `ProseSourceAttachment` (`markdownSource`, `contentKind`): images, inline HTML, HTML blocks, thematic breaks, inline-content chips.
+- **Lists** are real `NSTextList`s on the paragraph style. `textLists.count` equals the number of `listItem` containers.
+- **`GroupToken`** ties paragraphs into one construct: the lines of a code block, the rows of a table, the paragraphs of one blockquote.
+- **Tables** are rows of tab-separated cells; each separator `\t` carries `.markdownTableSeparator`, and `TableRowGeometry` (`.markdownTableGeometry`, `package`) records row index, row count and column edges for layout.
+- **Soft breaks** inside a paragraph are U+2028 (`MarkdownBreak`). Each line of a code block is its own paragraph.
 
-The text-view delegates stamp an `EditHint` (from the **pre-edit** `selectedRange`) before returning `true`; the drain treats it as a starting point and storage as the truth. The macOS bulk-insert veto is gated on `affectedCharRange == selectedRange` so autocorrect isn't routed through the paste pipeline.
+Fonts, colours and paragraph styles are derived from those attributes by `Restyler`; structure is read from the attributes above. **Do not infer block kind from text or fonts.** Read `markdownBlock(at:)`.
 
-`drainPendingEnvelopes()` runs at the head of every public read (`document`, `markdown()`, `blocks`, `sliceForRange`, `exportProseMirrorJSON`) and every mutating entry point, so the deferral is invisible.
-
-### Live editing pipeline
-
-The editor is a single TextKit 2 stack (`NSTextStorage` + `NSTextContentStorage` + `NSTextLayoutManager`) — there is no separate model document. Markdown source is the canonical state; rich attributes are recomputed on top, and a typed `ProseDocument` tree is reverse-projected from storage on demand (cached on `EditorController.document`, invalidated by every storage edit).
+### Load and write
 
 ```
-text typed
-  ↓
-MarkdownParser (tree-sitter, .block + .inline grammars)
-  ↓
-BlockSegmenter / BlockClassifier  →  [BlockSegment]   (compile only)
-  ↓
-MarkdownAttributedCompiler        →  NSAttributedString
-   ├─ HighlightApplier             (markdown highlights.scm queries)
-   ├─ CodeBlockHighlighter         (per-language tree-sitter, optional, host-injected)
-   └─ NodePathSynthesizer          (stamps proseNodePath + proseMarks)
-  ↓
-NSTextStorage attributes
-  ↓
-LayoutFragments paint blockquote bars, code-block backgrounds, language tags
+markdown
+  ↓  MarkdownSourceText (bytes, line starts)
+  ↓  AttributedString(markdown:) with source positions
+  ↓  LoaderStructure  ← ContainerPrefix (quote / list prefixes), TableSource (pipe rows)
+  ↓  LoaderInline     ← SourceAligner (recovers escapes, entities, delimiters as literals)
+  ↓  inline-content rules → atoms
+NSMutableAttributedString (MarkdownLoader.load)
+
+storage → StorageReader → EditorDocument → MarkdownWriter → markdown
 ```
 
-Two `MarkdownParser` instances run side-by-side: one with the `.block` grammar, one with the `.inline` grammar. The tree-sitter-markdown package exposes them as separate grammars (rather than the inline grammar being injected) and we drive both directly. Markdown emit goes through `MarkdownTreeSerializer` — it walks the `ProseDocument` tree, not the storage attributes.
+`MarkdownLoader.loadWithReport` stays internal; its `LoaderReport` feeds tests. `EditorDocument` exists only on the write side, built by `StorageReader` for `MarkdownWriter`. The writer's output is canonical. `EditorController.markdown()` returns the original load bytes while `VocabularySnapshot` (the vocabulary attributes captured at load) still matches storage and the serialization equals the one taken at load; otherwise it returns the writer's output.
 
-### Source-of-truth attributes
+### Edit flow
 
-Two reference-typed attributes are canonical on storage:
+```
+host text view delegate → hostShouldChangeText(in:replacement:)
+  ↓  plugins' handleTextInput, table-edit routing, typing into an atom, typed-input record
+NSTextStorage mutates
+  ↓  textStorage(_:didProcessEditing:...)
+Normalizer   (edited paragraph ±1: block uniformity, list reconciliation, literals, table separators)
+  ↓
+Restyler     (fonts, colours, paragraph styles from block + intent)
+  ↓
+CodeHighlighting.update (session didEdit / reset per code block)
+  ↓
+recordChange → pending DocumentChange
+  ↓  binding push
+flushDocumentChanges (next main-queue turn, or at the end of performEdit)
+  ↓  plugins' documentDidChange, addOnDocumentChange observers
+input rules (deferEdit, origin .user only)
+```
 
-- **`.proseNodePath`** (declared in `SwiftProseSyntax/AttributeKeys.swift`, value type `NodePathBox`) — the chain of structural ancestors for this character (e.g. `[doc, blockquote, paragraph]`). Carries node identity (`NodeID`) so adjacent runs with the same logical path don't accidentally fuse. **`BlockSpec` is now derived** from `proseNodePath` at read time via `storage.blockSpec(at:)` — there is no `proseBlockSpec` storage attribute anymore.
-- **`.proseMarks`** (value type `MarkSetBox`) — the `MarkSet` of inline marks (strong, em, code, link, strike) on this character. Supersedes per-attribute font-trait inspection. `MarkSetBox` compares by value, so adjacent characters with equal marks are one attribute run; when stamping inserted characters, reuse the neighbour's box rather than minting one.
+Commands go through `performEdit(_:ranges:replacements:...)` → `EditSession.perform`, which makes each command one undo step and flushes on return. Key handling (Return, Backspace, Tab, fence and thematic-break rules) lives in `Editing/KeyRules.swift`; block and inline-closer input rules in `Editing/InputRules.swift`; format commands in `Editing/FormatCommands.swift`; table editing in `Editing/TableEditing.swift` and `TableCommands.swift`; paste in `Editing/ClipboardEditing.swift` and `PasteSanitizer.swift`.
 
-**Do not infer block kind from text patterns.** Read `proseNodePath` (or its `BlockSpec` projection). When inserting, carry-forward of attributes is driven by `EditorController.carryForwardAttributeKeys`.
+`DocumentChange.origin` is `.user`, `.command`, `.undo` or `.load`. The text-view coordinators push the `text` binding after every change except `.load`.
 
-### ProseMirror-aligned model
+### Undo
 
-`SwiftProseSyntax` defines a typed tree mirroring ProseMirror. The default schema (`Schema.defaultMarkdown`) is a typed superset of `prosemirror-schema-basic` + `addListNodes` — wire-format-load-bearing attributes (`ordered_list.order`, `code_block.params`, `image.{src,alt,title}` defaulting to `""`, `link.{href,title}` defaulting to `""`, `table_cell.colwidth` as `[Int]`) track PM exactly. Marks are declared in PM-basic order: `[link, em, strong, code, strike]`. Extensions over PM-basic that need stripping for strict interop: `task_list`, `html_block`, `link_reference`, `strike` mark, `table_*`.
+- **macOS, hosted:** the `NSTextView` owns undo (`allowsUndo = true`, the delegate's `undoManager(for:)` returns `controller.undoManager`). Typing uses AppKit's coalescing. Commands call `shouldChangeText(inRanges:replacementStrings:)` / `didChangeText()` around their storage writes with `breakUndoCoalescing()` on both sides, so they register on the same manager. `ProseNSTextView` forwards `undo:` / `redo:` explicitly.
+- **Headless and iOS:** `EditSession.performSnapshot` registers a closure that restores an attributed snapshot of the affected paragraphs, re-registering its counterpart for redo. On iOS the manager is the host `UITextView`'s, which `ProseUITextView` points at the controller's.
+- **Load and mode switch:** `setMarkdown(_:)` clears history. A mode switch that changes the text registers one restore step holding the full load snapshot.
 
-Core types:
+### Tables
 
-- **`Schema`** — `NodeType`s, `MarkType`s, top node. Preserves `nodeTypeOrder` and `markTypeOrder` for stable iteration. `Schema.nodeFromJSON(_:)` / `Schema.markFromJSON(_:)` decode PM JSON without pulling in the View layer (`SchemaJSON.swift`).
-- **`NodeType`** — content rules, attrs, and PM spec flags: `atomSpec`, `isCode`, `defining`, `definingForContent`, `definingAsContext`, `selectable`, `draggable`, `linebreakReplacement`, `allowedMarks: AllowedMarks` (`.all` / `.none` / `.named(Set)`). Factories `create(attrs:)` / `createChecked(attrs:)` / `createAndFill(attrs:)` fill schema defaults; `createChecked` throws `NodeTypeAttrError.missingRequired` for defaultless attrs.
-- **`MarkType`** — attrs, `excludes: Set<Name>`, `excludesAll: Bool` (PM `"_"`), `inclusive: Bool`. `MarkSet.adding(_:in:)` enforces excludes (e.g. adding `code` over a `strong em` span drops both). PM-style helpers: `mark.addToSet(_:in:)`, `mark.removeFromSet(_:)`, `mark.isInSet(_:)`.
-- **`ContentExpression`** — content rules parse to a `ContentMatch` automaton (`ContentMatch.swift`) with `matchType`, `matchFragment`, `validEnd`, `defaultType`, `edgeCount`. Multi-element rules like `paragraph block*` validate correctly; single-segment `block+` / `inline*` / `(table_cell | table_header)+` also work.
-- **`ProseNode`** — `NodeType` instance with attrs and a stable `NodeID`.
-- **`ProseDocument` / `TreeNode`** — structural / leaf / inline nodes. `TreeNode.leaf(ProseNode, MarkSet)` carries marks alongside the leaf so an image inside a link span keeps the link mark across encode / decode. `MarkSet`s also live on `inline` runs.
-- **`NodePath`** — a `ProseNode` chain, used as the `proseNodePath` attribute value.
-- **`ResolvedPos` / `NodeRange`** (`ResolvedPos.swift`) — `document.resolve(_:)` returns a `ResolvedPos` exposing `depth`, `parent(at:)`, `node(at:)`, `index(at:)`, `start(at:)` / `end(at:)` / `before(at:)` / `after(at:)`, `textOffset`, `marks()`, `marksAcross(_:)`, `blockRange(_:pred:)`. `NodeRange` represents a contiguous child range under one parent — used by lift / wrap probes.
-- **Position space** — positions are **storage UTF-16 offsets**: `document.resolve(controller.currentSelection.location)` is exact and `document.contentLength == textStorage.length`. Structural nodes have openness 0 (no open/close tokens, unlike PM); presentation markers (list glyph + tab, `"12. "`, checkbox) count toward offsets but not text; attachment-backed nodes (`table`) are opaque and never descended into. `ProseDocument.from(storage:)` records this per node in `ProseNode.layout` (`StorageLayout`: `storageLength`, `presentationPrefix`, `isAttachmentBacked`) — a side channel excluded from `==`, `hash`, codecs, and the serializer, so hand-built trees keep the projection-length semantics.
-- **`ProseAttrValue` / `PMValue`** — JSON-roundtrippable scalars + `.array([ProseAttrValue])` + `.object([String: ProseAttrValue])` for nested attribute shapes. `ProseAttrValue(pmValue:)` and `.toPMValue()` convert.
+Tables are inline: header and body rows are paragraphs in storage, painted by `TableRowLayoutFragment` with shared tab stops. Cell navigation, separator protection, row insertion on Return / Tab, and structural actions route through `applyTableEdit` and `TableCommands`. `TableStructureModel` (Syntax) is the value the structure sheet edits.
 
-The compiler stamps `proseNodePath` and `proseMarks` directly during emit, and `ProseDocument.from(storage:schema:)` reverse-projects the tree on demand. `controller.document` returns the cached tree; `controller.onDocumentChange` fires after each character edit with the freshly-derived `ProseDocument` and a `Step.replaceText` describing the storage edit.
+### Source mode
 
-### Editing primitives (layered)
+`SourceEditorController` runs a plain TextKit 2 stack over the markdown text. `SourceStyler` highlights line by line, storing a `SourceLineState` per line (`package` key `.markdownSourceLineState`) and restyling forward while a line's end state changes. Commands run `MarkdownSourceFormatter` (Syntax, pure) and apply its `MarkdownSourceEdit`. A mode switch reloads the text into the other controller (`EditorHandle.synchronize(for:)`) and maps the caret through `SourceSelectionMapping`.
 
-These are nested, not parallel — pick the highest layer that gets the job done:
+### Code highlighting
 
-1. **`Operations`** (`SwiftProseView/Operations.swift`) — direct `NSTextStorage` mutators. Internal building blocks; new mutating behavior should rarely live here.
-2. **`Step`** (`SwiftProseView/Step.swift`) — typed, undoable edit. Variants: `replaceText`, `setSpec`, `toggleInlineMark`, `replaceAround`, `addMark`, `removeMark`, `setNodeAttrs`, `setNodeAttrsAt` (position-addressed), `addNodeMark`, `removeNodeMark`, `setDocAttr`, `replaceCellInline`, `setTableSubtree`. Each `Step.apply` returns an `AppliedStep` whose `inverse` is itself typed (`addMark` ↔ `removeMark`, `setNodeAttrs` ↔ `setNodeAttrs(priorAttrs)`, `replaceAround` ↔ `replaceAround`, `setSpec` ↔ `setSpec(priorSpec)`) so undo / redo preserves `NodeID`s. `Step.canApply(to:)` returns a `LegalityError?` without mutating storage; `Transaction.apply` skips illegal steps cleanly. `Step.merge(_:)` coalesces adjacent inserts / matching mark ops; `Step.isStructural` is `true` for setSpec / replaceAround / setNodeAttrs / table / node-mark / setDocAttr — `merge` refuses to coalesce structural steps. **New behavior should compose `Step`s.**
-3. **`Transaction`** — ordered list of `Step`s, applied atomically; pushed onto the `UndoManager` as a single unit. Carries `selection: Selection?` (installed on apply), `scrollIntoView: Bool`, `meta: [String: AnyHashable]` (`setMeta(_:_:)` / `getMeta(_:)`), and `label: String?` (forwarded to `undoManager.setActionName`). `meta["addToHistory"] == false` skips undo recording; `meta["closeHistory"] == true` opens a fresh undo group on apply. `Transaction.apply` accumulates the union of every step's `mappedRange` so post-apply validation covers the full mutated area.
-4. **`Command`** (`SwiftProseView/Command.swift`) — registered in `CommandRegistry`, resolved per `EditorAction`. Builds a `Transaction` from a selection. Toolbar/menu items dispatch through here. See `Sources/SwiftProseView/Commands/`. `chainCommands(_:)` runs commands in order, first non-nil transaction wins. Generic `ToggleMarkCommand(id:mark:label:)` and `SetBlockTypeCommand(id:label:kind:)` subsume per-mark / per-heading commands.
-5. **`InputRule`** (`SwiftProseView/InputRules/InputRule.swift`) — regex-driven, peer of `Command` (not a subtype). Fires implicitly when typed text matches; receives capture groups; produces a `Transaction`. See `InputRules/DefaultInputRules.swift`. PM helpers `wrappingInputRule(...)` and `textblockTypeInputRule(...)` build rules from a regex plus a target node type / block spec. `InputRule.inCode: InCodePolicy` (`.run` / `.skip`) lets bold / italic / strike / codeSpan opt out when the cursor sits inside a code block. Optional smart-typography rules (`InputRule.smartSubstitutionRules(_:)`) ship behind a `RuleOptions` set (`.smartQuotes`, `.ellipsis`, `.emDash`).
+The contract is in `SwiftProseSyntax/Highlighting/CodeBlockHighlighter.swift`: `CodeBlockHighlighter.makeSession(language:body:)` returns a `CodeHighlightSession` per code block, which answers `reset(body:)` and `didEdit(replacedRange:replacement:body:)` with `CodeHighlightRun`s. `SwiftProseView/Highlighting/CodeHighlighting.swift` keeps one session per block, maps storage offsets to body offsets (skipping container prefixes marked `.markdownCodePrefix`), and paints the runs. Both modes use it. `SwiftProseTreeSitter` provides `TreeSitterCodeBlockHighlighter`: grammars registered by the host, a `CodePalette`, and `detectLanguage(for:)` for fences without an info string (≥ 30% coverage and ≥ 1.5× the runner-up).
 
-`StepEnvironment` carries `(compiler, serializer, theme)` into every `Step.apply` — steps that need to reflow attributes (e.g. `setSpec`) recompile the affected region through it.
+### Plugins
 
-`StepMap.mapResult(_:bias:)` returns a `MapResult { pos, deleted, deletedBefore, deletedAfter, deletedAcross }` so callers can react to deletion-around-position. `Mapping` tracks mirror pairs (`appendMap(_:mirrors:)`, `getMirror(_:)`, `invert()`, `appendMappingInverted(_:)`).
-
-### Selection
-
-`SwiftProseView/Selection.swift` defines the typed `Selection` enum: `.text(range, anchor, head)`, `.node(path, range)`, `.all`. `controller.currentTypedSelection` returns one. `Selection.cursor(at:)` and `Selection.textRange(_:)` are convenience constructors. A `Transaction.selection` field installs the result on apply.
-
-### Keymap
-
-`SwiftProseView/Keymap.swift`. `EditorController.keymap` is a PM-style binding from key spec to `EditorAction`. Defaults `Keymap.mac` / `Keymap.pc`. `KeySpec.make(key:mod:shift:alt:)` builds normalized strings (`"Mod-Shift-b"`); `Mod` resolves to Cmd on macOS, Ctrl elsewhere. The macOS text view's `shortcutAction(forCommandKey:shift:)` consults this; iOS surface still has hardcoded `keyCommands` to be migrated when Phase 5.4 lands fully.
-
-### Plugin system
-
-`SwiftProseView/EditorPlugin.swift`. `EditorPlugin` protocol with `filterTransaction(_:controller:)` (veto), `appendTransaction(after:controller:)` (follow-up), and `props: PluginProps` for input-event hooks (`handleClick`, `handlePaste`, `handleDrop`, `handleKeyDown`, `handleTextInput`). Per-plugin state lives behind `PluginKey<State>`: `controller.setPluginState(_:for:)` / `controller.pluginState(for:)`. The macOS click handler consults `plugins[*].props.handleClick` before built-in checkbox handling.
-
-`DocumentChange` fires for every platform envelope, transaction, history replay (attribute-only ones included — a mark toggle is a document change), and load; it carries an internal `origin`, which the text-view coordinators use to push the `text` binding after everything except a `.load`. Single-callback observers on `EditorController` (`onDocumentChange`, `onDiagnostic`, `onSchemaDiagnostic`, `onSelectionChanged`) coexist with multi-subscriber registration: `addOnDocumentChange(_:)` / `addOnDiagnostic(_:)` / `addOnSelectionChanged(_:)` return an `ObserverToken` for `removeObserver(_:)`. Internal callsites use the `fanoutDocumentChange(_:_:)` / `fanoutDiagnostic(_:)` / `fanoutSelectionChanged(_:)` helpers.
-
-### Normalization and validation
-
-Normalization runs first and the validator only checks. Nothing on the live path repairs.
-
-- **`normalizeInsertedAttributes`** — every character in an edited line carries that line's `proseNodePath`, reusing the box already there rather than minting one. Minting is what used to split a list in two when you deleted its first item. Two exceptions where it does mint: a line with no structure at all (content written straight into storage), and a line whose node is already claimed by an earlier line — typed and pasted characters carry the insertion point's node forward, so a multi-line paste arrives as one paragraph spanning every line it created. Code fences and tables are exempt from that split; one node over many lines is what they are.
-- **`Step.fillMissingNodePaths`** — the same job for transaction content, at insert time. A `replaceText` built from a bare `NSAttributedString` carries no structure.
-- **`DocumentInvariants.enforce`** (`SwiftProseView/DocumentInvariants.swift`) — the rules that span a **structural run**, which a line-local pass cannot see: ordered-list renumbering, `listLevel` clamping (no jump greater than one past the item above), blockquote continuity. Runs under `withOrigin(.normalize, capturing: true)` so the fix-up joins the undo unit of the edit that caused it. The first line of a run establishes its own depth — a document may legitimately open at `> > `.
-- **`EditorController.validate(in:)`** — `SpecValidator.validate` (line-level invariants; lines whose leaf is isolating are skipped, since `BlockSpec` cannot describe them) plus, when `onSchemaDiagnostic` is installed, `SchemaValidator.validate` over the projected tree. Diagnostics surface through `onDiagnostic` / `onSchemaDiagnostic`; in DEBUG a spec diagnostic trips an assertion, because reaching it means normalization has a bug. There is no repair path any more — `SpecValidator` only validates.
-
-### History
-
-One path for everything. Every edit — a keystroke, a command, a paste, a table-cell change — registers a `HistoryRecord` (`SwiftProseView/HistoryRecord.swift`) holding **typed inverse `Step`s**, newest first, replayed with `Transaction.apply(..., sequential: true)`. Sequential means *unmapped*: each inverse is already expressed in the state its forward step produced, so mapping it again would double-count.
-
-- **Where inverses come from.** Platform edits: `ProseTextStorage`'s capture hook snapshots the pre-image of every mutation, which *is* the inverse (attributes and `NodePathBox` references included). Transactions: `AppliedTransaction.inverse`. Direct mutators (`withCharacterMutation` / `withAttributeMutation`): the pre-image of their range.
-- **Coalescing** reads `historyConfig.newGroupDelay` for real. A `.typing` / `.deletion` / `.correction` envelope joins the open burst iff it lands within the delay **and** abuts a range the burst already touched. Everything else opens its own unit. `closeHistoryGroup()` and every command entry point close the burst.
-- **`undoManager.groupsByEvent` is off** — the controller does its own grouping, one `HistoryRecord` per group. Left on, a typed character and the input rule it triggered would collapse into one undo.
-- **History replay sets `StepEnvironment.isHistoryReplay`**, which turns off `applyReplaceText`'s node re-stamping (it would discard the identity the pre-image carries) and turns on `Step.unifyLineNodePaths` (a restored run whose neighbours were re-stamped meanwhile would otherwise split one line into two blocks).
-- Platform undo routing: macOS sets `allowsUndo = false` (so `NSTextView.undoManager` is nil and AppKit's typing coalescer never registers) and routes the `undo:` / `redo:` menu actions to the controller from `ProseNSTextView`. Never override `undoManager` on the text view — AppKit registers into whatever it returns, without a group, and throws. iOS overrides `ProseUITextView.undoManager` and adds Cmd-Z / Shift-Cmd-Z key commands.
-
-`controller.undoDepth` / `redoDepth` / `isHistoryTransaction(_:)` are read-only accessors.
-
-`EditorController.undoInputRule()` runs at the head of the Backspace chain — when the most recently fired input rule is still on the cursor, Backspace undoes the rule rather than deleting a character. `inputRules.lastFiredRule` is set by `InputRuleRunner.evaluate` after a successful match.
-
-### Incremental tree projection
-
-`controller.document` reuses the tree it projected last time. `IncrementalProjection` (`SwiftProseView/IncrementalProjection.swift`) records every storage edit since as a `Mapping`, maps the dirty range back into the cached tree's coordinates, re-projects only the top-level blocks it covers (plus one of slack on each side, since an edit at a boundary can merge or split blocks), and splices the result over the stale children. Exact block boundaries come free from `ProseNode.layout.storageLength` (Stage 2).
-
-It is a pure optimization: `spliced(...)` returns nil whenever anything is uncertain — a child with no recorded span, a total that doesn't tile the buffer, a `.load` — and `document` falls back to a full projection. The one visible difference is that the doc root keeps its `NodeID` across edits instead of being re-minted.
-
-`splicedProjectionRunCount` / `projectionRunCount` are test counters for which path served a read.
-
-### Decorations
-
-`SwiftProseView/DecorationProvider.swift`. The bundled `BlockSpecDecorationProvider` derives blockquote bars / code backgrounds / HRs from `proseNodePath`. `DecorationSet([...])` aggregates multiple providers; downstream consumers sort by `zIndex` when painting.
-
-### Async compile path
-
-`EditorController.setMarkdown(_:async:)` runs compilation off-main on a serial `compileQueue` against a dedicated `backgroundCompiler` (sharing the main-thread compiler with off-main calls would race the parser) and uses `compileGeneration` for latest-wins — stale results whose generation no longer matches are dropped. Headless callers (no host text view attached) and explicit `async: false` callers stay synchronous. Don't add a second compile entry point — extend the existing one.
-
-### ProseMirror codec
-
-`ProseMirrorCodec` (`SwiftProseView/ProseMirrorCodec.swift`) round-trips `NSAttributedString` ↔ ProseMirror-style JSON. The encode path walks the `ProseDocument` tree directly. Pipe tables encode and decode as a structural `table → table_row → (table_cell | table_header)` subtree with per-cell `align` attrs (matching `prosemirror-tables`); the compiler stamps the same structural `proseNodePath` on storage so `MarkdownTreeSerializer.emitTable` round-trips header / body / alignment / inline-marks.
-
-Encoder behaviors worth knowing:
-
-- Adjacent inline runs sharing a mark set merge into one PM `text` node (`pmMarksEqual` helper).
-- Attrs whose value matches the schema default are omitted (e.g. `image.alt = ""` → no `alt` field).
-- `markAliases: [Name: Name]` rewrites mark type names on emit (`["strike": "strikethrough"]`) for ecosystems with different naming.
-- `firstListItemOrder(in:)` recovers `ordered_list.order` from the deepest first-list_item when the wrapping list lost it via tree projection.
-
-`SchemaMap` extends the inline mark surface for custom marks. Mark `apply`/`extract` pairs project to / from rendering attributes.
-
-### Isolating nodes (node views)
-
-`NodeType.isolating` (today: `table`) marks a self-managed subtree that can be hoisted into a single `NSTextAttachment` so a `NodeViewProvider` renders the editing surface (cell grid, embedded editor, image gallery). Infrastructure in place: `ProseNodeAttachment` (Rendering) carries the structural subtree, `ProseSubtreeAttachment` (Syntax) is the layer-clean probe protocol used by `ProseDocument.from(storage:)` to lift the attachment's subtree, and `EditorController.nodeViewRegistry` is empty by default. Tables are already attachment-backed: one `ProseNodeAttachment` paragraph in storage, cell content off-buffer, and cell edits arriving as `Step.replaceCellInline` transactions from `TableBlockView`. `nodeViewRegistry` is the generalization of that path to other isolating types.
-
-### Code-block syntax highlighting
-
-`CodeBlockHighlighter` is a protocol; the bundled `TreeSitterCodeBlockHighlighter` is registry-based. Grammar packages are **not bundled with SwiftProse** — the host app SPM-depends on individual `tree-sitter-<lang>` packages and registers them at startup. See `Examples/SwiftProseDemo/SwiftProseDemo/CodeHighlighters.swift` for a working four-language registration. When a fenced block has no info string, `detectLanguage(for:)` runs each registered grammar and picks the one with cleanest coverage (≥ 30% of source chars and ≥ 1.5× over the runner-up); ambiguous bodies stay uncolored.
+`EditorPlugin` has `key`, `props: PluginProps` (`handleClick`, `handleLongPress`, `handlePaste`, `handleKeyDown`, `handleTextInput`) and `documentDidChange(_:controller:)`. State lives behind `PluginKey<State>`. Bundled: `CompletionPlugin` (attaches to both controllers), `AutoLinkPlugin`, `InternalLinkPlugin`. Key names use the `swiftprose.` prefix.
 
 ### Platform abstraction
 
-`SwiftProseRendering/PlatformAliases.swift` defines `PlatformFont` / `PlatformColor` / etc. as typealiases to the native AppKit or UIKit type. The macOS and iOS surfaces have separate text-view representables (`ProseTextViewMac.swift`, `ProseTextViewIOS.swift`) that share the `EditorController` underneath. `#if os(macOS)` / `#if canImport(UIKit)` guards are common — keep new platform-specific code on the same side as existing guards rather than introducing a new shim.
+`SwiftProseSyntax/Platform/PlatformAliases.swift` defines `PlatformFont` / `PlatformColor` / `PlatformTextView` and friends as typealiases to the native AppKit or UIKit type. The macOS and iOS surfaces have separate representables (`ProseTextViewMac` / `ProseTextViewIOS`, `ProseSourceTextViewMac` / `ProseSourceTextViewIOS`) over internal text-view subclasses (`ProseNSTextView`, `ProseUITextView`, `ProseSourceNSTextView`, `ProseSourceUITextView`). Keep new platform-specific code on the same side of the existing `#if canImport(AppKit) && os(macOS)` / `#elseif canImport(UIKit)` guards.
 
 ## Conventions
 
-- The README is canonical for the public API surface. Keep it updated when changing public types in `SwiftProse` / `SwiftProseView` / `SwiftProseSyntax`.
-- Tests live next to the layer they cover (`SwiftProseSyntaxTests`, `SwiftProseViewTests`, `SwiftProseTests`). Tests for new step / command / input-rule logic go in `SwiftProseViewTests`. Cross-cutting suites: `ProseMirrorJSONConformanceTests`, `StepInverseRoundTripTests`, `MappingInvariantTests`, `ResolvedPosTests`.
-- Comments stay short and technical. Lead with the rule, not the narrative — no "PM uses X for Y, so we …" prose. Skip references to historical incidents, callers, or PR numbers.
-- License is MPL 2.0; new source files don't carry a header (existing files don't either).
+- The README is canonical for the public API surface. Keep it updated when changing public types in `SwiftProse` / `SwiftProseView` / `SwiftProseSyntax` / `SwiftProseRendering` / `SwiftProseTreeSitter`.
+- Cross-target internals use the `package` access level. `public` is for API a host app calls.
+- Internal loader, writer, normalizer, restyler and edit-session types keep their MarkdownEditorKit names (`LoaderStructure`, `StorageReader`, `Normalizer`, `Restyler`, `EditSession`, `VocabularySnapshot`, the `.markdown*` attribute keys). Public host-facing types use the `Editor*` / `Prose*` prefixes.
+- Tests live next to the layer they cover (`SwiftProseSyntaxTests`, `SwiftProseViewTests`, `SwiftProseTests`, `SwiftProseTreeSitterTests`). Shared fixtures (`StorageBuilder`, `HeadlessEditor`, `FakeCodeHighlighter`, the corpus) live in `Tests/Support` (`SwiftProseTestSupport`) and use public API only. Suites that host a window are `.serialized`; `HostedTypingTests` is XCTest so it runs before the parallel Swift Testing phase.
+- Comments stay short and technical. Lead with the rule. Skip references to historical incidents, callers, or PR numbers.
+- License is MPL 2.0; new source files carry no header.
 
 ## Commit message style
 

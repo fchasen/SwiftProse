@@ -3,7 +3,8 @@
 End-to-end SwiftUI demo for SwiftProse, and the editing harness: a driver
 that runs the real `ProseNSTextView` in the real app window, a seeded
 fuzzer with strong oracles and shrinkable failures, and a catalogue of
-scripted edit scenarios. References the local SPM package at `../..`.
+scripted edit scenarios. References the local SPM package at `../..` and
+links the `SwiftProse` and `SwiftProseTreeSitter` products.
 
 ## Targets
 
@@ -85,29 +86,49 @@ Scripts/
 
 The harness drives AppKit's own input path — `insertText`,
 `doCommand(by:)`, a synthesized `keyDown`, the menu `undo:` action — from
-inside the app's process. That means the delegate stamps an `EditHint`,
-`ProseTextStorage` captures a pre-image, and `didChangeText()` drains the
-envelope, exactly as when a person types, with no UI-automation permission
-and with Xcode breakpoints available.
+inside the app's process. The text view's delegate calls
+`hostShouldChangeText`, storage processes the edit, and the controller
+normalizes, restyles and records it, exactly as when a person types, with
+no UI-automation permission and with Xcode breakpoints available.
 
 Under test (or with `--harness`) the app's `DocumentGroup` is suppressed and
-a single `HarnessView` window comes up instead: no Cmd-N, no restoration
-race, no second window. `SceneBuilder` has no `buildEither`, so the choice
-is made with `defaultLaunchBehavior` rather than an `if`.
+a single `HarnessView` window comes up in its place, so a run owns exactly
+one window from launch. The choice is made with `defaultLaunchBehavior`,
+since `SceneBuilder` lacks `buildEither`.
 
 ### Settling
 
-Hosted drains are synchronous — `didChangeText()` closes the envelope
-before returning. What is deferred is `main.async` work: typing attributes,
-the code-block rehighlight, the background layer, the binding push. So
-`EditDriver.settle()` is two main-queue fences plus an explicit drain,
-which is sub-millisecond and causally complete. It replaces every sleep.
+Normalization and restyling run inside the storage edit. The controller
+defers three things to the main queue: input rules (queued with
+`deferEdit`), the `DocumentChange` flush, and the inline-content refresh.
+`EditDriver.settle()` is two main-queue fences followed by
+`controller.settleForHarness()`, which runs all three; `hasPendingWorkForHarness`
+reports whether any is left. It is sub-millisecond and causally complete,
+and it replaces every sleep.
 
-One consequence: **a harness run must not be scheduled from inside a
-main-queue block.** libdispatch will not drain the main queue re-entrantly,
-so a nested run loop can never settle. `HarnessCLI` schedules from a
-run-loop timer for exactly this reason, and `settle()` says so on stderr the
-first time a fence times out.
+One consequence: **a harness run must be scheduled from outside a
+main-queue block.** libdispatch drains the main queue one level deep, so a
+nested run loop inside a main-queue block waits forever. `HarnessCLI`
+schedules from a run-loop timer for exactly this reason, and `settle()`
+says so on stderr the first time a fence times out.
+
+### Seams
+
+The harness imports `@_spi(Harness) import SwiftProseView` for seven seams
+on `EditorController` (`Sources/SwiftProseView/HarnessSPI.swift`):
+
+| seam | use |
+|---|---|
+| `settleForHarness()` | run deferred input rules, the pending change flush and the inline-content refresh |
+| `hasPendingWorkForHarness` | whether any of that is queued |
+| `activeUndoManagerForHarness` | the undo manager edits register on: the host `NSTextView`'s on macOS, the controller's otherwise |
+| `breakUndoCoalescingForHarness()` | an AppKit typing-coalescing boundary; the `closeHistoryGroup` op |
+| `harnessEditRouteProbe` | reports the route each edit took: `typing`, `bulk`, `deletion`, `composition`, `command`, `inputRule`, `tableEdit`, `atomRedirect`, `paste`, `undo`, `redo`, `load` |
+| `harnessNormalizationDrift()` | `nil` when normalizing and restyling a copy of storage changes nothing |
+| `harnessTableGeometry(at:)` | row index, row count and column count of the table row at an offset |
+
+`DriverCanaryTests` checks the route probe: `type` reports `typing`,
+`typeBurst` reports `bulk`.
 
 ### Scenario files
 
@@ -115,20 +136,62 @@ first time a fence times out.
 { "name": "lists/tab-indents-nested-item", "tags": ["lists"],
   "intent": "Tab inside the second item indents it under the first.",
   "doc": "- one\n- tw<|>o\n",
-  "ops": [ { "op": "key", "key": "Tab" } ],
+  "ops": [ { "op": "key", "key": "Tab" },
+           { "op": "expect", "blockKind": "paragraph list:bullet@2" } ],
   "expect": { "doc": "- one\n  - two\n" },
-  "finally": ["tier0", "projection", "markdownFixpoint"] }
+  "finally": ["tier0", "normalizer", "markdownFixpoint"] }
 ```
 
 Markers are `<|>` for a caret and `<{` … `}>` for a selection. They sit in
-*source* markdown, and compiling that source moves everything after them by
-however many characters the presentation markers add (`"1. "`, a bullet
-glyph plus tab, a checkbox) — so a marker's source offset is not its
+*source* markdown, and loading that source moves everything after them:
+delimiters disappear, escapes render as one character, atoms become U+FFFC,
+table cells are tab-joined. So a marker's source offset differs from its
 storage offset. `ScenarioRunner` recovers the real one with a sentinel
-compile: swap the markers for private-use scalars, compile, read where they
-landed, then compile the clean source and assert the two agree. A marker
-that changes how the line parses is reported as such rather than silently
-producing a wrong offset.
+load: swap the markers for private-use scalars, load, read where they
+landed, then load the clean source and assert the two agree. A marker
+that changes how the line parses is reported as such.
+
+#### Ops
+
+| op | fields | does |
+|---|---|---|
+| `type` | `text` | types one character at a time through `insertText` |
+| `typeBurst` | `text` | inserts the whole string in one `insertText` |
+| `key` | `key` | a named key (`Return`, `Backspace`, `Tab`, `Shift-Tab`, arrows, …) through `doCommand(by:)` or `keyDown` |
+| `undo` / `redo` | `n` | the menu `undo:` / `redo:` action, `n` times |
+| `selectAll`, `copy`, `cut` | | the menu actions |
+| `paste` | `text`, `html`, `plain` | pastes `text` and optional `html`; `plain` pastes through Paste and Match Style |
+| `caret` / `select` | `at` / `from`, `to` | moves the selection to an anchor |
+| `action` | `id`, `url`, `label`, `rows`, `columns` | performs an `EditorAction` by stable ID |
+| `compose` | `interims`, `commit` | IME marked text, then a commit |
+| `correct` | `find`, `replace` | an autocorrect-style replacement |
+| `toggleCheckbox` | anchor | `controller.toggleCheckbox(at:)` |
+| `load` | `markdown`, `keepHistory` | `setMarkdown`; clears the undo stack unless `keepHistory` |
+| `closeHistoryGroup` | | `breakUndoCoalescingForHarness()` |
+| `wait` | `ms` | a real delay, for coalescing timing |
+| `expect` | see below | asserts mid-script |
+| `check` | `oracles` | runs the named oracles now |
+
+An anchor is `{ "at": n }`, `{ "before": "text" }`, `{ "after": "text" }`
+(with `n` picking the occurrence), or `{ "block": i, "edge": "start" | "end" }`
+for paragraph `i`.
+
+#### Expectations
+
+`expect` (as an op or the scenario's final block) takes any of:
+
+- `doc` — the markdown, with optional `<|>` / `<{ }>` markers for the
+  selection
+- `selection` — `[location, length]` in storage offsets
+- `blockKind` — the caret paragraph's block, written
+  `<leaf>[ quote:<n>][ list:<bullet|ordered>@<depth>][ task:<checked|unchecked>][ cont]`
+  where leaf is `paragraph`, `heading(N)`, `code`, `code(<lang>)`,
+  `thematicBreak`, `tableRow`, `tableRow(header)` or `html`. Examples:
+  `heading(2)`, `paragraph list:ordered@1`, `paragraph quote:1 list:bullet@1 task:checked`,
+  `code(swift)`.
+- `marks` — the marks at the caret: `strong`, `emphasis`, `code`,
+  `strikethrough`, `link`
+- `canUndo`, `canRedo` — the active undo manager's state
 
 `ScenarioTests` registers one XCTest method per file at suite-build time,
 so `-only-testing:` addresses a scenario by name and a new file needs no
@@ -150,19 +213,19 @@ editor is — never resolved by overwriting the file.
 
 | id | check | default cadence |
 |---|---|---|
-| `diagnostics` | collected `SpecDiagnostic`s | every op |
-| `length` | `document.contentLength == storage.length == view.string.length`, selection in bounds | every op |
-| `specLocal` | `SpecValidator` over the edited paragraph ±1 | every op |
-| `coverage` | every attribute run carries `proseNodePath` | every 10 |
-| `schema` | `SchemaValidator` over the projected tree | every 25 |
-| `projection` | spliced tree ≡ a fresh full projection | every 25 |
-| `specFull` | `SpecValidator` over the whole document | every 50 |
-| `offsets` | `resolve` at every block boundary + 256 samples | every 100 |
-| `markdownFixpoint` | `EditorController(initialMarkdown: markdown()).markdown() == markdown()` | end |
-| `pmJSON` | export → load headless → export | end |
-| `history` | undo N / redo N restores string + specs + marks | end |
-| `layout` | `ensureLayout` over the document range | end |
+| `length` | text view length == storage length == `textContentStorage.documentRange` length; selection in bounds | every op |
+| `vocabulary` | over the edited paragraph ±1: every character carries `.markdownBlock`, uniform across the paragraph including its `\n`; every `.markdownLiteral` run is one character (two UTF-16 units for a surrogate pair); every U+FFFC carries a `ProseSourceAttachment`; a `\t` carries `.markdownTableSeparator` exactly when it sits in a table row; U+2028 appears only outside code paragraphs; `textLists.count` equals the block's list depth | every op |
+| `scalars` | every surrogate in storage is paired | every op |
+| `groups` | code, table and quote groups are contiguous; rows of a table share separator count and alignments, `isHeader` only on the first; table geometry row index and row count agree | every 25 |
+| `normalizer` | `harnessNormalizationDrift()` is `nil` | every 25 |
+| `vocabularyFull` | `vocabulary` over the whole document | every 50 |
+| `reader` | `StorageReader().document(from:)` twice is equal; writing that document equals `MarkdownWriter().markdown(from: storage)` | every 100 |
+| `markdownFixpoint` | `MarkdownWriter().markdown(from: MarkdownLoader().load(markdown())) == markdown()` | end |
+| `history` | undo until `canUndo` is false (cap 64) restores the baseline markdown; redo all restores the storage dump | end |
+| `layout` | `ensureLayout` over the document range on `textLayoutManager` | end |
 | `latency` | per-op p50 / p90 / p99 | end |
+
+`tier0` is `length`, `vocabulary` and `scalars`.
 
 Cadences are per-op counters, not wall clock, so a run does the same work
 on any machine and a failure reproduces from the seed alone. They scale

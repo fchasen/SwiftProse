@@ -7,10 +7,32 @@ import AppKit
 import UIKit
 #endif
 
+public struct SmartTypographyOptions: OptionSet, Hashable, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let smartQuotes = SmartTypographyOptions(rawValue: 1 << 0)
+    public static let ellipsis = SmartTypographyOptions(rawValue: 1 << 1)
+    public static let emDash = SmartTypographyOptions(rawValue: 1 << 2)
+    public static let all: SmartTypographyOptions = [.smartQuotes, .ellipsis, .emDash]
+
+    var triggers: Set<Character> {
+        var triggers: Set<Character> = []
+        if contains(.smartQuotes) { triggers.formUnion(["\"", "'"]) }
+        if contains(.ellipsis) { triggers.insert(".") }
+        if contains(.emDash) { triggers.insert("-") }
+        return triggers
+    }
+}
+
 extension EditorController {
     func recordTypedInput(range: NSRange, replacement: String?) {
         guard let replacement, replacement.count == 1, !hostHasMarkedText, !isSettingMarkedText,
-              let character = replacement.first, InputRules.triggers.contains(character) else {
+              let character = replacement.first,
+              InputRules.triggers.contains(character) || smartTypography.triggers.contains(character) else {
             pendingInput = nil
             return
         }
@@ -38,7 +60,33 @@ extension EditorController {
         let info = paragraphInfo(at: caret)
         guard !info.block.isCode, !info.block.isAtom, caret <= NSMaxRange(info.content) else { return false }
         if input.text == " ", applyBlockRule(info, caret: caret) { return true }
-        return applyInlineCloser(info, caret: caret, typed: input.text)
+        if applyInlineCloser(info, caret: caret, typed: input.text) { return true }
+        return applySmartTypography(info, caret: caret, typed: input.text)
+    }
+
+    private func applySmartTypography(_ info: ParagraphInfo, caret: Int, typed: String) -> Bool {
+        guard let character = typed.first, smartTypography.triggers.contains(character) else { return false }
+        let lineRange = NSRange(location: info.content.location, length: caret - info.content.location)
+        let line = (textStorage.string as NSString).substring(with: lineRange)
+        guard let match = InputRules.smartTypographyMatch(in: line, options: smartTypography) else { return false }
+        let target = NSRange(location: caret - match.length, length: match.length)
+        guard !blocksSmartTypography(target) else { return false }
+        let attributes = textStorage.attributes(at: caret - 1, effectiveRange: nil)
+        let replacement = NSAttributedString(string: match.replacement, attributes: attributes)
+        let end = target.location + replacement.length
+        return replace(target, with: replacement, actionName: "Smart Punctuation", selection: NSRange(location: end, length: 0))
+    }
+
+    private func blocksSmartTypography(_ range: NSRange) -> Bool {
+        var blocked = false
+        textStorage.enumerateAttributes(in: range) { attributes, _, stop in
+            if attributes.markdownInlineIntent.contains(.code) || attributes[.markdownLiteral] != nil
+                || attributes[.attachment] != nil {
+                blocked = true
+                stop.pointee = true
+            }
+        }
+        return blocked
     }
 
     private func applyBlockRule(_ info: ParagraphInfo, caret: Int) -> Bool {
@@ -195,6 +243,11 @@ enum InputRules {
         var mark: MarkdownInlineIntent
     }
 
+    struct SmartMatch: Equatable {
+        var length: Int
+        var replacement: String
+    }
+
     static let closers: Set<Character> = ["*", "_", "~", "`"]
     static let triggers: Set<Character> = closers.union([" "])
 
@@ -218,6 +271,47 @@ enum InputRules {
             }
         }
         return nil
+    }
+
+    static func smartTypographyMatch(in line: String, options: SmartTypographyOptions) -> SmartMatch? {
+        let units = Array(line.utf16)
+        guard let match = smartMatch(units, options: options) else { return nil }
+        let escape = units.count - match.length - 1
+        return escape >= 0 && units[escape] == 0x5C ? nil : match
+    }
+
+    private static func smartMatch(_ units: [UInt16], options: SmartTypographyOptions) -> SmartMatch? {
+        guard let last = units.last else { return nil }
+        let before = units.count >= 2 ? units[units.count - 2] : nil
+        switch last {
+        case 0x22, 0x27:
+            guard options.contains(.smartQuotes) else { return nil }
+            let opens = before.map(opensQuote) ?? true
+            let replacement: String
+            if last == 0x22 {
+                replacement = opens ? "\u{201C}" : "\u{201D}"
+            } else {
+                replacement = opens ? "\u{2018}" : "\u{2019}"
+            }
+            return SmartMatch(length: 1, replacement: replacement)
+        case 0x2E:
+            guard options.contains(.ellipsis), units.count >= 3, units[units.count - 2] == 0x2E, units[units.count - 3] == 0x2E else { return nil }
+            if units.count >= 4, units[units.count - 4] == 0x2E { return nil }
+            return SmartMatch(length: 3, replacement: "\u{2026}")
+        case 0x2D:
+            guard options.contains(.emDash), units.count >= 3, before == 0x2D, units[units.count - 3] != 0x2D else { return nil }
+            guard units[..<(units.count - 2)].contains(where: { $0 != 0x20 && $0 != 0x09 }) else { return nil }
+            return SmartMatch(length: 2, replacement: "\u{2014}")
+        default:
+            return nil
+        }
+    }
+
+    private static func opensQuote(after unit: UInt16) -> Bool {
+        switch unit {
+        case 0x20, 0x09, 0xA0, 0x28, 0x5B, 0x7B, 0x201C, 0x2018, 0x2014, 0x2013, MarkdownBreak.utf16: return true
+        default: return false
+        }
     }
 
     static func actionName(for mark: MarkdownInlineIntent) -> String {
