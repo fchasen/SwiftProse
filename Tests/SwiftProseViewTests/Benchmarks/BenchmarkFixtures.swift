@@ -1,20 +1,11 @@
-#if false
 import Foundation
 
-/// Deterministic markdown generators for the keystroke benchmarks. No
-/// randomness — the same source text every run so numbers are comparable
-/// across commits.
 enum BenchmarkFixtures {
-
-    /// ~1200 blocks of mixed structure: paragraphs, 3-deep bullet /
-    /// ordered / task lists, blockquotes, and 8 fenced code blocks of
-    /// 20–40 lines each.
     static func mixedDocument() -> String {
         var out: [String] = []
         var blockCount = 0
         var cycle = 0
         var fenceCount = 0
-        // Distribute the 8 fences evenly through the document.
         var nextFenceAt = 140
 
         func emit(_ s: String) {
@@ -67,9 +58,6 @@ enum BenchmarkFixtures {
         return out.joined(separator: "\n\n") + "\n"
     }
 
-    /// One paragraph followed by a single 3000-line fenced code block,
-    /// then a trailing paragraph. Isolates the cost of editing inside a
-    /// very large fence.
     static func longFenceDocument() -> String {
         var lines: [String] = []
         lines.append("Intro paragraph before the fence.")
@@ -110,4 +98,3 @@ enum BenchmarkFixtures {
         return body.joined(separator: "\n")
     }
 }
-#endif

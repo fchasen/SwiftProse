@@ -1,63 +1,58 @@
-#if false
 import Testing
 import Foundation
 import SwiftProseSyntax
 import SwiftProseView
 import SwiftProse
-#if canImport(AppKit) && os(macOS)
-import AppKit
-#elseif canImport(UIKit)
-import UIKit
-#endif
 
+@MainActor
 @Suite struct PublicAPITests {
 
-    @Test func embedderCanComposeATransaction() throws {
-        let controller = try EditorController(initialMarkdown: "draft text\n")
-        let lineRange = NSRange(location: 0, length: controller.textStorage.length)
-        let transaction = Transaction(
-            steps: [
-                .setSpec(lineRange: lineRange, BlockSpec(kind: .heading(level: 2)))
-            ],
-            label: "Promote to heading"
-        )
-        controller.apply(transaction)
+    @Test func embedderCanPromoteALineToAHeading() {
+        let controller = EditorController(markdown: "draft text")
+        controller.setSelection(NSRange(location: 0, length: 0))
+        controller.perform(.heading(level: 2))
         #expect(controller.markdown() == "## draft text")
     }
 
-    @Test func inlineMarkStepWraps() throws {
-        let controller = try EditorController(initialMarkdown: "hello world\n")
-        let range = NSRange(location: 0, length: 5)
-        controller.apply(Transaction(steps: [
-            .toggleInlineMark(range: range, .bold)
-        ]))
+    @Test func boldActionWrapsTheSelection() {
+        let controller = EditorController(markdown: "hello world")
+        controller.setSelection(NSRange(location: 0, length: 5))
+        controller.perform(.bold)
         #expect(controller.markdown() == "**hello** world")
+        #expect(controller.isActive(.bold))
+        #expect(controller.activeActionIDs().contains(EditorAction.bold.stableID))
     }
 
-    @Test func embedderCanReadDiagnostics() throws {
-        let controller = try EditorController(initialMarkdown: "hello\n")
-        var captured: [SpecDiagnostic] = []
-        controller.onDiagnostic = { captured.append($0) }
-        // Corrupt then fire a transaction so validation runs.
-        controller.textStorage.removeAttribute(.proseNodePath, range: NSRange(location: 0, length: 1))
-        let lineRange = NSRange(location: 0, length: controller.textStorage.length)
-        controller.apply(Transaction(steps: [
-            .setSpec(lineRange: lineRange, .paragraph)
-        ]))
-        // Whether diagnostics fired depends on the rebuild; the API works.
-        _ = captured
+    @Test func embedderCanInsertMarkdownAtTheCaret() {
+        let controller = EditorController(markdown: "intro")
+        controller.setSelection(NSRange(location: controller.textStorage.length, length: 0))
+        #expect(controller.insertMarkdown(" **bold**"))
+        #expect(controller.markdown() == "intro **bold**")
+
+        let empty = EditorController()
+        #expect(empty.insertMarkdown("- one\n- two"))
+        #expect(empty.markdown() == "- one\n- two")
     }
 
-    @Test func embedderCanInstallCustomDecorationProvider() throws {
-        final class FixedProvider: DecorationProvider {
-            func decorations(in range: NSRange, storage: NSAttributedString) -> [Decoration] {
-                [Decoration(range: NSRange(location: 0, length: 0), kind: .codeBackground(language: nil, position: .single))]
-            }
-        }
-        let provider: DecorationProvider = FixedProvider()
-        let decorations = provider.decorations(in: NSRange(location: 0, length: 0),
-                                                storage: NSAttributedString())
-        #expect(decorations.count == 1)
+    @Test func embedderObservesDocumentChanges() {
+        let controller = EditorController(markdown: "hello")
+        var changes: [DocumentChange] = []
+        let token = controller.addOnDocumentChange { changes.append($0) }
+        controller.setSelection(NSRange(location: 5, length: 0))
+        controller.insertMarkdown(" world")
+        #expect(!changes.isEmpty)
+        #expect(changes.allSatisfy { $0.origin != .load })
+        controller.removeObserver(token)
+        let count = changes.count
+        controller.insertMarkdown("!")
+        #expect(changes.count == count)
+    }
+
+    @Test func loaderAndWriterRoundTripWithoutAController() {
+        let markdown = "# Title\n\n- **one**\n- [link](https://example.com)\n\n> quoted"
+        let storage = MarkdownLoader().load(markdown)
+        #expect(storage.markdownBlock(at: 0)?.headingLevel == 1)
+        #expect(MarkdownWriter().markdown(from: storage) == markdown)
     }
 
     @Test func defaultConfigurationExposesToolbarItems() {
@@ -73,7 +68,7 @@ import UIKit
         #expect(cfg.statusItems.count == 3)
     }
 
-    @Test func editorViewBodyMaterializesForEachConfiguration() {
+    @Test func editorViewComposesWithEachConfiguration() {
         let configs: [SwiftProseEditor.Configuration] = [
             SwiftProseEditor.Configuration(),
             SwiftProseEditor.Configuration(toolbar: []),
@@ -81,10 +76,8 @@ import UIKit
             SwiftProseEditor.Configuration(toolbar: [], statusItems: [.cursor], minHeight: 200)
         ]
         for cfg in configs {
-            _ = cfg.toolbar
-            _ = cfg.statusItems
-            _ = cfg.minHeight
+            let view = SwiftProseEditor(text: .constant("hi")).configuration(cfg).editable(cfg.isEditable)
+            #expect(String(describing: type(of: view)).contains("SwiftProseEditor"))
         }
     }
 }
-#endif

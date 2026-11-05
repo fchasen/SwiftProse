@@ -240,6 +240,68 @@ struct AutoLinkPluginTests {
         #expect(editor.link(at: 4) == "https://bugzilla.mozilla.org/show_bug.cgi?id=42")
     }
 
+    private func paste(_ text: String, into editor: HeadlessEditor) {
+        _ = editor.controller.dispatchPaste(PasteEvent(text: text, selection: editor.controller.currentSelection))
+        editor.settle()
+    }
+
+    @Test func pasteOfPlainURLBecomesLink() {
+        let editor = makeEditor(rules: [.url])
+        paste("https://example.com", into: editor)
+        #expect(editor.link(at: 0) == "https://example.com")
+        #expect(editor.linkRange(at: 0) == NSRange(location: 0, length: 19))
+    }
+
+    @Test func pasteOfTextWithURLLinksOnlyTheURL() {
+        let editor = makeEditor(rules: [.url])
+        paste("see https://example.com for details", into: editor)
+        #expect(editor.link(at: 4) == "https://example.com")
+        #expect(editor.linkRange(at: 4) == NSRange(location: 4, length: 19))
+        #expect(editor.link(at: 0) == nil)
+        #expect(editor.link(at: 23) == nil)
+    }
+
+    @Test func trailingPunctuationIsExcluded() throws {
+        let editor = makeEditor(rules: [.url])
+        paste("visit https://example.com.", into: editor)
+        #expect(editor.link(at: 6) == "https://example.com")
+        let range = try #require(editor.linkRange(at: 6))
+        #expect((editor.string as NSString).substring(with: range) == "https://example.com")
+    }
+
+    @Test func urlInCodeBlockIsLeftAlone() {
+        let editor = makeEditor("```\nhttps://example.com\n```", rules: [.url])
+        #expect(editor.controller.textStorage.markdownBlock(at: 0)?.isCode == true)
+        #expect(editor.link(at: 0) == nil)
+        #expect(editor.link(at: 5) == nil)
+    }
+
+    @Test func alreadyLinkedTextIsntDoubleLinked() {
+        let editor = makeEditor("[https://example.com](https://other.example) trailing", rules: [.url])
+        #expect(editor.link(at: 0) == "https://other.example")
+        editor.select(editor.controller.textStorage.length)
+        paste(" visit https://added.example", into: editor)
+        #expect(editor.link(at: 0) == "https://other.example")
+        #expect(editor.linkRange(at: 0) == NSRange(location: 0, length: 19))
+        let added = (editor.string as NSString).range(of: "https://added.example").location
+        #expect(editor.link(at: added) == "https://added.example")
+    }
+
+    @Test func multipleURLsInOnePasteAllGetLinked() {
+        let editor = makeEditor(rules: [.url])
+        paste("https://a.com and https://b.com", into: editor)
+        #expect(editor.link(at: 0) == "https://a.com")
+        let second = (editor.string as NSString).range(of: "https://b.com").location
+        #expect(editor.link(at: second) == "https://b.com")
+    }
+
+    @Test func emailRuleProducesMailtoLink() {
+        let editor = makeEditor(rules: [.email])
+        paste("reach me at user@example.com please", into: editor)
+        let start = (editor.string as NSString).range(of: "user@example.com").location
+        #expect(editor.link(at: start) == "mailto:user@example.com")
+    }
+
     @Test func notEditableDoesNothing() {
         let editor = makeEditor()
         editor.type("https://example.com")

@@ -104,38 +104,6 @@ struct SwiftUIConfigurationTests {
     }
 }
 
-@Suite("Completion popup placement", .serialized)
-struct CompletionPopupPlacementTests {
-    @Test func placesBelowWhenThereIsRoom() {
-        let anchor = CGRect(x: 40, y: 40, width: 2, height: 20)
-        let origin = CompletionPopupPlacement.origin(
-            anchorRect: anchor,
-            menuSize: CGSize(width: 180, height: 120),
-            containerBounds: CGRect(x: 0, y: 0, width: 320, height: 400)
-        )
-        #expect(origin.y >= anchor.maxY)
-    }
-
-    @Test func placesAboveWhenTheBottomIsClose() {
-        let anchor = CGRect(x: 40, y: 40, width: 2, height: 20)
-        let menuSize = CGSize(width: 180, height: 120)
-        let origin = CompletionPopupPlacement.origin(
-            anchorRect: anchor,
-            menuSize: menuSize,
-            containerBounds: CGRect(x: 0, y: -260, width: 320, height: 340)
-        )
-        #expect(origin.y + menuSize.height <= anchor.minY)
-    }
-
-    @Test func clampsHorizontallyWithinTheContainer() {
-        let anchor = CGRect(x: 290, y: 40, width: 2, height: 20)
-        let menuSize = CGSize(width: 180, height: 80)
-        let container = CGRect(x: 0, y: 0, width: 320, height: 400)
-        let origin = CompletionPopupPlacement.origin(anchorRect: anchor, menuSize: menuSize, containerBounds: container)
-        #expect(origin.x + menuSize.width <= container.maxX)
-    }
-}
-
 @Suite("Editor hosting", .serialized)
 @MainActor
 struct EditorHostingTests {

@@ -95,7 +95,8 @@ extension EditorController {
         if let last = info.block.containers.last, Self.isQuote(last) {
             return removeInnermostQuote(info, actionName: "Remove Quote")
         }
-        if info.block.isListItemStart, !usesNativeListEditing {
+        if info.block.isListItemStart,
+           !usesNativeListEditing || previousParagraphInfo(before: info).map({ !$0.block.isListItem }) ?? true {
             return outdentList([info], actionName: "Outdent")
         }
         return false

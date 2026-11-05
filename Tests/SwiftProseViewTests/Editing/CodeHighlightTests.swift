@@ -316,4 +316,105 @@ struct CodeHighlightTests {
         #expect(colored.markdown == plain.markdown)
     }
 }
+
+@Suite("Code block highlighter contract (.serialized)")
+@MainActor
+struct CodeBlockHighlightingTests {
+    private final class StubSession: CodeHighlightSession {
+        let runs: [CodeHighlightRun]
+        var bodies: [String] = []
+
+        init(runs: [CodeHighlightRun]) {
+            self.runs = runs
+        }
+
+        func reset(body: String) -> [CodeHighlightRun] {
+            bodies.append(body)
+            return runs
+        }
+
+        func didEdit(replacedRange: NSRange, replacement: String, body: String) -> CodeHighlightEdit {
+            bodies.append(body)
+            return CodeHighlightEdit(invalidatedRange: NSRange(location: 0, length: (body as NSString).length), runs: runs)
+        }
+    }
+
+    private final class StubHighlighter: CodeBlockHighlighter {
+        let runs: [CodeHighlightRun]
+        var languages: [String?] = []
+        var sessions: [StubSession] = []
+
+        init(runs: [CodeHighlightRun] = []) {
+            self.runs = runs
+        }
+
+        func makeSession(language: String?, body: String) -> CodeHighlightSession? {
+            languages.append(language)
+            let session = StubSession(runs: runs)
+            sessions.append(session)
+            return session
+        }
+    }
+
+    private static let keyword = PlatformColor.systemPink
+
+    private func color(_ controller: EditorController, at index: Int) -> PlatformColor? {
+        controller.textStorage.attribute(.foregroundColor, at: index, effectiveRange: nil) as? PlatformColor
+    }
+
+    private func bodyLocation(of needle: String, in controller: EditorController) -> Int {
+        (controller.textStorage.string as NSString).range(of: needle).location
+    }
+
+    @Test func compilerForwardsLanguageAndBodyOnly() {
+        let stub = StubHighlighter()
+        _ = EditorController(markdown: "```swift\nlet x = 1\nlet y = 2\n```", codeBlockHighlighter: stub)
+        #expect(stub.languages == ["swift"])
+        #expect(stub.sessions.first?.bodies == ["let x = 1\nlet y = 2"])
+    }
+
+    @Test func keywordSpanColorsBodyTokens() {
+        let stub = StubHighlighter(runs: [CodeHighlightRun(range: NSRange(location: 0, length: 3), color: Self.keyword)])
+        let controller = EditorController(markdown: "Intro\n\n```swift\nlet x = 1\n```", codeBlockHighlighter: stub)
+        let start = bodyLocation(of: "let", in: controller)
+        #expect(start != NSNotFound)
+        #expect(color(controller, at: start) == Self.keyword)
+        #expect(color(controller, at: start + 2) == Self.keyword)
+        #expect(color(controller, at: start + 3) == controller.codeBaseColor)
+    }
+
+    @Test func absentHighlighterLeavesForegroundUntouched() {
+        let controller = EditorController(markdown: "```swift\nlet x = 1\n```")
+        let start = bodyLocation(of: "let", in: controller)
+        #expect(color(controller, at: start) == controller.codeBaseColor)
+    }
+
+    @Test func highlightingPreservesTheCodeBlock() {
+        let stub = StubHighlighter(runs: [CodeHighlightRun(range: NSRange(location: 0, length: 3), color: Self.keyword)])
+        let controller = EditorController(markdown: "```swift\nlet x = 1\n```", codeBlockHighlighter: stub)
+        let start = bodyLocation(of: "let", in: controller)
+        let block = controller.textStorage.markdownBlock(at: start)
+        #expect(block?.isCode == true)
+        #expect(block?.codeLanguage == "swift")
+        #expect(controller.markdown() == "```swift\nlet x = 1\n```")
+    }
+
+    @Test func outOfBoundsSpansAreIgnored() {
+        let stub = StubHighlighter(runs: [CodeHighlightRun(range: NSRange(location: 999, length: 5), color: Self.keyword)])
+        let controller = EditorController(markdown: "```swift\nlet x = 1\n```\n\nafter", codeBlockHighlighter: stub)
+        let start = bodyLocation(of: "let", in: controller)
+        #expect(color(controller, at: start) == controller.codeBaseColor)
+        let after = bodyLocation(of: "after", in: controller)
+        #expect(color(controller, at: after) == controller.theme.foregroundColor)
+    }
+
+    @Test func typingOutsideCodeBlockSkipsHighlighter() {
+        let stub = StubHighlighter()
+        let harness = EditorHarness(markdown: "")
+        harness.controller.setCodeBlockHighlighter(stub)
+        harness.typeEach("hello world")
+        #expect(stub.sessions.isEmpty)
+        #expect(harness.markdown == "hello world")
+    }
+}
 #endif
