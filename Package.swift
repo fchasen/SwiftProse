@@ -10,7 +10,11 @@ let package = Package(
     ],
     products: [
         .library(name: "SwiftProse", targets: ["SwiftProse"]),
-        .library(name: "SwiftProseSyntax", targets: ["SwiftProseSyntax"])
+        .library(name: "SwiftProseSyntax", targets: ["SwiftProseSyntax"]),
+        .library(name: "SwiftProseTreeSitter", targets: ["SwiftProseTreeSitter"])
+    ],
+    dependencies: [
+        .package(url: "https://github.com/tree-sitter/swift-tree-sitter", from: "0.10.0")
     ],
     targets: [
         .target(name: "SwiftProseSyntax"),
@@ -25,6 +29,13 @@ let package = Package(
         .target(
             name: "SwiftProse",
             dependencies: ["SwiftProseSyntax", "SwiftProseRendering", "SwiftProseView"]
+        ),
+        .target(
+            name: "SwiftProseTreeSitter",
+            dependencies: [
+                "SwiftProseSyntax",
+                .product(name: "SwiftTreeSitter", package: "swift-tree-sitter")
+            ]
         ),
         .target(
             name: "SwiftProseTestSupport",
@@ -43,6 +54,13 @@ let package = Package(
         .testTarget(
             name: "SwiftProseTests",
             dependencies: ["SwiftProse", "SwiftProseView", "SwiftProseSyntax", "SwiftProseTestSupport"]
+        ),
+        .testTarget(
+            name: "SwiftProseTreeSitterTests",
+            dependencies: [
+                "SwiftProseTreeSitter",
+                .product(name: "SwiftTreeSitter", package: "swift-tree-sitter")
+            ]
         )
     ]
 )

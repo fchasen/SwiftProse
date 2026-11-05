@@ -1,5 +1,6 @@
 import Foundation
 import SwiftProse
+import SwiftProseTreeSitter
 import SwiftTreeSitter
 import TreeSitterSwift
 import TreeSitterJavaScript
@@ -17,7 +18,7 @@ enum DemoCodeHighlighter {
     /// missing from the bundle, which would silently disable highlighting if
     /// we returned a partial registry.
     static func make() -> CodeBlockHighlighter? {
-        let highlighter = TreeSitterCodeBlockHighlighter()
+        let highlighter = TreeSitterCodeBlockHighlighter(palette: .default)
         let registrations: [(name: String, language: Language, queryResource: String, aliases: [String])] = [
             ("swift", Language(language: tree_sitter_swift()), "swift",
              []),
