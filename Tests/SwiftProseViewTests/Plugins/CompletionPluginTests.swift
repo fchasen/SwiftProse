@@ -71,6 +71,19 @@ struct CompletionPluginTests {
         #expect(plugin.session(controller: editor.controller) == nil)
     }
 
+    @Test func multipleTriggersCoexist() throws {
+        let (editor, plugin) = makeEditor()
+        editor.type("#")
+        let session = try #require(plugin.session(controller: editor.controller))
+        #expect(session.context.triggerID == "tag")
+        plugin.cancel(controller: editor.controller)
+        editor.type(" ")
+        editor.type("@")
+        let mention = try #require(plugin.session(controller: editor.controller))
+        #expect(mention.context.triggerID == "mention")
+        #expect(mention.context.range == NSRange(location: 2, length: 1))
+    }
+
     @Test func triggerInsideWordDoesNotOpen() {
         let (editor, plugin) = makeEditor("mail")
         editor.type("@")
