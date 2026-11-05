@@ -125,12 +125,47 @@ struct RenderingTests {
         ("> 3. a\n\n> 7. b", [ListMarker.Kind.ordinal(3), .ordinal(7)]),
         ("> 1. a\n\n1. b", [.ordinal(1), .ordinal(1)]),
         ("1. a\n\n> 1. b", [.ordinal(1), .ordinal(1)]),
-        ("- x\n  1. a\n\n> 5. b", [.bullet("•"), .ordinal(1), .ordinal(5)]),
+        ("- x\n  1. a\n\n> 5. b", [.bullet("•"), .ordinal(1, .lowerAlpha), .ordinal(5)]),
         ("> 1. a\n> 2. b", [.ordinal(1), .ordinal(2)]),
     ])
     func orderedNumberingRestartsAtQuoteBoundaries(markdown: String, expected: [ListMarker.Kind]) {
         let editor = Rendered(markdown)
         #expect(editor.paragraphStarts.indices.compactMap { editor.marker(paragraph: $0) } == expected)
+    }
+
+    @Test func nestedOrderedMarkersCycleByDepth() {
+        let editor = Rendered("1. a\n   1. b\n      1. c\n         1. d\n      2. e\n   2. f\n2. g")
+        #expect(editor.paragraphStarts.indices.map { editor.marker(paragraph: $0) } == [
+            .ordinal(1, .decimal), .ordinal(1, .lowerAlpha), .ordinal(1, .lowerRoman), .ordinal(1, .decimal),
+            .ordinal(2, .lowerRoman), .ordinal(2, .lowerAlpha), .ordinal(2, .decimal)
+        ])
+        let texts = editor.paragraphStarts.indices.map { index in
+            (editor.fragment(paragraph: index) as? MarkdownLayoutFragment)?.marker?.text
+        }
+        #expect(texts == ["1.", "a.", "i.", "1.", "ii.", "b.", "2."])
+        #expect(editor.controller.markdown() == "1. a\n   1. b\n      1. c\n         1. d\n      2. e\n   2. f\n2. g")
+
+        let mixed = Rendered("- x\n  1. a\n  2. b")
+        #expect(mixed.paragraphStarts.indices.map { mixed.marker(paragraph: $0) } == [.bullet("•"), .ordinal(1, .lowerAlpha), .ordinal(2, .lowerAlpha)])
+    }
+
+    @Test func orderedMarkerStyleForDepth() {
+        #expect([1, 2, 3, 4, 5, 6].map(OrderedMarkerStyle.init(depth:)) == [.decimal, .lowerAlpha, .lowerRoman, .decimal, .lowerAlpha, .lowerRoman])
+        #expect(OrderedMarkerStyle(depth: 0) == .decimal)
+    }
+
+    @Test(arguments: [
+        (OrderedMarkerStyle.decimal, 1, "1."), (.decimal, 42, "42."), (.decimal, 0, "0."),
+        (.lowerAlpha, 1, "a."), (.lowerAlpha, 2, "b."), (.lowerAlpha, 26, "z."),
+        (.lowerAlpha, 27, "aa."), (.lowerAlpha, 28, "ab."), (.lowerAlpha, 52, "az."), (.lowerAlpha, 53, "ba."),
+        (.lowerAlpha, 0, "a."),
+        (.lowerRoman, 1, "i."), (.lowerRoman, 2, "ii."), (.lowerRoman, 3, "iii."), (.lowerRoman, 4, "iv."),
+        (.lowerRoman, 9, "ix."), (.lowerRoman, 40, "xl."), (.lowerRoman, 90, "xc."), (.lowerRoman, 1994, "mcmxciv."),
+        (.lowerRoman, 0, "i."), (.lowerRoman, 5000, "mmmcmxcix.")
+    ])
+    func orderedMarkerText(style: OrderedMarkerStyle, number: Int, expected: String) {
+        #expect(style.marker(for: number) == expected)
+        #expect(ListMarker.Kind.ordinal(number, style) != .ordinal(number, style == .decimal ? .lowerAlpha : .decimal))
     }
 
     @Test func orderedListsWithDistinctDelimitersNumberSeparately() {
