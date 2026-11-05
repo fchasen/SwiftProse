@@ -1,4 +1,3 @@
-#if false
 import Testing
 import Foundation
 import SwiftProseSyntax
@@ -10,6 +9,7 @@ import UIKit
 #endif
 
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["SWIFTPROSE_BENCH"] != nil))
+@MainActor
 struct StoragePrimitiveBench {
     static func time(_ name: String, _ iters: Int, _ body: () -> Void) {
         for _ in 0..<3 { body() }
@@ -23,24 +23,21 @@ struct StoragePrimitiveBench {
         print(String(format: "PRIM %-46s %8.2f us", (name as NSString).utf8String!, best))
     }
 
-    @Test func comparePrimitives() throws {
-        try compare(BenchmarkFixtures.mixedDocument(), "mixed")
+    @Test func comparePrimitives() {
+        compare(BenchmarkFixtures.mixedDocument(), "mixed")
     }
 
-    @Test func compareLongFencePrimitives() throws {
-        try compare(BenchmarkFixtures.longFenceDocument(), "fence")
+    @Test func compareLongFencePrimitives() {
+        compare(BenchmarkFixtures.longFenceDocument(), "fence")
     }
 
-    func compare(_ md: String, _ tag: String) throws {
-        let controller = try EditorController(initialMarkdown: md)
+    func compare(_ md: String, _ tag: String) {
+        let controller = EditorController(markdown: md)
         let attributed = controller.textStorage.attributedSubstring(
             from: NSRange(location: 0, length: controller.textStorage.length))
-
         let plain = NSTextStorage(attributedString: attributed)
-        let prose = ProseTextStorage()
-        prose.replaceCharacters(in: NSRange(location: 0, length: 0), with: attributed)
 
-        for (rawLabel, st) in [("NSTextStorage", plain), ("ProseTextStorage", prose as NSTextStorage)] {
+        for (rawLabel, st) in [("NSTextStorage", plain), ("controller storage", controller.textStorage)] {
             let label = "\(tag) \(rawLabel)"
             let full = NSRange(location: 0, length: st.length)
             Self.time("\(label).string as NSString", 200) { _ = st.string as NSString }
@@ -48,8 +45,10 @@ struct StoragePrimitiveBench {
             Self.time("\(label) paragraphRange", 200) {
                 _ = (st.string as NSString).paragraphRange(for: NSRange(location: st.length / 2, length: 0))
             }
-            Self.time("\(label) enumerateNodePaths", 20) { st.enumerateNodePaths { _, _ in } }
-            Self.time("\(label) enumerateBlockSpecs", 20) { st.enumerateBlockSpecs { _, _ in } }
+            Self.time("\(label) markdownParagraphRanges", 20) { _ = st.markdownParagraphRanges() }
+            Self.time("\(label) enumerate markdownBlock", 20) {
+                st.enumerateAttribute(.markdownBlock, in: full, options: []) { _, _, _ in }
+            }
             Self.time("\(label) attributedSubstring(full)", 20) { _ = st.attributedSubstring(from: full) }
             Self.time("\(label) attributes(at:)", 200) { _ = st.attributes(at: st.length / 2, effectiveRange: nil) }
             Self.time("\(label) 1-char edit", 200) {
@@ -63,4 +62,3 @@ struct StoragePrimitiveBench {
         }
     }
 }
-#endif

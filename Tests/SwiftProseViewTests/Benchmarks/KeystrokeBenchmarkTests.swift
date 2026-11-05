@@ -1,4 +1,3 @@
-#if false
 import Testing
 import Foundation
 import Darwin
@@ -10,19 +9,12 @@ import AppKit
 import UIKit
 #endif
 
-/// Baseline measurements for the editing pipeline. Off by default — the
-/// long-fence fixture alone takes seconds to compile. Run with:
-///
-///     SWIFTPROSE_BENCH=1 swift test --filter KeystrokeBenchmarkTests
-///
-/// Numbers land in `Benchmarks/BASELINE.md`.
 @Suite(
     .serialized,
     .enabled(if: ProcessInfo.processInfo.environment["SWIFTPROSE_BENCH"] != nil)
 )
+@MainActor
 struct KeystrokeBenchmarkTests {
-
-    // MARK: - measurement
 
     struct Sample {
         let name: String
@@ -31,9 +23,6 @@ struct KeystrokeBenchmarkTests {
         let blocksPerOp: Double
     }
 
-    /// Live allocated blocks across every malloc zone. Coarse, but the
-    /// delta over a few hundred iterations is a stable signal for "this
-    /// path allocates an object graph per keystroke".
     static func liveBlocks() -> Int {
         var stats = malloc_statistics_t()
         malloc_zone_statistics(nil, &stats)
@@ -83,38 +72,41 @@ struct KeystrokeBenchmarkTests {
         print(lines.joined(separator: "\n"))
     }
 
-    // MARK: - helpers
-
-    /// One platform-style keystroke: exactly what `NSTextView` does when
-    /// the user types a character.
     static func keystroke(_ controller: EditorController, at location: Int) {
         let storage = controller.textStorage
         let safe = max(0, min(location, storage.length))
-        storage.beginEditing()
-        storage.replaceCharacters(in: NSRange(location: safe, length: 0), with: "a")
-        storage.endEditing()
+        let range = NSRange(location: safe, length: 0)
+        controller.setSelection(range)
+        let attributes = controller.typingAttributes(at: safe)
+        _ = controller.shouldChangeText(in: range, replacement: "a")
+        storage.replaceCharacters(in: range, with: NSAttributedString(string: "a", attributes: attributes))
+        controller.setSelection(NSRange(location: safe + 1, length: 0))
+        controller.flushDocumentChanges()
+        controller.drainDeferredEdits()
     }
 
     static func undoKeystroke(_ controller: EditorController, at location: Int) {
         let storage = controller.textStorage
         let safe = max(0, min(location, storage.length - 1))
-        storage.beginEditing()
-        storage.replaceCharacters(in: NSRange(location: safe, length: 1), with: "")
-        storage.endEditing()
+        let range = NSRange(location: safe, length: 1)
+        _ = controller.shouldChangeText(in: range, replacement: "")
+        storage.replaceCharacters(in: range, with: "")
+        controller.setSelection(NSRange(location: safe, length: 0))
+        controller.flushDocumentChanges()
+        controller.drainDeferredEdits()
     }
 
-    /// Five probe offsets through the mixed document: start, mid
-    /// paragraph, a nested list item, inside a fence, and the tail.
     static func probeOffsets(_ controller: EditorController) -> [(String, Int)] {
         let storage = controller.textStorage
         let total = storage.length
         var listOffset = total / 2
         var fenceOffset = total / 2
-        storage.enumerateBlockSpecs { range, spec in
-            if spec.isListItem, spec.listLevel >= 2, listOffset == total / 2 {
+        for range in storage.markdownParagraphRanges() where range.length > 0 {
+            guard let block = storage.markdownBlock(at: range.location) else { continue }
+            if block.listDepth >= 3, listOffset == total / 2 {
                 listOffset = range.location + min(3, max(0, range.length - 1))
             }
-            if spec.isCodeBlock, fenceOffset == total / 2 {
+            if block.isCode, fenceOffset == total / 2 {
                 fenceOffset = range.location + min(3, max(0, range.length - 1))
             }
         }
@@ -127,39 +119,37 @@ struct KeystrokeBenchmarkTests {
         ]
     }
 
-    // MARK: - cases
+    static func controller(_ markdown: String) -> EditorController {
+        let undoManager = UndoManager()
+        undoManager.groupsByEvent = false
+        return EditorController(markdown: markdown, undoManager: undoManager)
+    }
 
-    @Test func mixedDocumentBaseline() throws {
+    @Test func mixedDocumentBaseline() {
         let markdown = BenchmarkFixtures.mixedDocument()
-        let controller = try EditorController(initialMarkdown: markdown)
-        controller.testSelection = NSRange(location: 0, length: 0)
+        let controller = Self.controller(markdown)
         print("mixed fixture: \(markdown.utf16.count) utf16, storage \(controller.textStorage.length)")
 
         var samples: [Sample] = []
 
-        // (a) platform-style keystroke at five positions.
         for (label, offset) in Self.probeOffsets(controller) {
             samples.append(Self.measure(
                 "keystroke — \(label)",
-                setup: { controller.testSelection = NSRange(location: offset, length: 0) },
                 teardown: { Self.undoKeystroke(controller, at: offset) }
             ) { _ in
                 Self.keystroke(controller, at: offset)
             })
         }
 
-        // (a2) same keystroke with a subscriber that reads the tree —
-        // the gate for incremental projection.
         do {
             var sink = 0
             let token = controller.addOnDocumentChange { change in
-                sink &+= change.document.contentLength
+                sink &+= change.editedRange.length
             }
             let offset = controller.textStorage.length / 2
             samples.append(Self.measure(
-                "keystroke — tree subscriber",
+                "keystroke — change subscriber",
                 iterations: 20,
-                setup: { controller.testSelection = NSRange(location: offset, length: 0) },
                 teardown: { Self.undoKeystroke(controller, at: offset) }
             ) { _ in
                 Self.keystroke(controller, at: offset)
@@ -168,50 +158,40 @@ struct KeystrokeBenchmarkTests {
             precondition(sink >= 0)
         }
 
-        // (c) command path.
         let mid = controller.textStorage.length / 2
         samples.append(Self.measure(
-            "transaction — replaceText",
-            setup: { controller.testSelection = NSRange(location: mid, length: 0) },
-            teardown: {
-                _ = controller.apply(Transaction(steps: [
-                    .replaceText(range: NSRange(location: mid, length: 1),
-                                 with: NSAttributedString(string: ""))
-                ]))
-            }
+            "insertMarkdown",
+            setup: { controller.setSelection(NSRange(location: mid, length: 0)) },
+            teardown: { controller.undoManager.undo() }
         ) { _ in
-            _ = controller.apply(Transaction(steps: [
-                .replaceText(range: NSRange(location: mid, length: 0),
-                             with: NSAttributedString(string: "a"))
-            ]))
+            _ = controller.insertMarkdown("a")
         })
 
-        // (d) markdown serialization.
         samples.append(Self.measure("markdown()", iterations: 20) { _ in
             _ = controller.markdown()
         })
 
-        // (e) `document` on a cold cache.
-        samples.append(Self.measure("document (cold)", iterations: 20, setup: {
-            controller.invalidateDocumentCacheForBenchmark()
-        }) { _ in
-            _ = controller.document
+        samples.append(Self.measure("MarkdownLoader.load", iterations: 10) { _ in
+            _ = MarkdownLoader().load(markdown)
+        })
+
+        let loaded = MarkdownLoader().load(markdown)
+        samples.append(Self.measure("MarkdownWriter.markdown(from:)", iterations: 20) { _ in
+            _ = MarkdownWriter().markdown(from: loaded)
         })
 
         Self.report("Mixed document (~1200 blocks)", samples)
     }
 
-    @Test func longFenceBaseline() throws {
+    @Test func longFenceBaseline() {
         let markdown = BenchmarkFixtures.longFenceDocument()
-        let controller = try EditorController(initialMarkdown: markdown)
+        let controller = Self.controller(markdown)
         print("long-fence fixture: \(markdown.utf16.count) utf16, storage \(controller.textStorage.length)")
 
-        // (b) keystroke inside the 3000-line fence.
         let mid = controller.textStorage.length / 2
         let sample = Self.measure(
             "keystroke — inside 3000-line fence",
             iterations: 20,
-            setup: { controller.testSelection = NSRange(location: mid, length: 0) },
             teardown: { Self.undoKeystroke(controller, at: mid) }
         ) { _ in
             Self.keystroke(controller, at: mid)
@@ -219,12 +199,13 @@ struct KeystrokeBenchmarkTests {
         let mdSample = Self.measure("markdown()", iterations: 5) { _ in
             _ = controller.markdown()
         }
-        let docSample = Self.measure("document (cold)", iterations: 5, setup: {
-            controller.invalidateDocumentCacheForBenchmark()
-        }) { _ in
-            _ = controller.document
+        let loadSample = Self.measure("MarkdownLoader.load", iterations: 5) { _ in
+            _ = MarkdownLoader().load(markdown)
         }
-        Self.report("Long fence (3000 lines)", [sample, mdSample, docSample])
+        let loaded = MarkdownLoader().load(markdown)
+        let writeSample = Self.measure("MarkdownWriter.markdown(from:)", iterations: 5) { _ in
+            _ = MarkdownWriter().markdown(from: loaded)
+        }
+        Self.report("Long fence (3000 lines)", [sample, mdSample, loadSample, writeSample])
     }
 }
-#endif

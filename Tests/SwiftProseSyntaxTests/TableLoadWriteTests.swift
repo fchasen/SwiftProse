@@ -27,6 +27,20 @@ struct TableRoundTripTests {
         #expect(Corpus.write(storage) == markdown)
     }
 
+    @Test func headerAndBodyDistinction() {
+        let storage = Corpus.load("| h1 | h2 |\n| --- | --- |\n| a | b |")
+        let rows = LoaderFixture.paragraphs(storage)
+        #expect(rows.map { $0.block?.isTableHeader } == [true, false])
+        #expect(Corpus.write(storage) == "| h1 | h2 |\n| --- | --- |\n| a | b |")
+    }
+
+    @Test func multipleBodyRows() {
+        let markdown = "| h1 | h2 |\n| --- | --- |\n| a1 | a2 |\n| b1 | b2 |\n| c1 | c2 |"
+        let storage = Corpus.load(markdown)
+        #expect(TableFixture.rows(storage) == ["h1\th2", "a1\ta2", "b1\tb2", "c1\tc2"])
+        #expect(Corpus.write(storage) == markdown)
+    }
+
     @Test func alignmentsLoadIntoEveryRow() {
         let storage = Corpus.load("| a | b | c | d |\n| --- | :--- | :---: | ---: |\n| 1 | 2 | 3 | 4 |")
         let rows = LoaderFixture.paragraphs(storage)

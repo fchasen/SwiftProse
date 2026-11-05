@@ -1,5 +1,74 @@
 # Keystroke benchmark baseline
 
+## 2026-11-05 — core replacement (MarkdownEditorKit)
+
+The tree-sitter / ProseMirror-shaped core was replaced by the MarkdownEditorKit
+core on `model-refactor`. Every section after this one measures the legacy
+core and is kept for history; numbers are not comparable case-for-case.
+
+Reproduce with:
+
+```sh
+SWIFTPROSE_BENCH=1 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  swift test --filter KeystrokeBenchmarkTests
+```
+
+Machine: Apple Silicon, debug build (`-Onone`), macOS 27.
+
+Each `keystroke` op routes one character through a headless controller:
+`shouldChangeText`, `replaceCharacters` with the caret's typing attributes,
+then `flushDocumentChanges` / `drainDeferredEdits`. The delete that restores
+the fixture runs outside the timer. `insertMarkdown` is the command path.
+`MarkdownLoader.load` and `MarkdownWriter.markdown(from:)` run without a
+controller.
+
+A keystroke costs about one `MarkdownWriter.markdown(from:)`: `pushBinding`
+serializes the whole document after every edit, with or without a text sink.
+
+### Mixed document (~1200 blocks)
+
+83,692 UTF-16 source → 73,291 storage.
+
+| case | median µs | p90 µs | live blocks/op |
+|---|---:|---:|---:|
+| keystroke — doc start | 18655.7 | 18902.3 | 3176.8 |
+| keystroke — mid paragraph | 18938.2 | 19465.0 | 3180.4 |
+| keystroke — nested list item | 18494.8 | 18821.5 | 3183.5 |
+| keystroke — inside fence | 18329.0 | 18530.8 | 3136.2 |
+| keystroke — tail | 18356.2 | 18617.3 | 3140.8 |
+| keystroke — change subscriber | 18520.3 | 18835.0 | 3167.8 |
+| insertMarkdown | 18820.5 | 19263.2 | 3195.4 |
+| markdown() | 34613.5 | 36509.9 | 3076.9 |
+| MarkdownLoader.load | 69216.5 | 69534.8 | 17772.3 |
+| MarkdownWriter.markdown(from:) | 18083.0 | 19008.9 | -4.8 |
+
+### Long fence (one 3000-line fenced block)
+
+168,987 UTF-16 source → 168,971 storage.
+
+| case | median µs | p90 µs | live blocks/op |
+|---|---:|---:|---:|
+| keystroke — inside 3000-line fence | 21578.1 | 21828.8 | 25.7 |
+| markdown() | 27477.0 | 27938.6 | 0.0 |
+| MarkdownLoader.load | 25017.5 | 25128.4 | 6.6 |
+| MarkdownWriter.markdown(from:) | 20147.8 | 20227.5 | 0.0 |
+
+### Storage primitives (`StoragePrimitiveBench`, best per-op µs)
+
+A plain `NSTextStorage` copy against the controller's storage. Reads match;
+a 1-char edit (insert + delete) on the controller's storage pays the
+normalizer, restyler and binding serialization.
+
+| primitive | mixed plain | mixed controller | fence plain | fence controller |
+|---|---:|---:|---:|---:|
+| markdownParagraphRanges | 153.0 | 150.5 | 474.5 | 589.1 |
+| enumerate markdownBlock | 183.8 | 184.2 | 0.7 | 0.7 |
+| attributedSubstring(full) | 83.0 | 83.6 | 0.5 | 0.5 |
+| attributes(at:) | 0.8 | 0.8 | 1.0 | 1.0 |
+| 1-char edit | 37.9 | 36930.6 | 2.2 | 46072.7 |
+
+## Legacy core
+
 Recorded on `refactor-prose` after Stage 0 (`DocumentChange` made lazy,
 schema validation gated on a handler). Reproduce with:
 
@@ -16,7 +85,7 @@ Each `keystroke` op is one `beginEditing / replaceCharacters(1 char) /
 endEditing` on a headless controller — exactly what `NSTextView` does when
 the user types. The undo that restores the fixture runs outside the timer.
 
-## Mixed document (~1200 blocks: paragraphs, 3-deep lists, blockquotes, 8 fences)
+### Mixed document (~1200 blocks: paragraphs, 3-deep lists, blockquotes, 8 fences)
 
 83,692 UTF-16 source → 76,789 storage.
 
@@ -31,7 +100,7 @@ the user types. The undo that restores the fixture runs outside the timer.
 | markdown() | 47411.5 | 48171.8 | 6716.9 |
 | document (cold) | 26337.2 | 26641.7 | 5.1 |
 
-## Long fence (one 3000-line fenced block)
+### Long fence (one 3000-line fenced block)
 
 168,987 UTF-16 source → 168,974 storage.
 
@@ -41,7 +110,7 @@ the user types. The undo that restores the fixture runs outside the timer.
 | markdown() | 23286.0 | 24563.2 | 122.0 |
 | document (cold) | 21869.1 | 22354.7 | 0.0 |
 
-## Reading
+### Reading
 
 Keystroke cost tracks **block count**, not document length: 1200 blocks
 costs ~2.9 ms per character, while a 169 KB document that is almost
@@ -63,7 +132,7 @@ the binding contract, not a scan to remove.
 
 ---
 
-## After Stage 3.1 (`ProseTextStorage`)
+### After Stage 3.1 (`ProseTextStorage`)
 
 Same machine, same fixtures. `StoragePrimitiveBench` (also gated on
 `SWIFTPROSE_BENCH`) compares `ProseTextStorage` against a plain
@@ -107,7 +176,7 @@ cleanup that `scrubTypedAttributes` does by hand.
 
 ---
 
-## After Stage 4a (`resegment` removed)
+### After Stage 4a (`resegment` removed)
 
 | case | Stage 0 | after 3.1 | after 4a | vs Stage 0 |
 |---|---:|---:|---:|---:|
@@ -130,7 +199,7 @@ against ~86 µs elsewhere) but the whole-document term is gone.
 
 `markdown()` and `document` are unchanged: neither runs per keystroke.
 
-### The gate for 4b
+#### The gate for 4b
 
 | case | after 4a | after 4b |
 |---|---:|---:|
