@@ -147,11 +147,13 @@ private final class ListNode {
 private final class CodeNode {
     let language: String?
     let group: GroupToken
+    let isIndented: Bool
     var lines: [String] = []
 
-    init(language: String?, group: GroupToken) {
+    init(language: String?, group: GroupToken, isIndented: Bool) {
         self.language = language
         self.group = group
+        self.isIndented = isIndented
     }
 }
 
@@ -332,12 +334,12 @@ private struct TreeBuilder {
 
     private mutating func append(_ paragraph: ScannedParagraph, block: MarkdownBlock, to host: BlockHost) {
         switch block.leaf {
-        case .code(let language, let group):
+        case .code(let language, let group, let style):
             let lines = inline.codeLines(in: paragraph.content)
             if let code = openCode, code.group == group, case .code(let last) = host.blocks.last, last === code {
                 code.lines.append(contentsOf: lines)
             } else {
-                let code = CodeNode(language: language, group: group)
+                let code = CodeNode(language: language, group: group, isIndented: style == .indented)
                 code.lines = lines
                 host.blocks.append(.code(code))
                 openCode = code
@@ -385,7 +387,7 @@ private struct TreeBuilder {
             case .leaf(let leaf):
                 return leaf
             case .code(let node):
-                return .code(EditorDocument.CodeBlock(language: node.language, lines: node.lines))
+                return .code(EditorDocument.CodeBlock(language: node.language, lines: node.lines, isIndented: node.isIndented))
             case .table(let node):
                 return .table(EditorDocument.TableBlock(
                     alignments: node.alignments,

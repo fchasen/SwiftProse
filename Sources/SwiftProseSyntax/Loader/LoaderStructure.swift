@@ -521,6 +521,12 @@ package struct LoaderStructure {
         }
     }
 
+    func codeStyle(of leaf: LoaderLeaf) -> MarkdownBlock.CodeStyle {
+        guard case .code(nil) = leaf.kind, !leaf.isRecovered, let first = leaf.lines?.lowerBound else { return .fenced }
+        let rest = stripContinuationPrefix(first, chain: leaf.chain, markerLine: !leaf.newItemKeys.isEmpty)
+        return ContainerPrefix.fenceOpening(rest) == nil ? .indented : .fenced
+    }
+
     func stripContinuationPrefix(_ line: Int, chain: [LoaderLink], markerLine: Bool) -> String {
         let bytes = Array(source.lineBytes(line))
         var p = 0

@@ -79,6 +79,46 @@ struct WriterBlockTests {
         #expect(WF.write(WF.code("a", first), WF.p("text"), WF.code("b", first)) == "```\na\n```\n\ntext\n\n```\nb\n```")
     }
 
+    @Test func indentedCodeStaysIndented() throws {
+        let group = GroupToken.mint()
+        let indented = MarkdownBlock(leaf: .code(language: nil, group: group, style: .indented))
+        #expect(WF.write(WF.p("let x = 1", block: indented), WF.p("print(x)", block: indented)) == "    let x = 1\n    print(x)")
+        #expect(WF.write(WF.p("a", block: indented), WF.p("", block: indented), WF.p("  b", block: indented)) == "    a\n\n      b")
+        #expect(WF.write(WF.p("p"), WF.p("a", block: indented)) == "p\n\n    a")
+
+        let storage = Corpus.load("    let x = 1\n    print(x)")
+        #expect(storage.markdownBlock(at: 0)?.codeStyle == .indented)
+        #expect(Corpus.load("```\nx\n```").markdownBlock(at: 0)?.codeStyle == .fenced)
+        let document = StorageReader().document(from: storage)
+        #expect(document.blocks == [.code(.init(lines: ["let x = 1", "print(x)"], isIndented: true))])
+
+        for source in [
+            "    let x = 1\n    print(x)",
+            "Para\n\n    a\n\n    b\n\nAfter",
+            "    \tx\n      y",
+            "> quote\n>\n>     code",
+            "- a\n\n      code\n- b",
+            "# H\n\n    code"
+        ] {
+            #expect(Corpus.roundTrip(source) == source, "\(source)")
+        }
+    }
+
+    @Test func indentedCodeFallsBackToFencesWhereIndentCannotHold() {
+        let indented = { MarkdownBlock(leaf: .code(language: nil, group: $0, style: .indented)) }
+        let group = GroupToken.mint()
+        #expect(WF.write(WF.p("", block: indented(group)), trailingNewline: true) == "```\n```")
+        #expect(WF.write(WF.p("", block: indented(group)), WF.p("x", block: indented(group))) == "```\n\nx\n```")
+        #expect(WF.write(WF.p("x", block: indented(group)), WF.p(" ", block: indented(group))) == "```\nx\n \n```")
+        let tagged = MarkdownBlock(leaf: .code(language: "swift", group: GroupToken.mint(), style: .indented))
+        #expect(WF.write(WF.p("x", block: tagged)) == "```swift\nx\n```")
+
+        let list = WF.bullet()
+        #expect(WF.write(WF.item("a", [list]), WF.p("x", block: indented(GroupToken.mint()))) == "- a\n\n```\nx\n```")
+        let firstInItem = MarkdownBlock(leaf: .code(language: nil, group: GroupToken.mint(), style: .indented), containers: [.listItem])
+        #expect(WF.write(WF.p("x", block: firstInItem, lists: [list])) == "- ```\n  x\n  ```")
+    }
+
     @Test func codeLinesAreVerbatim() {
         let group = GroupToken.mint()
         let block = MarkdownBlock(leaf: .code(language: nil, group: group))

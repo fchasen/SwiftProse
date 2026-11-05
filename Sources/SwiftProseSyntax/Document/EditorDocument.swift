@@ -39,10 +39,12 @@ public struct EditorDocument: Hashable, Sendable {
     public struct CodeBlock: Hashable, Sendable {
         public var language: String?
         public var lines: [String]
+        public var isIndented: Bool
 
-        public init(language: String? = nil, lines: [String]) {
+        public init(language: String? = nil, lines: [String], isIndented: Bool = false) {
             self.language = language
             self.lines = lines
+            self.isIndented = isIndented
         }
     }
 

@@ -306,8 +306,9 @@ extension EditorController {
         let existing = paragraphs.first { $0.block.isCode }?.block
         let group = existing?.codeGroup ?? GroupToken.mint()
         let language = existing?.codeLanguage
+        let style = existing?.codeStyle ?? .fenced
         _ = rewriteParagraphs(paragraphs, actionName: "Code Block") { info in
-            let leaf: MarkdownBlock.Leaf = removing ? .paragraph : .code(language: language, group: group)
+            let leaf: MarkdownBlock.Leaf = removing ? .paragraph : .code(language: language, group: group, style: style)
             return (info.block.with(leaf: leaf).with(task: removing ? info.block.task : nil), info.lists)
         }
     }

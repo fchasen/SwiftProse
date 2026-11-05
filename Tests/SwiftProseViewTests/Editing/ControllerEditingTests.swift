@@ -218,6 +218,15 @@ struct ControllerKeyRuleTests {
         #expect(harness.markdown == "```\nx\ny\n```\n\nz")
     }
 
+    @Test func indentedCodeReturnKeepsIndentation() {
+        let harness = EditorHarness(markdown: "    x")
+        harness.select(1)
+        harness.insertNewline()
+        harness.type("y")
+        #expect(harness.block(at: 2)?.codeStyle == .indented)
+        #expect(harness.markdown == "    x\n    y")
+    }
+
     @Test func commandReturnExitsCodeBlock() {
         let harness = EditorHarness(markdown: "```\nx\ny\n```\n\nafter")
         harness.select(1)
