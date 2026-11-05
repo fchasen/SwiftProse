@@ -75,7 +75,7 @@ struct PasteSanitizer {
                 leaf = .code(language: openCodeLanguage, group: group)
             } else {
                 leaf = paragraphLeaf(content: content, storage: working, bodySize: bodySize, openCodeGroup: &openCodeGroup)
-                if case .code(let language, _) = leaf { openCodeLanguage = language }
+                if case .code(let language, _, _) = leaf { openCodeLanguage = language }
             }
             let block = MarkdownBlock(leaf: leaf, containers: Array(repeating: .listItem, count: lists.count))
             output.addAttribute(.markdownBlock, value: block, range: paragraph)

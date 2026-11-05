@@ -39,10 +39,12 @@ public struct EditorDocument: Hashable, Sendable {
     public struct CodeBlock: Hashable, Sendable {
         public var language: String?
         public var lines: [String]
+        public var isIndented: Bool
 
-        public init(language: String? = nil, lines: [String]) {
+        public init(language: String? = nil, lines: [String], isIndented: Bool = false) {
             self.language = language
             self.lines = lines
+            self.isIndented = isIndented
         }
     }
 
@@ -119,6 +121,11 @@ public struct EditorDocument: Hashable, Sendable {
         }
     }
 
+    public enum LinkStyle: String, Hashable, Sendable {
+        case inline
+        case angle
+    }
+
     public struct InlineRun: Hashable, Sendable {
         public enum Content: Hashable, Sendable {
             case text(String)
@@ -131,11 +138,13 @@ public struct EditorDocument: Hashable, Sendable {
         public var content: Content
         public var marks: InlineMarks
         public var link: String?
+        public var linkStyle: LinkStyle
 
-        public init(_ content: Content, marks: InlineMarks = [], link: String? = nil) {
+        public init(_ content: Content, marks: InlineMarks = [], link: String? = nil, linkStyle: LinkStyle = .inline) {
             self.content = content
             self.marks = marks
             self.link = link
+            self.linkStyle = linkStyle
         }
 
         public static func text(_ string: String, marks: InlineMarks = [], link: String? = nil) -> InlineRun {

@@ -32,10 +32,15 @@ public final class MarkdownBlock: NSObject, Sendable {
     public enum Leaf: Hashable, Sendable {
         case paragraph
         case heading(level: Int)
-        case code(language: String?, group: GroupToken)
+        case code(language: String?, group: GroupToken, style: CodeStyle = .fenced)
         case thematicBreak
         case tableRow(group: GroupToken, alignments: [TableColumnAlignment], isHeader: Bool)
         case html
+    }
+
+    public enum CodeStyle: Hashable, Sendable {
+        case fenced
+        case indented
     }
 
     public enum Container: Hashable, Sendable {
@@ -89,12 +94,17 @@ public final class MarkdownBlock: NSObject, Sendable {
     }
 
     public var codeGroup: GroupToken? {
-        if case .code(_, let group) = leaf { return group }
+        if case .code(_, let group, _) = leaf { return group }
         return nil
     }
 
     public var codeLanguage: String? {
-        if case .code(let language, _) = leaf { return language }
+        if case .code(let language, _, _) = leaf { return language }
+        return nil
+    }
+
+    public var codeStyle: CodeStyle? {
+        if case .code(_, _, let style) = leaf { return style }
         return nil
     }
 

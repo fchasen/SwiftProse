@@ -2,76 +2,80 @@
 
 ## Unreleased
 
-### Fixed: the caret froze after an undo
+### Changed: the editor core is MarkdownEditorKit
 
-`performUndo` wrote the internal `testSelection` seam, which
-`currentSelection` prefers over the host text view and which nothing ever
-clears. After the first undo, every command that reads `currentSelection`
-saw the range that undo landed on: a toolbar bold applied where the undo
-had been rather than where the user was selecting, and the same for every
-mark, block-type and list command. `insertNewline`'s empty-line demotion
-wrote it too. Both go through `installSelection`, which only touches the
-seam when there is no host text view.
+The editing core is MarkdownEditorKit, ported in under SwiftProse's targets
+and names. The text storage is the document: one paragraph per block, a
+`MarkdownBlock` on every character, inline marks as presentation-intent
+bits, escapes kept as literals, atoms as attachments and lists as real
+`NSTextList`s. Markdown is parsed on load with `AttributedString(markdown:)`
+plus a source-aligned structure pass, and written by `MarkdownWriter` from
+an `EditorDocument` read out of storage. The core depends only on Apple
+frameworks.
 
-Found by the demo's new editing harness, which runs ~150 scripted scenarios
-back to back in one editor — the first scenario that undid anything
-silently broke every later one.
+- **Source mode.** `EditorMode`, `SourceEditorController` and the
+  `.modeToggle` toolbar item edit the markdown text directly, with
+  incremental line-based highlighting. `EditorHandle` and the
+  `.onProseHandleReady(_:)` modifier act on whichever mode is active, and
+  `.editorMode(_:)` binds the mode.
+- **Byte-faithful round trips.** `markdown()` returns the loaded bytes while
+  storage still matches the load, including across a rich → source → rich
+  switch.
+- **Tables edit in place.** Rows are tab-separated paragraphs, so marks,
+  links and chips work inside cells. Tab, Return and Backspace navigate and
+  protect separators; `editTableStructure` opens the `TableStructureEditor`
+  sheet.
+- **Undo on macOS is the text view's.** Typing coalesces the way AppKit
+  coalesces it, and each command is one step on the same manager.
+- **`setMarkdown(_:)` is synchronous.**
+- **Code highlighting is session based.** `CodeBlockHighlighter` returns a
+  `CodeHighlightSession` per code block, which answers each edit inside the
+  block. The tree-sitter highlighter and language detection moved to the
+  optional `SwiftProseTreeSitter` product, with `CodePalette` on
+  `TreeSitterCodeBlockHighlighter(palette:)`.
+- **Configuration** gains `toolbarPadding` and `sourceSpellChecking`;
+  `statusItems` stays. `ProseToolbar` is public.
+- **Completions work in both modes.** `ProseCompletionConfiguration.onSelect`
+  receives `any ProseEditing`.
+- `EditorAction.insertTable(rows:columns:)` keeps its argument order.
+  SwiftUI also declares `TableColumnAlignment`; files importing both write
+  `SwiftProseSyntax.TableColumnAlignment`.
 
-### Fixed: typing on macOS
+The README's **Upgrading** section maps each changed API.
 
-Every keystroke in a hosted `NSTextView` threw
-`NSInternalInconsistencyException` (“must begin a group before registering
-undo”) and was dropped, so nothing appeared when typing. 0.1.0 overrode
-`ProseNSTextView.undoManager` to return the controller's manager; AppKit's
-typing-undo coalescer registers into whatever that property returns, and the
-controller's manager has `groupsByEvent` off. The override is gone — with
-`allowsUndo` off the property is nil, as intended — and the Edit menu's
-`undo:` / `redo:` actions are routed to the controller instead.
+### Removed: the ProseMirror-aligned model
 
-AppKit also brackets each typed character with attribute writes, and the
-envelope classifier counted every capture: real keystrokes classified as
-`.bulk`, so input rules never fired and each character was its own undo
-unit. Only character mutations count now.
+`Schema`, `NodeType`, `MarkType`, `ContentMatch`, `ProseDocument`,
+`TreeNode`, `ProseNode`, `NodePath`, `ResolvedPos`, `Step`, `StepMap`,
+`Mapping`, `Transaction`, `HistoryRecord`, `Slice`, `Fragment`,
+`ProseMirrorCodec` and the ProseMirror JSON surface, `SchemaValidator`,
+`SpecValidator` and their diagnostics, decorations, commands and
+`InputRule`, the tree-sitter markdown parser and compiler, the clipboard
+serializers, and the attachment-backed table view (`TableBlockView`,
+`ProseNodeAttachment`, `nodeViewRegistry`). `tree-sitter-markdown` is out
+of the manifest.
 
-`HostedTypingTests` types through `NSTextView.insertText` (the AppKit path)
-rather than writing to storage, which is how both went unnoticed.
+### Added: indented code stays indented
 
-### Fixed: inline marks over typed text
+A code block written with four-space or tab indentation is written back the
+same way. Fenced blocks keep their fence.
 
-Every typed character carried its own `MarkSetBox`, and boxes compared by
-identity, so a bold command over a typed word serialized as
-`**u****r****l**`. `MarkSetBox` compares by value now and inserted
-characters share their neighbour's box, so a word is one run and the
-command emits `**url**`.
+### Added: angle-bracket autolinks keep their form
 
-### Fixed: link insertion
+`<https://example.com>` loads as a link and is written back in angle
+brackets.
 
-`perform(.link)` replaced the selection with the literal label `"label"`
-and stamped only the legacy rendering attributes, so `linkMark(at:)` could
-not find the link afterwards. The selection is now the label (and the
-destination too when it already reads as a URL; otherwise the placeholder
-`url` for the host's link editor to replace), and the `link` mark is
-stamped on `proseMarks` like every other mark.
+### Added: smart typography
 
-### The `text` binding follows commands and undo
+`EditorController.smartTypography` takes `SmartTypographyOptions`:
+`.smartQuotes` curls `"` and `'`, `.ellipsis` turns `...` into `…`, and
+`.emDash` turns `--` into `—`. Empty by default. Each substitution is its
+own undo step and skips code.
 
-Only typing pushed `controller.markdown()` into the SwiftUI binding; a
-toolbar command or Cmd-Z left the host's document stale. Both text-view
-coordinators now push after every `DocumentChange` that isn't a load, and a
-`DocumentChange` is published for attribute-only transactions and history
-replays (a mark toggle), which used to publish nothing.
+### Added: ordered markers by depth
 
-### Clipboard carries rendered text
-
-Copy and cut put the text the editor shows on the pasteboard's plain-text
-type — a bold word arrives as the word, a heading as its text, a bullet item
-as `•` plus the item. It used to be markdown, so any plain-text consumer got
-`**bold**` and `# Title`. Structure still travels in the HTML form
-(`data-pm-slice`), which is what a paste back into SwiftProse reads.
-
-`ClipboardSerializer.serializeForClipboard(...).text` is that rendered text;
-`renderMarkdown(_:)` keeps the markdown form for hosts that want a
-"copy as markdown" action. `PlainTextSerializer` is the new renderer.
+Nested ordered lists draw `1.`, then `a.`, then `i.` by depth, cycling from
+there. The markdown keeps its numerals.
 
 ## 0.1.0
 

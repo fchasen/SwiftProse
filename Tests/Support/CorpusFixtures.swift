@@ -132,6 +132,9 @@ package enum CorpusFixtures {
         CorpusSample("image inside link", "[![img](https://x.com/i.png)](https://x.com)"),
         CorpusSample("intraword marks", "**a**b a**b** *a*b a*b* _a_b x ~~~ y"),
         CorpusSample("email at line start", "dev@mozilla.org\nnext line &amp; more"),
+        CorpusSample("indented code", "    let x = 1\n    print(x)"),
+        CorpusSample("angle autolink", "See <https://example.com>."),
+        CorpusSample("angle autolinks", "<https://angle.com> and <me@x.com>"),
     ]
 
     package static let phabricator: [CorpusSample] = [
@@ -185,7 +188,6 @@ package enum CorpusFixtures {
         CorpusSample("plus bullets", "+ plus\n+ list", expected: "- plus\n- list"),
         CorpusSample("setext h1", "Setext\n======", expected: "# Setext"),
         CorpusSample("closing hashes", "# Title #\n\n## Two ##", expected: "# Title\n\n## Two"),
-        CorpusSample("angle autolinks", "<https://angle.com> and <me@x.com>", expected: "https://angle.com and me@x.com"),
         CorpusSample("reference link", "[ref][r]\n\n[r]: https://r.com", expected: "[ref](https://r.com)"),
         CorpusSample("backslash hard break", "Back\\\nslash", expected: "Back  \nslash"),
         CorpusSample("lazy quote continuation", "> quote\nlazy", expected: "> quote\n> lazy"),
@@ -196,7 +198,6 @@ package enum CorpusFixtures {
         CorpusSample("loose list tightens", "- a\n- b\n\n- c", expected: "- a\n- b\n- c"),
         CorpusSample("deep indent sublist", "- a\n    - deep\n- b", expected: "- a\n  - deep\n- b"),
         CorpusSample("tilde fence", "~~~py\ncode\n~~~", expected: "```py\ncode\n```"),
-        CorpusSample("indented code", "    indented code", expected: "```\nindented code\n```"),
         CorpusSample("unterminated fence", "```\nunterminated", expected: "```\nunterminated\n```"),
         CorpusSample("extra blank lines", "Para\n\n\n\nPara2", expected: "Para\n\nPara2"),
         CorpusSample("list interrupting paragraph", "STR:\n1. Open Firefox\n2. Crash", expected: "STR:\n\n1. Open Firefox\n2. Crash"),

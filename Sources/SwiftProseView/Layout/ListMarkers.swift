@@ -72,7 +72,7 @@ enum ListNumbering {
         guard let list = lists.last else { return nil }
         if let task = block.task { return .task(task) }
         if list.hasOrderedMarker, let number = ordinal(paragraphStart) {
-            return .ordinal(number)
+            return .ordinal(number, OrderedMarkerStyle(depth: lists.count))
         }
         return .bullet(bulletGlyph(for: list, depth: lists.count))
     }
