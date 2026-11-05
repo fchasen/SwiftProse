@@ -4,7 +4,7 @@ import SwiftProseSyntax
 import SwiftProseView
 
 /// A debug surface for poking at a `SwiftProseEditor`: the editor itself,
-/// a fixture picker, and an inspector that shows the parser/highlighter state.
+/// a fixture picker, and an inspector that shows the loaded storage vocabulary.
 ///
 /// Embed in a host app's debug menu, or instantiate from a `#Preview` to
 /// validate visual regressions while iterating. **Not part of the editor's
@@ -112,8 +112,8 @@ public struct ProsePlayground: View {
     """
 }
 
-/// Inspector pane: shows the current source size, parsed block regions,
-/// markup ranges, and hidden ranges for whatever's in the editor.
+/// Inspector pane: shows the current source size, the loaded block per
+/// paragraph, and inline intent runs for whatever's in the editor.
 struct ProseInspector: View {
     let source: String
 
@@ -127,13 +127,13 @@ struct ProseInspector: View {
                     statsLine("Words", "\(source.split { $0.isWhitespace || $0.isNewline }.filter { !$0.isEmpty }.count)")
                 }
 
-                section("Block regions") {
+                section("Blocks") {
                     ForEach(blockRegions, id: \.self) { line in
                         Text(line).font(.caption.monospaced())
                     }
                 }
 
-                section("Highlight runs") {
+                section("Inline runs") {
                     ForEach(highlightLines.indices, id: \.self) { i in
                         Text(highlightLines[i]).font(.caption.monospaced())
                     }
@@ -159,41 +159,55 @@ struct ProseInspector: View {
         }
     }
 
+    private var storage: NSAttributedString { MarkdownLoader().load(source) }
+
     private var blockRegions: [String] {
-        guard let parser = try? MarkdownParser(grammar: .block),
-              let tree = parser.parse(source),
-              let root = tree.rootNode else { return [] }
-        return BlockClassifier.classify(rootNode: root, mapping: parser.mapping).map {
-            "\($0.range.location)…\($0.range.location + $0.range.length): \(describe($0.kind))"
+        let storage = storage
+        return storage.markdownParagraphRanges().map { range in
+            "\(range.location)…\(NSMaxRange(range)): \(describe(storage.markdownBlock(at: range.location)))"
         }
     }
 
     private var highlightLines: [String] {
-        guard let p = try? MarkdownParser(grammar: .block),
-              let tree = p.parse(source),
-              let root = tree.rootNode,
-              let highlighter = try? HighlightApplier() else { return [] }
-        return highlighter.highlights(rootNode: root, in: tree, mapping: p.mapping, grammar: .block)
-            .prefix(40)
-            .map { "\($0.range.location)…\($0.range.location + $0.range.length): \($0.tag.rawValue)" }
+        let storage = storage
+        var lines: [String] = []
+        storage.enumerateAttribute(.markdownInlineIntent, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            let intent = MarkdownInlineIntent(attributeValue: value) ?? []
+            guard !intent.isEmpty else { return }
+            lines.append("\(range.location)…\(NSMaxRange(range)): \(describe(intent))")
+        }
+        return Array(lines.prefix(40))
     }
 
-    private func describe(_ kind: BlockKind) -> String {
-        switch kind {
-        case .paragraph: return "paragraph"
-        case .heading(let l): return "h\(l)"
-        case .setextHeading(let l): return "setext h\(l)"
-        case .fencedCode(let lang): return "fenced(\(lang ?? "?"))"
-        case .indentedCode: return "indented"
-        case .blockquote(let d): return "quote@\(d)"
-        case .orderedList: return "ol"
-        case .unorderedList: return "ul"
-        case .taskList: return "tasks"
-        case .horizontalRule: return "hr"
-        case .htmlBlock: return "html"
-        case .linkReferenceDefinition: return "linkdef"
-        case .pipeTable: return "table"
+    private func describe(_ block: MarkdownBlock?) -> String {
+        guard let block else { return "none" }
+        var parts: [String]
+        switch block.leaf {
+        case .paragraph: parts = ["paragraph"]
+        case .heading(let level): parts = ["h\(level)"]
+        case .code(let language, _): parts = ["code(\(language ?? "?"))"]
+        case .thematicBreak: parts = ["hr"]
+        case .tableRow(_, _, let isHeader): parts = [isHeader ? "table header" : "table row"]
+        case .html: parts = ["html"]
         }
+        for container in block.containers {
+            switch container {
+            case .quote: parts.append("quote")
+            case .listItem: parts.append("list")
+            }
+        }
+        if let task = block.task { parts.append(task.isChecked ? "task:checked" : "task:unchecked") }
+        if block.isContinuation { parts.append("cont") }
+        return parts.joined(separator: " ")
+    }
+
+    private func describe(_ intent: MarkdownInlineIntent) -> String {
+        var names: [String] = []
+        if intent.contains(.stronglyEmphasized) { names.append("strong") }
+        if intent.contains(.emphasized) { names.append("emphasis") }
+        if intent.contains(.code) { names.append("code") }
+        if intent.contains(.strikethrough) { names.append("strikethrough") }
+        return names.isEmpty ? "intent(\(intent.rawValue))" : names.joined(separator: " ")
     }
 }
 

@@ -1,26 +1,11 @@
-import Foundation
 import SwiftProseSyntax
+import SwiftProseRendering
+import Foundation
 
-/// Native spell / grammar / autocorrect behavior for the editor's text view.
-///
-/// On macOS, code blocks and inline code spans are excluded from checking
-/// automatically — the text-view coordinator implements
-/// `textView(_:shouldCheckTextIn:offset:types:)` and clips the candidate
-/// range using the canonical `proseNodePath` / `proseMarks` attributes.
-///
-/// On iOS, `UITextView` only exposes whole-view toggles
-/// (`spellCheckingType`, `autocorrectionType`). The coordinator suspends
-/// both whenever the caret sits inside an inline-code span or a code
-/// block, then restores them on exit — best-effort caret-aware
-/// suppression in lieu of a per-range API.
 public enum ProseSpellChecking: Sendable, Equatable {
-    /// No spell-check, no grammar-check, no autocorrect.
     case off
-    /// Continuous spelling underlines. No grammar, no autocorrect.
     case spelling
-    /// Spelling + grammar underlines. No autocorrect.
     case spellingAndGrammar
-    /// Spelling + grammar + automatic spelling correction (autocorrect).
     case full
 
     public var spellingEnabled: Bool {
@@ -43,15 +28,13 @@ public enum ProseSpellChecking: Sendable, Equatable {
         case .full: return true
         }
     }
+
+    public var withoutAutocorrection: ProseSpellChecking {
+        self == .full ? .spellingAndGrammar : self
+    }
 }
 
 public extension ProseSpellChecking {
-    /// First contiguous run inside `candidate` that shouldn't be skipped by
-    /// the spell checker — i.e. that doesn't fall inside a fenced/indented
-    /// code block or an inline `code` mark. Returns a zero-length range
-    /// when the entire candidate is uncheckable.
-    ///
-    /// Used by the macOS coordinator's `shouldCheckTextIn` delegate hook.
     static func firstCheckableRange(
         in candidate: NSRange,
         storage: NSAttributedString
@@ -73,8 +56,6 @@ public extension ProseSpellChecking {
         at index: Int,
         in storage: NSAttributedString
     ) -> Bool {
-        if storage.blockSpec(at: index)?.isCodeBlock == true { return false }
-        if storage.markSet(at: index)?.contains(type: "code") == true { return false }
-        return true
+        !storage.isMarkdownCode(at: index)
     }
 }

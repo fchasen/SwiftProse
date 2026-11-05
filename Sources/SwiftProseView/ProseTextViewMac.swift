@@ -1,8 +1,9 @@
+import SwiftProseSyntax
+import SwiftProseRendering
 #if canImport(AppKit) && os(macOS)
 import AppKit
 import SwiftUI
-import SwiftProseSyntax
-import SwiftProseRendering
+import UniformTypeIdentifiers
 
 public struct ProseTextViewMac: NSViewRepresentable {
     @Binding public var text: String
@@ -35,23 +36,11 @@ public struct ProseTextViewMac: NSViewRepresentable {
     }
 
     public func makeNSView(context: Context) -> NSView {
-        let textView = ProseNSTextView(
-            frame: .zero,
-            textContainer: controller.textContainer
-        )
+        let textView = ProseNSTextView(frame: .zero, textContainer: controller.textContainer)
         textView.delegate = context.coordinator
-        textView.isRichText = true
+        textView.applyEditorDefaults()
         textView.isEditable = isEditable
-        textView.isSelectable = true
-        // The controller owns undo now: every edit — typing included —
-        // registers a typed inverse from `ProseTextStorage`'s capture hook.
-        // Leaving this on would have NSTextView register a second, text-
-        // snapshot entry for the same keystroke.
-        textView.allowsUndo = false
         controller.isEditable = isEditable
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isAutomaticTextReplacementEnabled = false
         applySpellChecking(spellChecking, to: textView)
         textView.drawsBackground = false
         textView.textContainerInset = controller.theme.textContainerInset
@@ -63,8 +52,12 @@ public struct ProseTextViewMac: NSViewRepresentable {
 
         context.coordinator.textView = textView
         controller.hostTextView = textView
-        textView.proseController = controller
+        textView.adoptSelection(controller.headlessSelection)
+        textView.markdownController = controller
         textView.onSubmit = onSubmit
+        controller.textSink = { [weak coordinator = context.coordinator] markdown in
+            coordinator?.push(markdown)
+        }
 
         let press = NSPressGestureRecognizer(
             target: context.coordinator,
@@ -90,10 +83,6 @@ public struct ProseTextViewMac: NSViewRepresentable {
             scrollView.hasHorizontalScroller = false
             scrollView.borderType = .noBorder
             scrollView.drawsBackground = false
-            // Let AppKit pad the document view by the enclosing window's
-            // safe-area insets (toolbar height) so the first line sits
-            // below the bar at rest, while content scrolls under it when
-            // the surrounding SwiftUI view ignores the top safe area.
             scrollView.automaticallyAdjustsContentInsets = true
             textView.autoresizingMask = [.width]
             textView.usesFindBar = true
@@ -104,26 +93,20 @@ public struct ProseTextViewMac: NSViewRepresentable {
 
     public func updateNSView(_ nsView: NSView, context: Context) {
         guard let textView = textView(in: nsView) else { return }
-        let coordinator = context.coordinator
-        coordinator.parent = self
-        if let mtv = textView as? ProseNSTextView,
-           mtv.minimumIntrinsicHeight != minHeight {
-            mtv.minimumIntrinsicHeight = minHeight
-        }
-        let inset = controller.theme.textContainerInset
-        if textView.textContainerInset != inset {
-            textView.textContainerInset = inset
-        }
+        context.coordinator.parent = self
         if let mtv = textView as? ProseNSTextView {
-            mtv.updateCodeBlockBgLayerFill()
+            if mtv.minimumIntrinsicHeight != minHeight {
+                mtv.minimumIntrinsicHeight = minHeight
+            }
             mtv.onSubmit = onSubmit
         }
+        controller.applyThemeToHost()
         if textView.isEditable != isEditable {
             textView.isEditable = isEditable
         }
         controller.isEditable = isEditable
         applySpellChecking(spellChecking, to: textView)
-        coordinator.applyExternalText(text, to: textView)
+        controller.applyExternalText(text)
     }
 
     private func applySpellChecking(_ mode: ProseSpellChecking, to textView: NSTextView) {
@@ -148,7 +131,6 @@ public struct ProseTextViewMac: NSViewRepresentable {
                     width: containerWidth,
                     height: CGFloat.greatestFiniteMagnitude
                 )
-                controller.scheduleTableHeightStamp(containerWidth: containerWidth)
             }
         }
         let intrinsic = textView.intrinsicContentSize
@@ -167,252 +149,91 @@ public struct ProseTextViewMac: NSViewRepresentable {
     public final class Coordinator: NSObject, NSTextViewDelegate, NSGestureRecognizerDelegate {
         var parent: ProseTextViewMac
         weak var textView: NSTextView?
-        var lastAppliedMarkdown: String
-        var pendingTextPush: DispatchWorkItem?
+
+        init(_ parent: ProseTextViewMac) {
+            self.parent = parent
+            super.init()
+        }
+
+        func push(_ markdown: String) {
+            if parent.text != markdown {
+                parent.text = markdown
+            }
+        }
 
         @objc func handlePluginLongPress(_ gr: NSPressGestureRecognizer) {
             guard gr.state == .began,
                   let textView = textView as? ProseNSTextView,
-                  let controller = textView.proseController,
+                  let controller = textView.markdownController,
                   !controller.plugins.isEmpty else { return }
-            let point = gr.location(in: textView)
-            let charIndex = textView.characterIndexForInsertion(at: point)
+            let charIndex = textView.characterIndexForInsertion(at: gr.location(in: textView))
             for plugin in controller.plugins {
                 if plugin.props.handleLongPress?(controller, charIndex) == true { return }
             }
         }
 
-        /// Let the press recognizer run alongside the text view's own
-        /// drag/selection gestures so it doesn't suppress text editing.
         public func gestureRecognizer(
             _ gestureRecognizer: NSGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: NSGestureRecognizer
         ) -> Bool { true }
 
-        /// Coalescing window for `parent.text = controller.markdown()` writes
-        /// triggered by `textDidChange`. Serializing the whole storage on
-        /// every keystroke is wasted work when the user is mid-burst; one
-        /// push per ~80 ms tail-edge feels instant and lets the host's
-        /// save-on-change observers see a single update per word.
-        public static var debounceInterval: DispatchTimeInterval = .milliseconds(80)
-
-        /// Commands, input rules, and undo change storage without a
-        /// `textDidChange`; the binding still has to follow them.
-        private var documentObserver: EditorController.ObserverToken?
-
-        init(_ parent: ProseTextViewMac) {
-            self.parent = parent
-            self.lastAppliedMarkdown = parent.text
-            super.init()
-            documentObserver = parent.controller.addOnDocumentChange { [weak self] change in
-                guard change.origin != .load else { return }
-                self?.scheduleTextPush()
-            }
-        }
-
-        deinit {
-            pendingTextPush?.cancel()
-            if let documentObserver {
-                parent.controller.removeObserver(documentObserver)
-            }
-        }
-
-        /// Push an external markdown change into the controller (and storage).
-        /// Triggered by SwiftUI binding updates from sources outside the
-        /// editor (e.g. the host loaded a different bug's text). Internal
-        /// edits flow back via `textDidChange` and update the watermark.
-        ///
-        /// We don't flush a pending debounced push here — `controller.markdown()`
-        /// reads from storage, not from the binding, so the comparison is
-        /// always fresh. Flushing would overwrite a deliberate external set
-        /// with the user's mid-typing content.
-        func applyExternalText(_ md: String, to: NSTextView) {
-            if md != lastAppliedMarkdown {
-                if parent.controller.markdown() != md {
-                    parent.controller.setMarkdown(md)
-                }
-                lastAppliedMarkdown = md
-                // External set wins; cancel any pending push since the
-                // post-setMarkdown textDidChange will re-schedule one if
-                // needed.
-                pendingTextPush?.cancel()
-                pendingTextPush = nil
-            }
-        }
-
-        public func textDidChange(_ notification: Notification) {
-            scheduleTextPush()
-        }
-
-        /// Cancel + run any pending push immediately on the current thread.
-        /// Called from external-text / programmatic paths that need the
-        /// binding to be in sync before they read it.
-        func flushPendingTextPush() {
-            guard let work = pendingTextPush else { return }
-            pendingTextPush = nil
-            work.cancel()
-            performTextPush()
-        }
-
-        private func scheduleTextPush() {
-            pendingTextPush?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.pendingTextPush = nil
-                self.performTextPush()
-            }
-            pendingTextPush = work
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + Self.debounceInterval,
-                execute: work
-            )
-        }
-
-        private func performTextPush() {
-            let md = parent.controller.markdown()
-            if parent.text != md {
-                parent.text = md
-            }
-            lastAppliedMarkdown = md
-        }
-
         public func textViewDidChangeSelection(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
-            parent.controller.fanoutSelectionChanged(tv.selectedRange())
+            parent.controller.selectionDidChange(tv.selectedRange())
         }
 
         public func undoManager(for view: NSTextView) -> UndoManager? {
             parent.controller.undoManager
         }
 
-        public func textView(_ textView: NSTextView,
-                             shouldChangeTextIn affectedCharRange: NSRange,
-                             replacementString: String?) -> Bool {
+        public func textView(
+            _ textView: NSTextView,
+            shouldChangeTextIn affectedCharRange: NSRange,
+            replacementString: String?
+        ) -> Bool {
+            parent.controller.hostShouldChangeText(in: affectedCharRange, replacement: replacementString)
+        }
+
+        public func textView(
+            _ textView: NSTextView,
+            shouldChangeTypingAttributes oldTypingAttributes: [String: Any] = [:],
+            toAttributes newTypingAttributes: [NSAttributedString.Key: Any] = [:]
+        ) -> [NSAttributedString.Key: Any] {
+            parent.controller.adjustedTypingAttributes(newTypingAttributes)
+        }
+
+        public func textView(
+            _ textView: NSTextView,
+            writingToolsIgnoredRangesInEnclosingRange enclosingRange: NSRange
+        ) -> [NSValue] {
+            parent.controller.writingToolsIgnoredRanges(in: enclosingRange).map { NSValue(range: $0) }
+        }
+
+        public func textViewWritingToolsWillBegin(_ textView: NSTextView) {
+            parent.controller.writingToolsWillBegin()
+        }
+
+        public func textViewWritingToolsDidEnd(_ textView: NSTextView) {
+            parent.controller.writingToolsDidEnd()
+        }
+
+        public func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             let controller = parent.controller
-            controller.nextEditHint = nil
-
-            // Attribute-only edits (Font panel, Format menu) arrive with a
-            // nil replacement. Stamp before the early return so the drain
-            // sees them for what they are.
-            guard let text = replacementString else {
-                controller.nextEditHint = .attributeOnly
-                return true
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
+                if controller.handleNewline() { return true }
+            case #selector(NSResponder.deleteBackward(_:)):
+                if controller.handleBackspace() { return true }
+            case #selector(NSResponder.insertTab(_:)):
+                if controller.handleTab(backward: false) { return true }
+            case #selector(NSResponder.insertBacktab(_:)):
+                if controller.handleTab(backward: true) { return true }
+            default:
+                break
             }
-
-            // Plugins get first crack at every text-input event.
-            for plugin in controller.plugins {
-                if plugin.props.handleTextInput?(controller, affectedCharRange, text) == true {
-                    controller.nextEditHint = nil
-                    return false
-                }
-            }
-
-            // An isolating block's run is atomic: an edit landing on its
-            // line moves the attachment off the run start and the block
-            // projects — and serializes — as nothing.
-            if controller.interceptEditAtIsolatingBlock(range: affectedCharRange,
-                                                        replacement: text) {
-                controller.nextEditHint = nil
-                return false
-            }
-
-            // The selection as it stands *before* the edit is what separates
-            // a correction from typing: autocorrect and text replacement
-            // rewrite a range the user has not selected.
-            let selection = textView.selectedRange()
-            let hint: EditHint
-            if textView.hasMarkedText() {
-                hint = .composition
-            } else if text.isEmpty {
-                hint = .deletion
-            } else if affectedCharRange.length > 0, affectedCharRange != selection {
-                hint = .correction
-            } else if text.utf16.count == 1 {
-                hint = .typing
-            } else {
-                hint = .bulk
-            }
-            controller.nextEditHint = hint
-
-            // macOS has no public dictation callback. Multi-character non-IME
-            // insertions are structurally a bulk text drop — route them
-            // through the paste pipeline so dictation / smart-substitution
-            // expansions land as one undo step with paragraph splits applied.
-            // Gates:
-            //   1. > 1 char (single-char keystrokes keep the per-char path so
-            //      input rules see them)
-            //   2. !hasMarkedText (skip IME composition)
-            //   3. !isPasting (Cmd-V already routed itself through the
-            //      pipeline; don't double-dispatch)
-            //   4. the affected range IS the selection — a correction
-            //      rewrites text the user didn't select, and routing it
-            //      through paste would make "teh " → "the " a separate undo
-            //      step landing at the wrong place
-            //   5. contains whitespace or newline (pure tokens are likely
-            //      IME-finalized; only structurally-bulky text routes)
-            if controller.useStructuredBulkInsert,
-               text.count > 1,
-               !textView.hasMarkedText(),
-               (textView as? ProseNSTextView)?.isPasting != true,
-               affectedCharRange == selection,
-               text.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }) {
-                controller.nextEditHint = nil
-                let event = PasteEvent(
-                    text: text,
-                    plainText: true,
-                    source: .dictation,
-                    selection: affectedCharRange,
-                    inCode: controller.isLocationInCodeBlock(affectedCharRange.location)
-                )
-                _ = controller.dispatchPaste(event)
-                return false
-            }
-            return true
+            return controller.handleCommand(commandSelector)
         }
 
-        public func textView(_ textView: NSTextView,
-                             doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                if parent.controller.handleNewline() { return true }
-            }
-            if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
-                if parent.controller.handleBackspace() { return true }
-            }
-            if commandSelector == #selector(NSResponder.deleteForward(_:)) {
-                if parent.controller.handleForwardDelete() { return true }
-            }
-            if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                if parent.controller.handleTabAtIsolatingBlock(forward: true) { return true }
-                if isCursorInListItem() {
-                    parent.controller.perform(.indent)
-                    return true
-                }
-                // Refuse a tab the source cannot hold rather than write a
-                // document that reads differently once it is reloaded.
-                if parent.controller.tabWouldLeadBlockContent() { return true }
-            }
-            if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
-                if parent.controller.handleTabAtIsolatingBlock(forward: false) { return true }
-                if isCursorInListItem() {
-                    parent.controller.perform(.outdent)
-                    return true
-                }
-            }
-            return false
-        }
-
-        private func isCursorInListItem() -> Bool {
-            let storage = parent.controller.textStorage
-            let total = storage.length
-            guard total > 0 else { return false }
-            let location = parent.controller.currentSelection.location
-            let probe = max(0, min(location, total - 1))
-            return storage.blockSpec(at: probe)?.isListItem ?? false
-        }
-
-        /// Clip the spell-checker's candidate range to the first contiguous
-        /// run that doesn't fall inside a code block or inline `code` mark.
-        /// Returning a zero-length range short-circuits the check entirely.
         public func textView(
             _ textView: NSTextView,
             shouldCheckTextIn range: NSRange,
@@ -420,17 +241,34 @@ public struct ProseTextViewMac: NSViewRepresentable {
             types checkingTypes: UnsafeMutablePointer<NSTextCheckingTypes>
         ) -> NSRange {
             guard parent.spellChecking != .off else { return range }
-            let storage = parent.controller.textStorage
-            return ProseSpellChecking.firstCheckableRange(
-                in: range,
-                storage: storage
-            )
+            return ProseSpellChecking.firstCheckableRange(in: range, storage: parent.controller.textStorage)
         }
 
-        public func textView(_ view: NSTextView,
-                             menu: NSMenu,
-                             for event: NSEvent,
-                             at charIndex: Int) -> NSMenu? {
+        public func textView(
+            _ view: NSTextView,
+            menu: NSMenu,
+            for event: NSEvent,
+            at charIndex: Int
+        ) -> NSMenu? {
+            let controller = parent.controller
+            if controller.isEditable, controller.isSelectionInTable {
+                menu.addItem(NSMenuItem.separator())
+                let tableItem = NSMenuItem(title: "Table", action: nil, keyEquivalent: "")
+                tableItem.image = NSImage(systemSymbolName: "tablecells", accessibilityDescription: nil)
+                let submenu = NSMenu(title: "Table")
+                submenu.autoenablesItems = false
+                for action in EditorAction.tableActions {
+                    let item = NSMenuItem(title: action.title, action: #selector(invokeContextMenuItem(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.image = NSImage(systemSymbolName: action.systemImage, accessibilityDescription: nil)
+                    item.state = controller.isActive(action) ? .on : .off
+                    item.isEnabled = controller.canPerform(action)
+                    item.representedObject = ContextMenuActionBox { [weak controller] in controller?.perform(action) }
+                    submenu.addItem(item)
+                }
+                tableItem.submenu = submenu
+                menu.addItem(tableItem)
+            }
             guard !parent.contextMenuItems.isEmpty else { return menu }
             menu.addItem(NSMenuItem.separator())
             for item in parent.contextMenuItems {
@@ -462,223 +300,286 @@ private final class ContextMenuActionBox {
 }
 
 final class ProseNSTextView: NSTextView {
+    static let markdownType = NSPasteboard.PasteboardType(EditorController.markdownPasteboardType)
+
     var fitsContent: Bool = false {
         didSet { invalidateIntrinsicContentSize() }
     }
+
     var minimumIntrinsicHeight: CGFloat = 0 {
         didSet { invalidateIntrinsicContentSize() }
     }
 
-    /// The owning controller. Set in `ProseTextViewMac.makeNSView`. The
-    /// `@objc` action methods read it to dispatch to `Operations`. Held weak
-    /// so SwiftUI can tear down the text view without leaking the controller.
-    weak var proseController: EditorController?
-
-    /// The only signal that a composition ended without committing —
-    /// Escape drops the marked text and nothing reaches storage after it.
-    override func unmarkText() {
-        super.unmarkText()
-        proseController?.compositionDidEnd()
-    }
-
-    /// The shared Font panel is never used: styling comes from `ProseTheme`
-    /// and mark commands, and nothing here implements `changeFont:`. Left
-    /// armed, `setTypingAttributes:` calls this from inside AppKit's own
-    /// editing transaction, which reads the storage at a selection the
-    /// transaction has not collapsed yet — out of bounds after a delete that
-    /// shrank the buffer, and `NSAttributedString` raises there.
-    override func updateFontPanel() {}
-
-    /// The controller owns history, so AppKit must never see an undo
-    /// manager on this view: with `allowsUndo` off, `undoManager` is nil
-    /// and the typing coalescer stays out of the controller's stack.
-    /// Handing it the controller's manager instead makes that coalescer
-    /// register without a group (`groupsByEvent` is off) and throw on
-    /// every keystroke. Menu Undo / Redo reach the controller through
-    /// these actions.
-    @objc func undo(_ sender: Any?) {
-        proseController?.undoManager.undo()
-    }
-
-    @objc func redo(_ sender: Any?) {
-        proseController?.undoManager.redo()
-    }
-
-    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
-        guard let manager = proseController?.undoManager else {
-            return super.validateUserInterfaceItem(item)
-        }
-        if item.action == #selector(undo(_:)) {
-            (item as? NSMenuItem)?.title = manager.undoMenuItemTitle
-            return manager.canUndo
-        }
-        if item.action == #selector(redo(_:)) {
-            (item as? NSMenuItem)?.title = manager.redoMenuItemTitle
-            return manager.canRedo
-        }
-        return super.validateUserInterfaceItem(item)
-    }
-
+    weak var markdownController: EditorController?
     var onSubmit: (() -> Void)?
+    private var isPastingPlainText = false
 
-    /// Set true around the body of `paste(_:)` / `pasteAsPlainText(_:)` so
-    /// the dictation heuristic in `shouldChangeTextIn` knows to keep its
-    /// hands off — paste runs through the pipeline directly and doesn't
-    /// need a second dispatch from the delegate path.
-    fileprivate(set) var isPasting: Bool = false
+    func applyEditorDefaults() {
+        isRichText = true
+        importsGraphics = false
+        usesFontPanel = false
+        usesRuler = false
+        isSelectable = true
+        allowsUndo = true
+        isAutomaticQuoteSubstitutionEnabled = false
+        isAutomaticDashSubstitutionEnabled = false
+        isAutomaticTextReplacementEnabled = false
+        isAutomaticLinkDetectionEnabled = false
+        isAutomaticDataDetectionEnabled = false
+        smartInsertDeleteEnabled = false
+        allowedWritingToolsResultOptions = [.plainText]
+    }
 
-    override func paste(_ sender: Any?) {
-        guard dispatchPaste(plainText: false) else {
-            super.paste(sender)
-            return
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        [Self.markdownType, .rtfd, .rtf, .html, .string, .URL, .fileURL]
+            + PastedImagePolicy.dataTypes.map { NSPasteboard.PasteboardType($0.identifier) }
+    }
+
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+        readablePasteboardTypes
+    }
+
+    override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        var types = super.writablePasteboardTypes.filter { $0 != Self.markdownType }
+        types.append(Self.markdownType)
+        return types
+    }
+
+    override func writeSelection(to pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard let controller = markdownController, type == .string || type == Self.markdownType else {
+            return super.writeSelection(to: pboard, type: type)
         }
+        let ranges = selectedRanges.map(\.rangeValue).filter { $0.length > 0 }.sorted { $0.location < $1.location }
+        guard !ranges.isEmpty else { return false }
+        let markdown = ranges.map { controller.markdownForCopy(range: $0) }.joined(separator: "\n")
+        return pboard.setString(markdown, forType: type)
     }
 
     override func pasteAsPlainText(_ sender: Any?) {
-        guard dispatchPaste(plainText: true) else {
-            super.pasteAsPlainText(sender)
-            return
+        isPastingPlainText = true
+        defer { isPastingPlainText = false }
+        super.pasteAsPlainText(sender)
+    }
+
+    override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard let controller = markdownController, controller.isEditable else {
+            return super.readSelection(from: pboard, type: type)
         }
-    }
-
-    override func readSelection(
-        from pboard: NSPasteboard,
-        type: NSPasteboard.PasteboardType
-    ) -> Bool {
-        if dispatchPaste(from: pboard, plainText: false) { return true }
-        return super.readSelection(from: pboard, type: type)
-    }
-
-    override func readSelection(from pboard: NSPasteboard) -> Bool {
-        if dispatchPaste(from: pboard, plainText: false) { return true }
-        return super.readSelection(from: pboard)
-    }
-
-    override func copy(_ sender: Any?) {
-        guard writeSelectionToPasteboard() else {
-            super.copy(sender)
-            return
-        }
-    }
-
-    override func cut(_ sender: Any?) {
-        guard writeSelectionToPasteboard() else {
-            super.cut(sender)
-            return
-        }
-        // Delete the selected text after a successful copy. This goes
-        // through the platform edit path, not `dispatchPaste`: an empty
-        // paste payload is a documented no-op there, so cut used to copy
-        // and leave the run in the document. A real replacement produces a
-        // `.deletion` envelope, with normalization and undo coalescing.
-        let selection = selectedRange()
-        guard selection.length > 0,
-              let controller = proseController,
-              controller.isEditable else { return }
-        insertText("", replacementRange: selection)
-    }
-
-    @discardableResult
-    private func writeSelectionToPasteboard() -> Bool {
-        guard let controller = proseController else { return false }
-        let selection = selectedRange()
-        guard selection.length > 0 else { return false }
-        let slice = controller.sliceForRange(selection)
-        guard !slice.isEmpty else { return false }
-        let serializer = ClipboardSerializer(schema: controller.compiler.schema)
-        let bundle = serializer.serializeForClipboard(controller: controller, slice: slice)
-        Clipboard.write(text: bundle.text, html: bundle.html)
-        return true
-    }
-
-    @discardableResult
-    private func dispatchPaste(plainText: Bool) -> Bool {
-        dispatchPaste(from: .general, plainText: plainText)
-    }
-
-    @discardableResult
-    private func dispatchPaste(from pasteboard: NSPasteboard, plainText: Bool) -> Bool {
-        guard let controller = proseController, controller.isEditable else { return false }
-        let contents = Clipboard.read(from: pasteboard)
-        guard contents.text != nil || contents.html != nil else { return false }
-        let selection = selectedRange()
-        isPasting = true
-        defer { isPasting = false }
+        let selection = rangeForUserTextChange
+        guard selection.location != NSNotFound else { return false }
+        let payload = pastePayload(from: pboard, type: type)
+        let images = Self.pastedImages(from: pboard, forcePlain: isPastingPlainText)
+        guard !payload.isEmpty || !images.isEmpty else { return false }
         let event = PasteEvent(
-            text: contents.text,
-            html: contents.html,
-            plainText: plainText,
+            text: payload.anyText,
+            html: pboard.string(forType: .html),
+            plainText: payload.forcePlain,
             source: .paste,
             selection: selection,
-            inCode: controller.isLocationInCodeBlock(selection.location)
+            inCode: controller.isLocationInCode(selection.location),
+            images: images
         )
-        return controller.dispatchPaste(event)
+        for plugin in controller.plugins {
+            if plugin.props.handlePaste?(controller, event) == true { return true }
+        }
+        guard !payload.isEmpty else { return false }
+        return controller.paste(payload, replacing: selection)
+    }
+
+    override func dragOperation(for dragInfo: any NSDraggingInfo, type: NSPasteboard.PasteboardType) -> NSDragOperation {
+        if isEditable, markdownController?.isEditable == true, Self.carriesImages(dragInfo.draggingPasteboard) {
+            return .copy
+        }
+        return super.dragOperation(for: dragInfo, type: type)
+    }
+
+    static func carriesImages(_ pboard: NSPasteboard) -> Bool {
+        if pboard.types?.contains(markdownType) == true { return false }
+        let imageFiles = pboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [
+                .urlReadingFileURLsOnly: true,
+                .urlReadingContentsConformToTypes: [UTType.image.identifier]
+            ]
+        ) ?? []
+        if !imageFiles.isEmpty { return true }
+        let dataTypes = PastedImagePolicy.dataTypes.map { NSPasteboard.PasteboardType($0.identifier) }
+        guard pboard.availableType(from: dataTypes) != nil else { return false }
+        let text = pboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.isEmpty || PastedImagePolicy.isSingleURL(text)
+    }
+
+    static func pastedImages(from pboard: NSPasteboard, forcePlain: Bool) -> [PastedImage] {
+        let fileURLs = pboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] ?? []
+        return PastedImagePolicy.images(
+            hasMarkdown: pboard.types?.contains(markdownType) == true,
+            forcePlain: forcePlain,
+            plainText: pboard.string(forType: .string),
+            fileURLs: fileURLs,
+            dataImages: {
+                (pboard.pasteboardItems ?? []).compactMap { item in
+                    guard let type = PastedImagePolicy.preferredDataType(in: item.types.map(\.rawValue)),
+                          let data = item.data(forType: NSPasteboard.PasteboardType(type.identifier)),
+                          !data.isEmpty
+                    else { return nil }
+                    return PastedImage(data: data, contentType: type)
+                }
+            }
+        )
+    }
+
+    private func pastePayload(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> PastePayload {
+        let plain = pboard.string(forType: .string) ?? pboard.string(forType: .URL)
+        if isPastingPlainText {
+            return PastePayload(plainText: plain ?? pboard.string(forType: Self.markdownType), forcePlain: true)
+        }
+        if let markdown = pboard.string(forType: Self.markdownType) {
+            return PastePayload(markdown: markdown, plainText: plain)
+        }
+        switch type {
+        case .rtfd, .rtf, .html:
+            let rich = Self.richText(from: pboard, type: type)
+            return PastePayload(plainText: plain, richText: rich)
+        default:
+            return PastePayload(plainText: plain)
+        }
+    }
+
+    private static func richText(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> NSAttributedString? {
+        guard let data = pboard.data(forType: type) else { return nil }
+        switch type {
+        case .rtfd: return NSAttributedString(rtfd: data, documentAttributes: nil)
+        case .rtf: return NSAttributedString(rtf: data, documentAttributes: nil)
+        case .html: return NSAttributedString(html: data, documentAttributes: nil)
+        default: return nil
+        }
+    }
+
+    override func changeFont(_ sender: Any?) {
+        guard let controller = markdownController, controller.isEditable else { return }
+        let manager = (sender as? NSFontManager) ?? NSFontManager.shared
+        for action in controller.fontTraitActions(converting: { manager.convert($0) }) {
+            controller.perform(action)
+        }
+    }
+
+    override func underline(_ sender: Any?) {}
+
+    @objc func undo(_ sender: Any?) {
+        guard isEditable, let manager = undoManager, manager.canUndo else { return }
+        manager.undo()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        guard isEditable, let manager = undoManager, manager.canRedo else { return }
+        manager.redo()
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(undo(_:)):
+            return isEditable && undoManager?.canUndo == true
+        case #selector(redo(_:)):
+            return isEditable && undoManager?.canRedo == true
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        markdownController?.isSettingMarkedText = true
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        markdownController?.isSettingMarkedText = false
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        markdownController?.pushBinding()
+        markdownController?.refreshInlineContentIfNeeded()
+    }
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        super.insertText(string, replacementRange: replacementRange)
+        markdownController?.pushBinding()
     }
 
     override func mouseDown(with event: NSEvent) {
-        // Plugin handleClick gets first crack — return true to consume.
-        if let controller = proseController, !controller.plugins.isEmpty {
+        if let controller = markdownController {
             let point = convert(event.locationInWindow, from: nil)
             let charIndex = characterIndexForInsertion(at: point)
             for plugin in controller.plugins {
                 if plugin.props.handleClick?(controller, charIndex) == true { return }
             }
-        }
-        // Built-in: single click on a task-list checkbox toggles it.
-        if event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
-           let storage = textStorage {
-            let point = convert(event.locationInWindow, from: nil)
-            let charIndex = characterIndexForInsertion(at: point)
-            for probe in [charIndex, charIndex - 1] where probe >= 0 && probe < storage.length {
-                if storage.safeAttribute(.attachment, at: probe) is CheckboxAttachment {
-                    if proseController?.toggleCheckbox(at: probe) == true { return }
-                }
+            if event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+               let taskIndex = taskGutterIndex(at: point, charIndex: charIndex),
+               controller.toggleCheckbox(at: taskIndex) {
+                return
             }
         }
         super.mouseDown(with: event)
     }
 
-    @objc func toggleBold(_ sender: Any?) {
-        proseController?.perform(.bold)
+    func taskGutterIndex(at point: NSPoint, charIndex: Int) -> Int? {
+        guard let controller = markdownController else { return nil }
+        let info = controller.paragraphInfo(at: charIndex)
+        guard !info.isTrailingEmpty, info.block.isListItemStart, info.block.task != nil,
+              let rect = controller.rect(forCharacterAt: info.content.location) else { return nil }
+        let gutter = MarkdownTaskGutter.hitRect(
+            caret: rect,
+            isRightToLeft: controller.textStorage.isRightToLeftParagraph(at: info.content.location)
+        )
+        return gutter.contains(point) ? info.content.location : nil
     }
-    @objc func toggleItalic(_ sender: Any?) {
-        proseController?.perform(.italic)
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown,
+           Self.isCommandReturn(event),
+           window?.firstResponder === self,
+           !hasMarkedText(),
+           markdownController?.canExitCodeBlock == true,
+           markdownController?.exitCodeBlock() == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
-    @objc func toggleStrikethrough(_ sender: Any?) {
-        proseController?.perform(.strikethrough)
-    }
-    @objc func toggleCodeSpan(_ sender: Any?) {
-        proseController?.perform(.codeSpan)
+
+    private static func isCommandReturn(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.command)
+            && !event.modifierFlags.contains(.control)
+            && (event.keyCode == 36 || event.keyCode == 76)
     }
 
     override func keyDown(with event: NSEvent) {
-        // Plugins get first crack — return true from handleKeyDown to consume.
-        if let controller = proseController,
+        if let controller = markdownController,
            !controller.plugins.isEmpty,
+           !hasMarkedText(),
            let key = pluginKeyName(for: event) {
             for plugin in controller.plugins {
                 if plugin.props.handleKeyDown?(controller, key) == true { return }
             }
         }
-        if event.modifierFlags.contains(.command),
-           !event.modifierFlags.contains(.control),
-           event.keyCode == 36,
-           proseController?.exitCodeBlock() == true {
+        if Self.isCommandReturn(event),
+           !hasMarkedText(),
+           markdownController?.exitCodeBlock() == true {
             return
         }
         if event.modifierFlags.contains(.command),
            !event.modifierFlags.contains(.control),
+           !hasMarkedText(),
            let chars = event.charactersIgnoringModifiers?.lowercased(),
-           let action = shortcutAction(forCommandKey: chars,
-                                       shift: event.modifierFlags.contains(.shift)) {
-            proseController?.perform(action)
+           let action = shortcutAction(forCommandKey: chars, shift: event.modifierFlags.contains(.shift)) {
+            markdownController?.perform(action)
             return
         }
         if let onSubmit,
-           (event.keyCode == 36 || event.keyCode == 76),
+           event.keyCode == 36 || event.keyCode == 76,
            !event.modifierFlags.contains(.command),
            !event.modifierFlags.contains(.control),
-           !event.modifierFlags.contains(.option) {
+           !event.modifierFlags.contains(.option),
+           !hasMarkedText() {
             if event.modifierFlags.contains(.shift) {
                 doCommand(by: #selector(NSResponder.insertNewline(_:)))
             } else {
@@ -689,49 +590,39 @@ final class ProseNSTextView: NSTextView {
         super.keyDown(with: event)
     }
 
-    /// Stable name string for plugin `handleKeyDown` dispatch. Covers
-    /// the navigation / control keys plugins typically intercept (arrows,
-    /// Enter, Escape, Tab); regular character input flows through
-    /// `handleTextInput` instead.
     private func pluginKeyName(for event: NSEvent) -> String? {
         switch Int(event.keyCode) {
-        case 53: return "Escape"
-        case 36, 76: return "Enter"
-        case 48: return "Tab"
-        case 126: return "ArrowUp"
-        case 125: return "ArrowDown"
-        case 123: return "ArrowLeft"
-        case 124: return "ArrowRight"
+        case 53: return PluginKeyName.escape
+        case 36, 76: return PluginKeyName.enter
+        case 48: return PluginKeyName.tab
+        case 126: return PluginKeyName.arrowUp
+        case 125: return PluginKeyName.arrowDown
+        case 123: return PluginKeyName.arrowLeft
+        case 124: return PluginKeyName.arrowRight
         default: return nil
         }
     }
 
     private func shortcutAction(forCommandKey key: String, shift: Bool) -> EditorAction? {
-        let spec = KeySpec.make(key: key, mod: true, shift: shift)
-        return proseController?.keymap.action(forKey: spec)
+        markdownController?.keymap.action(forKey: KeySpec.make(key: key, mod: true, shift: shift))
     }
 
     override var intrinsicContentSize: NSSize {
-        guard fitsContent else { return super.intrinsicContentSize }
-        guard let layoutManager = textLayoutManager else {
+        guard fitsContent, let layoutManager = textLayoutManager else {
             return super.intrinsicContentSize
         }
         layoutManager.ensureLayout(for: layoutManager.documentRange)
         let used = layoutManager.usageBoundsForTextContainer
-        let inset = textContainerInset
-        let contentHeight = used.height + inset.height * 2
+        let contentHeight = used.height + textContainerInset.height * 2
         let floor = max(minimumIntrinsicHeight, font?.boundingRectForFont.height ?? 16)
         return NSSize(width: NSView.noIntrinsicMetric, height: max(contentHeight, floor))
     }
 
     override func didChangeText() {
         super.didChangeText()
-        // Earliest safe post-edit point: the view has finished its own
-        // selection and typing-attribute work, so closing the envelope here
-        // lands normalization before display and before the binding push.
-        proseController?.drainPendingEnvelopes()
         if fitsContent { invalidateIntrinsicContentSize() }
         scheduleCodeBlockBgUpdate()
+        markdownController?.flushDocumentChanges()
     }
 
     override func layout() {
@@ -746,47 +637,46 @@ final class ProseNSTextView: NSTextView {
         scheduleCodeBlockBgUpdate()
     }
 
-    /// Sublayer that paints code-block BG bands behind text. Per-fragment
-    /// drawing under TextKit 2 elides zero-width paragraph fragments (empty
-    /// lines inside a multi-line block), leaving visual gaps; a layer drawn
-    /// independently of the fragment-draw pipeline isn't subject to that
-    /// optimization.
-    private let codeBlockBgLayer: CAShapeLayer = {
-        let l = CAShapeLayer()
-        l.actions = ["path": NSNull(), "frame": NSNull(), "bounds": NSNull(), "position": NSNull()]
-        l.zPosition = -1
-        return l
+    let codeBlockBgLayer: CAShapeLayer = {
+        let layer = CAShapeLayer()
+        layer.actions = ["path": NSNull(), "frame": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        layer.zPosition = -1
+        return layer
     }()
 
     private var codeBlockBgLayerInstalled = false
+    private var bgUpdateScheduled = false
 
     private func ensureCodeBlockBgLayer() {
         guard !codeBlockBgLayerInstalled else { return }
         wantsLayer = true
-        if let layer {
-            let fill = proseController?.theme.codeBlock.fillColor ?? .codeBlockDefaultFill
-            codeBlockBgLayer.fillColor = fill.cgColor
-            codeBlockBgLayer.frame = layer.bounds
-            layer.insertSublayer(codeBlockBgLayer, at: 0)
-            codeBlockBgLayerInstalled = true
-        }
+        guard let layer else { return }
+        let fill = markdownController?.theme.codeBlock.fillColor ?? .codeBlockDefaultFill
+        codeBlockBgLayer.fillColor = resolvedFillCGColor(fill)
+        codeBlockBgLayer.frame = layer.bounds
+        layer.insertSublayer(codeBlockBgLayer, at: 0)
+        codeBlockBgLayerInstalled = true
     }
 
-    /// Refresh the code-block band fill color from the controller's
-    /// theme. Called from `updateNSView` so theme swaps re-tint
-    /// without remaking the layer.
     func updateCodeBlockBgLayerFill() {
-        guard let controller = proseController else { return }
-        codeBlockBgLayer.fillColor = controller.theme.codeBlock.fillColor.cgColor
+        guard let controller = markdownController else { return }
+        codeBlockBgLayer.fillColor = resolvedFillCGColor(controller.theme.codeBlock.fillColor)
     }
 
-    private var bgUpdateScheduled = false
+    private func resolvedFillCGColor(_ color: NSColor) -> CGColor {
+        var resolved = color.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance { resolved = color.cgColor }
+        return resolved
+    }
 
-    private func scheduleCodeBlockBgUpdate() {
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateCodeBlockBgLayerFill()
+    }
+
+    func scheduleCodeBlockBgUpdate() {
         guard !bgUpdateScheduled else { return }
         bgUpdateScheduled = true
-        // Defer to the next runloop tick so layout settles after the
-        // current edit before we read fragment frames.
         DispatchQueue.main.async { [weak self] in
             self?.bgUpdateScheduled = false
             self?.updateCodeBlockBgPath()
@@ -795,89 +685,18 @@ final class ProseNSTextView: NSTextView {
 
     private func updateCodeBlockBgPath() {
         ensureCodeBlockBgLayer()
-        guard codeBlockBgLayerInstalled else { return }
-        guard let storage = textStorage,
+        guard codeBlockBgLayerInstalled,
+              let storage = textStorage,
               let layoutManager = textLayoutManager else {
             codeBlockBgLayer.path = nil
             return
         }
-        let inset = textContainerOrigin
-        let containerWidth = textContainer?.size.width ?? bounds.width
-        let path = CGMutablePath()
-        var runStart: Int?
-        var runEnd: Int = 0
-        let scanRange = NSRange(location: 0, length: storage.length)
-        storage.enumerateAttribute(.proseNodePath, in: scanRange) { value, subRange, _ in
-            let isCode: Bool = {
-                guard let path = (value as? NodePathBox)?.path else { return false }
-                return BlockSpec.fromNodePath(path)?.isCodeBlock == true
-            }()
-            if isCode {
-                if runStart == nil { runStart = subRange.location }
-                runEnd = subRange.location + subRange.length
-            } else if let s = runStart {
-                addCodeBlockBand(
-                    to: path,
-                    range: NSRange(location: s, length: runEnd - s),
-                    layoutManager: layoutManager,
-                    inset: inset,
-                    containerWidth: containerWidth
-                )
-                runStart = nil
-            }
-        }
-        if let s = runStart {
-            addCodeBlockBand(
-                to: path,
-                range: NSRange(location: s, length: runEnd - s),
-                layoutManager: layoutManager,
-                inset: inset,
-                containerWidth: containerWidth
-            )
-        }
-        codeBlockBgLayer.path = path.isEmpty ? nil : path
-    }
-
-    private func addCodeBlockBand(
-        to path: CGMutablePath,
-        range: NSRange,
-        layoutManager: NSTextLayoutManager,
-        inset: CGPoint,
-        containerWidth: CGFloat
-    ) {
-        guard let cs = layoutManager.textContentManager as? NSTextContentStorage,
-              let docStart = cs.location(cs.documentRange.location, offsetBy: range.location) else { return }
-        let docEnd = cs.location(cs.documentRange.location, offsetBy: range.location + range.length)
-        var minTextY: CGFloat = .greatestFiniteMagnitude
-        var maxTextY: CGFloat = -.greatestFiniteMagnitude
-        layoutManager.enumerateTextLayoutFragments(
-            from: docStart,
-            options: [.ensuresLayout]
-        ) { fragment in
-            if let docEnd,
-               let elementStart = fragment.textElement?.elementRange?.location,
-               cs.offset(from: elementStart, to: docEnd) <= 0 {
-                return false
-            }
-            let frame = fragment.layoutFragmentFrame
-            for line in fragment.textLineFragments where line.typographicBounds.height > 0 {
-                minTextY = min(minTextY, frame.minY + line.typographicBounds.minY)
-                maxTextY = max(maxTextY, frame.minY + line.typographicBounds.maxY)
-            }
-            return true
-        }
-        guard maxTextY > minTextY else { return }
-        let cornerRadius: CGFloat = 6
-        let verticalPadding: CGFloat = 4
-        let bandY = max(0, inset.y + minTextY - verticalPadding)
-        let bandBottom = inset.y + maxTextY + verticalPadding
-        let bandRect = CGRect(
-            x: inset.x,
-            y: bandY,
-            width: containerWidth,
-            height: bandBottom - bandY
+        codeBlockBgLayer.path = CodeBandPath.make(
+            storage: storage,
+            layoutManager: layoutManager,
+            inset: textContainerOrigin,
+            containerWidth: textContainer?.size.width ?? bounds.width
         )
-        path.addRoundedRect(in: bandRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
     }
 }
 #endif

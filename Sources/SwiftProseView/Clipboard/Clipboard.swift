@@ -1,3 +1,5 @@
+import SwiftProseSyntax
+import SwiftProseRendering
 import Foundation
 #if canImport(AppKit) && os(macOS)
 import AppKit
@@ -5,9 +7,6 @@ import AppKit
 import UIKit
 #endif
 
-/// Bridged pasteboard reads. Phase 1 surfaces plain text and HTML; later
-/// phases route the HTML through ClipboardParser and the text through a
-/// markdown-aware fallback.
 enum Clipboard {
 
     struct Contents {
@@ -68,10 +67,6 @@ enum Clipboard {
     }
     #endif
 
-    /// Replace the system pasteboard with the supplied `text` and (when
-    /// present) `html`. macOS clears + writes the general pasteboard; iOS
-    /// writes one item carrying both representations so any consumer can
-    /// pick its preferred form.
     static func write(text: String, html: String? = nil) {
         #if canImport(AppKit) && os(macOS)
         let pb = NSPasteboard.general

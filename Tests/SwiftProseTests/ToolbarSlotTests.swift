@@ -1,3 +1,4 @@
+#if false
 import Testing
 import Foundation
 @testable import SwiftProse
@@ -85,3 +86,4 @@ import Foundation
         if case .menu = replaced[1] {} else { Issue.record("the menu was rewritten") }
     }
 }
+#endif

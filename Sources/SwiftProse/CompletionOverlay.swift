@@ -1,58 +1,11 @@
 import Foundation
 import SwiftUI
-@_exported import SwiftProseView
+import SwiftProseView
 #if canImport(AppKit) && os(macOS)
 import AppKit
 #elseif canImport(UIKit)
 import UIKit
 #endif
-
-/// Where the completion popup sits relative to the caret.
-///
-/// Retained as an API hint for hosts; the actual placement is now decided
-/// by `CompletionPopupPlacement.origin` based on available room. The case
-/// is ignored at render time.
-@available(*, deprecated, message: "Placement is auto-decided; this parameter is ignored. See ProseCompletionConfiguration.containerBoundsProvider.")
-public enum CompletionPlacement: Sendable {
-    case below
-    case above
-}
-
-/// Smart placement for the completion popup, ported from zilla-tracker.
-///
-/// Picks below-the-caret if there's room, otherwise above, otherwise
-/// whichever side has more room. Horizontal position is clamped inside
-/// `containerBounds` with a small edge inset.
-public enum CompletionPopupPlacement {
-    public static func origin(
-        anchorRect: CGRect,
-        menuSize: CGSize,
-        containerBounds: CGRect,
-        gap: CGFloat = 4,
-        edgeInset: CGFloat = 24
-    ) -> CGPoint {
-        let horizontalInset = min(edgeInset, max(0, (containerBounds.width - menuSize.width) / 2))
-        let verticalInset = min(edgeInset, max(0, containerBounds.height / 4))
-        let effectiveBounds = containerBounds.insetBy(dx: horizontalInset, dy: verticalInset)
-        let maxX = max(effectiveBounds.minX, effectiveBounds.maxX - menuSize.width)
-        let x = min(max(anchorRect.minX, effectiveBounds.minX), maxX)
-        let belowY = anchorRect.maxY + gap
-        let aboveY = anchorRect.minY - menuSize.height - gap
-        let availableBelow = effectiveBounds.maxY - belowY
-        let availableAbove = anchorRect.minY - effectiveBounds.minY - gap
-        let y: CGFloat
-        if availableBelow >= menuSize.height {
-            y = belowY
-        } else if availableAbove >= menuSize.height {
-            y = aboveY
-        } else if availableBelow >= availableAbove {
-            y = belowY
-        } else {
-            y = aboveY
-        }
-        return CGPoint(x: x, y: y)
-    }
-}
 
 /// Host-supplied configuration for the in-line completions popup. Generic
 /// over `Item` so the host owns the data shape and the row builder.
@@ -60,7 +13,7 @@ public struct ProseCompletionConfiguration<Item: Identifiable> {
     public let triggers: [CompletionTrigger]
     public let fetch: (CompletionContext) async -> [Item]
     public let row: (Item, Bool) -> AnyView
-    public let onSelect: (EditorController, NSRange, Item) -> Void
+    public let onSelect: (any ProseEditing, NSRange, Item) -> Void
     public let maxHeight: CGFloat
     public let width: CGFloat
     /// Optional closure returning the room the popup is allowed to use, in
@@ -79,7 +32,7 @@ public struct ProseCompletionConfiguration<Item: Identifiable> {
         triggers: [CompletionTrigger],
         fetch: @escaping (CompletionContext) async -> [Item],
         row: @escaping (Item, Bool) -> AnyView,
-        onSelect: @escaping (EditorController, NSRange, Item) -> Void,
+        onSelect: @escaping (any ProseEditing, NSRange, Item) -> Void,
         maxHeight: CGFloat = 240,
         width: CGFloat = 280,
         containerBoundsProvider: (@MainActor () -> CGRect)? = nil,
@@ -93,29 +46,6 @@ public struct ProseCompletionConfiguration<Item: Identifiable> {
         self.width = width
         self.containerBoundsProvider = containerBoundsProvider
         self.widthProvider = widthProvider
-    }
-
-    @available(*, deprecated, message: "The placement parameter is ignored — placement is auto-decided. Migrate to containerBoundsProvider.")
-    public init(
-        triggers: [CompletionTrigger],
-        fetch: @escaping (CompletionContext) async -> [Item],
-        row: @escaping (Item, Bool) -> AnyView,
-        onSelect: @escaping (EditorController, NSRange, Item) -> Void,
-        maxHeight: CGFloat = 240,
-        width: CGFloat = 280,
-        placement: CompletionPlacement
-    ) {
-        self.init(
-            triggers: triggers,
-            fetch: fetch,
-            row: row,
-            onSelect: onSelect,
-            maxHeight: maxHeight,
-            width: width,
-            containerBoundsProvider: nil,
-            widthProvider: nil
-        )
-        _ = placement
     }
 }
 
@@ -154,7 +84,8 @@ private struct EditorGlobalFrameKey: PreferenceKey {
 private struct ProseCompletionsModifier<Item: Identifiable>: ViewModifier {
     let configuration: ProseCompletionConfiguration<Item>
 
-    @State private var controller: EditorController?
+    @Environment(\.proseHandleReady) private var outerHandleReady
+    @State private var editor: (any ProseEditing)?
     @State private var session: CompletionSession?
     @State private var items: [Item] = []
     @State private var fetchTask: Task<Void, Never>?
@@ -164,8 +95,9 @@ private struct ProseCompletionsModifier<Item: Identifiable>: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onProseControllerReady { ctrl in
-                attach(to: ctrl)
+            .onProseHandleReady { handle in
+                outerHandleReady?(handle)
+                attach(to: handle)
             }
             .background(
                 GeometryReader { proxy in
@@ -179,7 +111,7 @@ private struct ProseCompletionsModifier<Item: Identifiable>: ViewModifier {
                 editorGlobalFrame = newValue
             }
             .overlay(alignment: .topLeading) {
-                if let session, let controller, !items.isEmpty {
+                if let session, let editor, !items.isEmpty {
                     CompletionPopup(
                         session: session,
                         items: items,
@@ -206,7 +138,7 @@ private struct ProseCompletionsModifier<Item: Identifiable>: ViewModifier {
                     .onPreferenceChange(PopupHeightPreferenceKey.self) { newHeight in
                         popupHeight = newHeight
                     }
-                    .offset(popupOffset(for: session, controller: controller))
+                    .offset(popupOffset(for: session, editor: editor))
                     .transition(.opacity)
                 }
             }
@@ -241,38 +173,42 @@ private struct ProseCompletionsModifier<Item: Identifiable>: ViewModifier {
         #endif
     }
 
-    private func attach(to ctrl: EditorController) {
+    private func attach(to handle: EditorHandle) {
+        if let plugin, editor === handle {
+            plugin.attach(to: handle.richController)
+            plugin.attach(to: handle.sourceController)
+            return
+        }
         let plugin = CompletionPlugin(triggers: configuration.triggers)
         plugin.onSessionChanged = { newSession in
             DispatchQueue.main.async {
                 self.session = newSession
                 if let newSession {
-                    refetch(for: newSession.context, controller: ctrl, plugin: plugin)
+                    refetch(for: newSession.context, editor: handle, plugin: plugin)
                 } else {
                     fetchTask?.cancel()
                     items = []
                 }
             }
         }
-        plugin.onCommit = { ctrl, session in
-            // Pull the latest items from the SwiftUI state directly.
+        plugin.onCommit = { editor, session in
             DispatchQueue.main.async {
                 guard !self.items.isEmpty,
                       session.highlightedIndex >= 0,
                       session.highlightedIndex < self.items.count else { return }
                 let item = self.items[session.highlightedIndex]
-                configuration.onSelect(ctrl, session.context.range, item)
+                configuration.onSelect(editor, session.context.range, item)
             }
         }
-        ctrl.register(plugin: plugin)
-        plugin.attach(to: ctrl)
-        self.controller = ctrl
+        plugin.attach(to: handle.richController)
+        plugin.attach(to: handle.sourceController)
+        self.editor = handle
         self.plugin = plugin
     }
 
     private func refetch(
         for context: CompletionContext,
-        controller: EditorController,
+        editor: any ProseEditing,
         plugin: CompletionPlugin
     ) {
         fetchTask?.cancel()
@@ -282,7 +218,7 @@ private struct ProseCompletionsModifier<Item: Identifiable>: ViewModifier {
             if Task.isCancelled { return }
             await MainActor.run {
                 self.items = results
-                plugin.updateItemCount(results.count, controller: controller)
+                plugin.updateItemCount(results.count, controller: editor)
             }
         }
     }
@@ -290,14 +226,14 @@ private struct ProseCompletionsModifier<Item: Identifiable>: ViewModifier {
     @MainActor
     private func popupOffset(
         for session: CompletionSession,
-        controller: EditorController
+        editor: any ProseEditing
     ) -> CGSize {
-        guard let rect = session.context.caretRect ?? controller.caretRect() else {
+        guard let rect = session.context.caretRect ?? editor.caretRect() else {
             return .zero
         }
         let height = popupHeight > 0 ? popupHeight : configuration.maxHeight
         let width = popupWidth()
-        let bounds = configuration.containerBoundsProvider?() ?? defaultContainerBounds(controller: controller)
+        let bounds = configuration.containerBoundsProvider?() ?? defaultContainerBounds(editor: editor)
         let effectiveBounds = bounds.width > 0 && bounds.height > 0
             ? bounds
             : CGRect(x: rect.minX - 200, y: rect.minY - height - 400,
@@ -321,14 +257,14 @@ private struct ProseCompletionsModifier<Item: Identifiable>: ViewModifier {
     /// view out flipped (top-left origin), so the result lines up with
     /// the caret rect that SwiftProse hands us.
     @MainActor
-    private func defaultContainerBounds(controller: EditorController) -> CGRect {
+    private func defaultContainerBounds(editor: any ProseEditing) -> CGRect {
         #if os(macOS)
-        if let textView = controller.hostTextView as? NSView,
+        if let textView = editor.hostTextView,
            let contentView = textView.window?.contentView {
             return contentView.convert(contentView.bounds, to: textView)
         }
         #elseif canImport(UIKit)
-        if let textView = controller.hostTextView as? UIView {
+        if let textView = editor.hostTextView {
             let host = textView.window ?? textView
             return host.convert(host.bounds, to: textView)
         }

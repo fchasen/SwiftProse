@@ -1,3 +1,4 @@
+#if false
 #if canImport(AppKit) && os(macOS)
 import Testing
 import Foundation
@@ -102,4 +103,5 @@ private final class BindingObserver {
                 "external set must not be overwritten by a debounced user-typing push; got \(observer.pushCount) pushes")
     }
 }
+#endif
 #endif

@@ -1,20 +1,15 @@
-import Foundation
 import SwiftProseSyntax
+import SwiftProseRendering
+import Foundation
 #if canImport(AppKit) && os(macOS)
 import AppKit
 #elseif canImport(UIKit)
 import UIKit
 #endif
 
-/// A trigger that opens a completion session when typed at the cursor.
 public struct CompletionTrigger: Equatable, Sendable {
-    /// Stable identifier. Embedders look this up in `CompletionContext.triggerID`
-    /// to decide what items to fetch.
     public let id: String
-    /// The character that opens the session (e.g. "@", "#", "/").
     public let prefix: Character
-    /// Honor the trigger inside fenced code blocks / inline-code spans?
-    /// Defaults to false — code is rarely a place users want suggestions.
     public let allowedInCode: Bool
 
     public init(id: String, prefix: Character, allowedInCode: Bool = false) {
@@ -24,17 +19,10 @@ public struct CompletionTrigger: Equatable, Sendable {
     }
 }
 
-/// Snapshot of an open completion session — what the host renders against.
 public struct CompletionContext: Equatable, Sendable {
-    /// Matches `CompletionTrigger.id`.
     public let triggerID: String
-    /// Text typed after the prefix (without the prefix itself).
     public let query: String
-    /// Storage range covering the prefix + query. Use as the replacement
-    /// range when committing a selection.
     public let range: NSRange
-    /// Caret rect in the host text view's coordinate space at session
-    /// open. Re-read via `EditorController.caretRect()` for live updates.
     public let caretRect: CGRect?
 
     public init(triggerID: String, query: String, range: NSRange, caretRect: CGRect?) {
@@ -45,7 +33,6 @@ public struct CompletionContext: Equatable, Sendable {
     }
 }
 
-/// State carried while a completion session is open.
 public struct CompletionSession: Equatable, Sendable {
     public var context: CompletionContext
     public var highlightedIndex: Int
@@ -58,72 +45,71 @@ public struct CompletionSession: Equatable, Sendable {
     }
 }
 
-/// Plugin that watches typing for trigger characters and surfaces a
-/// completion session. Hosts read the active session via
-/// `session(controller:)` and call `commit(controller:)` / `cancel(controller:)`
-/// to drive the lifecycle. After registering, call `attach(to:)` so the
-/// plugin can observe document changes (backspace, paste) it can't
-/// otherwise see.
 public final class CompletionPlugin: EditorPlugin {
-    public static let stateKey = PluginKey<CompletionSession>(name: "swiftprose.completion")
-    public let key = AnyPluginKey(name: "swiftprose.completion")
+    public static let keyName = "swiftprose.completion"
+    public static let stateKey = PluginKey<CompletionSession>(name: keyName)
+    public let key = AnyPluginKey(name: keyName)
 
     public let triggers: [CompletionTrigger]
-
-    /// Fired whenever the plugin's session opens, mutates, or closes.
-    /// Hosts subscribe to drive their UI.
     public var onSessionChanged: ((CompletionSession?) -> Void)?
-
-    /// Called when the plugin decides the user committed a selection
-    /// (Enter / Tab). Hosts inspect the session and apply a transaction.
-    public var onCommit: ((EditorController, CompletionSession) -> Void)?
-
-    private var documentObserver: EditorController.ObserverToken?
-    private weak var attachedController: EditorController?
+    public var onCommit: ((any ProseEditing, CompletionSession) -> Void)?
+    private var isCommitting = false
+    private let attachedSources = NSHashTable<SourceEditorController>.weakObjects()
 
     public init(triggers: [CompletionTrigger]) {
         self.triggers = triggers
     }
 
-    deinit {
-        if let observer = documentObserver {
-            attachedController?.removeObserver(observer)
+    public func attach(to controller: EditorController) {
+        guard !controller.plugins.contains(where: { $0 === self }) else { return }
+        controller.register(plugin: self)
+        controller.addOnSelectionChanged { [weak self, weak controller] selection in
+            guard let self, let controller else { return }
+            self.selectionDidChange(selection, host: controller)
         }
     }
 
-    /// Subscribe the plugin to the controller's document-change events.
-    /// Required for the session to close on backspace / paste / external
-    /// edits. Idempotent across re-attach.
-    public func attach(to controller: EditorController) {
-        if let observer = documentObserver, attachedController === controller { return }
-        if let observer = documentObserver, let prior = attachedController {
-            prior.removeObserver(observer)
+    public func attach(to controller: SourceEditorController) {
+        guard !attachedSources.contains(controller) else { return }
+        attachedSources.add(controller)
+        controller.addKeyHandler { [weak self, weak controller] key in
+            guard let self, let controller else { return false }
+            return self.handleKey(host: controller, key: key)
         }
-        attachedController = controller
-        documentObserver = controller.addOnDocumentChange { [weak self, weak controller] _ in
+        controller.addTextInputHandler { [weak self, weak controller] range, text in
+            guard let self, let controller else { return false }
+            return self.handleTextInput(host: controller, range: range, text: text)
+        }
+        controller.addOnTextChange { [weak self, weak controller] change in
             guard let self, let controller else { return }
-            self.refresh(controller: controller)
+            self.handleDocumentChange(change, host: controller)
+        }
+        controller.addOnSelectionChanged { [weak self, weak controller] selection in
+            guard let self, let controller else { return }
+            self.selectionDidChange(selection, host: controller)
         }
     }
 
     public var props: PluginProps {
         PluginProps(
             handleKeyDown: { [weak self] controller, key in
-                self?.handleKey(controller: controller, key: key) ?? false
+                self?.handleKey(host: controller, key: key) ?? false
             },
             handleTextInput: { [weak self] controller, range, text in
-                self?.handleTextInput(controller: controller, range: range, text: text) ?? false
+                self?.handleTextInput(host: controller, range: range, text: text) ?? false
             }
         )
     }
 
-    // MARK: - Public surface
+    public func documentDidChange(_ change: DocumentChange, controller: EditorController) {
+        handleDocumentChange(change, host: controller)
+    }
 
-    public func session(controller: EditorController) -> CompletionSession? {
+    public func session(controller: any ProseEditing) -> CompletionSession? {
         currentSession(controller)
     }
 
-    public func updateHighlight(_ index: Int, controller: EditorController) {
+    public func updateHighlight(_ index: Int, controller: any ProseEditing) {
         guard var session = currentSession(controller) else { return }
         let clamped = max(0, min(index, max(0, session.itemCount - 1)))
         guard clamped != session.highlightedIndex else { return }
@@ -131,7 +117,7 @@ public final class CompletionPlugin: EditorPlugin {
         store(session, controller: controller)
     }
 
-    public func updateItemCount(_ count: Int, controller: EditorController) {
+    public func updateItemCount(_ count: Int, controller: any ProseEditing) {
         guard var session = currentSession(controller) else { return }
         session.itemCount = max(0, count)
         if session.highlightedIndex >= session.itemCount {
@@ -140,44 +126,69 @@ public final class CompletionPlugin: EditorPlugin {
         store(session, controller: controller)
     }
 
-    public func commit(controller: EditorController) {
+    public func commit(controller: any ProseEditing) {
         guard let session = currentSession(controller) else { return }
-        onCommit?(controller, session)
+        isCommitting = true
+        onCommit?(Self.resolve(controller), session)
+        isCommitting = false
         clear(controller: controller)
     }
 
-    public func cancel(controller: EditorController) {
+    public func cancel(controller: any ProseEditing) {
         guard currentSession(controller) != nil else { return }
         clear(controller: controller)
     }
 
-    /// Re-derive the session from current storage. Closes when the
-    /// anchor character is gone or whitespace appears in the query span.
-    public func refresh(controller: EditorController) {
-        guard let session = currentSession(controller) else { return }
-        deriveSession(from: session, controller: controller)
+    public func refresh(controller: any ProseEditing) {
+        guard !isCommitting, let session = currentSession(controller), let host = Self.support(controller) else { return }
+        deriveSession(from: session, host: host)
     }
 
-    // MARK: - Internals
+    private static func resolve(_ editor: any ProseEditing) -> any ProseEditing {
+        (editor as? EditorHandle)?.activeEditor ?? editor
+    }
 
-    private func handleKey(controller: EditorController, key: String) -> Bool {
-        guard let session = currentSession(controller) else { return false }
+    private static func support(_ editor: any ProseEditing) -> (any CompletionSupporting)? {
+        resolve(editor) as? any CompletionSupporting
+    }
+
+    private func handleDocumentChange(_ change: DocumentChange, host: any CompletionSupporting) {
+        if change.origin == .load {
+            cancel(controller: host)
+            return
+        }
+        refresh(controller: host)
+    }
+
+    private func selectionDidChange(_ selection: NSRange, host: any CompletionSupporting) {
+        guard !isCommitting, !host.isComposingText, !host.hasPendingDocumentChange,
+              let session = currentSession(host) else { return }
+        let range = session.context.range
+        if selection.location < range.location + 1 || NSMaxRange(selection) > NSMaxRange(range) {
+            cancel(controller: host)
+        }
+    }
+
+    private func handleKey(host: any CompletionSupporting, key: String) -> Bool {
+        guard let session = currentSession(host), !host.isComposingText else { return false }
         switch key {
-        case "Escape":
-            cancel(controller: controller)
+        case PluginKeyName.escape:
+            cancel(controller: host)
             return true
-        case "ArrowDown":
-            updateHighlight(session.highlightedIndex + 1, controller: controller)
+        case PluginKeyName.arrowDown:
+            guard session.itemCount > 0 else { return false }
+            updateHighlight(session.highlightedIndex + 1, controller: host)
             return true
-        case "ArrowUp":
-            updateHighlight(session.highlightedIndex - 1, controller: controller)
+        case PluginKeyName.arrowUp:
+            guard session.itemCount > 0 else { return false }
+            updateHighlight(session.highlightedIndex - 1, controller: host)
             return true
-        case "Enter", "Tab":
+        case PluginKeyName.enter, PluginKeyName.tab:
             guard session.itemCount > 0 else {
-                cancel(controller: controller)
+                cancel(controller: host)
                 return false
             }
-            commit(controller: controller)
+            commit(controller: host)
             return true
         default:
             return false
@@ -185,54 +196,66 @@ public final class CompletionPlugin: EditorPlugin {
     }
 
     private func handleTextInput(
-        controller: EditorController,
+        host: any CompletionSupporting,
         range: NSRange,
         text: String
     ) -> Bool {
-        // Existing session: predict the next state given the upcoming
-        // text. The character hasn't been inserted yet (we return false),
-        // but we know the cursor will land at range.location + text.count.
-        if let existing = currentSession(controller) {
-            extendOrCloseSession(existing, range: range, text: text, controller: controller)
+        if host.isApplyingCommand || host.isComposingText { return false }
+        if let existing = currentSession(host) {
+            if Self.isCommitInput(text) {
+                guard existing.itemCount > 0 else {
+                    clear(controller: host)
+                    return false
+                }
+                host.deferEdit { [weak self, weak host] in
+                    guard let self, let host, self.currentSession(host)?.context.range.location == existing.context.range.location else { return }
+                    self.commit(controller: host)
+                }
+                return true
+            }
+            if text.isEmpty {
+                shrinkOrCloseSession(existing, deleting: range, host: host)
+            } else {
+                extendOrCloseSession(existing, range: range, text: text, host: host)
+            }
             return false
         }
-        // No open session — see if this opens one.
         if text.count == 1,
            let ch = text.first,
            let trigger = triggers.first(where: { $0.prefix == ch }),
-           shouldOpen(at: range.location, in: controller, trigger: trigger) {
+           shouldOpen(at: range.location, replacing: range, in: host, trigger: trigger) {
             let context = CompletionContext(
                 triggerID: trigger.id,
                 query: "",
-                range: NSRange(location: range.location, length: 1),
-                caretRect: controller.caretRect()
+                range: NSRange(location: range.location, length: (text as NSString).length),
+                caretRect: host.caretRect()
             )
-            store(CompletionSession(context: context), controller: controller)
+            store(CompletionSession(context: context), controller: host)
         }
         return false
+    }
+
+    private static func isCommitInput(_ text: String) -> Bool {
+        text == "\n" || text == "\r" || text == "\r\n" || text == "\t"
     }
 
     private func extendOrCloseSession(
         _ session: CompletionSession,
         range: NSRange,
         text: String,
-        controller: EditorController
+        host: any CompletionSupporting
     ) {
-        // Insertion outside the session's expected end closes it.
-        let expectedEnd = session.context.range.location + session.context.range.length
+        let expectedEnd = NSMaxRange(session.context.range)
         guard range.location == expectedEnd, range.length == 0 else {
-            clear(controller: controller)
+            clear(controller: host)
             return
         }
-        // Whitespace, newline, or another trigger char closes the session.
         if text.contains(where: { $0.isWhitespace || $0.isNewline }) {
-            clear(controller: controller)
+            clear(controller: host)
             return
         }
-        if let ch = text.first, triggers.contains(where: { $0.prefix == ch }) {
-            // Switching triggers mid-query: drop the old, open a fresh
-            // session at the new prefix.
-            clear(controller: controller)
+        if text.contains(where: { ch in triggers.contains(where: { $0.prefix == ch }) }) {
+            clear(controller: host)
             return
         }
         var updated = session
@@ -241,118 +264,107 @@ public final class CompletionPlugin: EditorPlugin {
             query: session.context.query + text,
             range: NSRange(
                 location: session.context.range.location,
-                length: session.context.range.length + text.count
+                length: session.context.range.length + (text as NSString).length
             ),
-            caretRect: controller.caretRect()
+            caretRect: host.caretRect()
         )
-        store(updated, controller: controller)
+        store(updated, controller: host)
     }
 
-    private func deriveSession(from session: CompletionSession, controller: EditorController) {
-        let storage = controller.textStorage
-        let anchor = session.context.range.location
-        // Anchor must still hold the trigger character we opened on.
-        guard anchor < storage.length,
-              let triggerChar = (storage.string as NSString).substring(
-                with: NSRange(location: anchor, length: 1)
-              ).first,
-              triggers.contains(where: { $0.prefix == triggerChar && $0.id == session.context.triggerID })
-        else {
-            clear(controller: controller)
-            return
-        }
-        // The session's expected end is anchor + length. If storage no
-        // longer extends that far (backspace below the prefix), clear.
-        let expectedEnd = anchor + session.context.range.length
-        guard expectedEnd <= storage.length else {
-            // The user backspaced into the session — recompute the query
-            // by walking from anchor+1 to storage end or first whitespace.
-            let trimmed = trimSession(session, in: storage, controller: controller)
-            if let trimmed { store(trimmed, controller: controller) } else { clear(controller: controller) }
-            return
-        }
-        // Verify the predicted query still matches storage. Diverges when
-        // the user pasted content into the middle, undid an edit, or
-        // backspaced characters out of the query.
-        let actualSlice = (storage.string as NSString).substring(
-            with: NSRange(location: anchor, length: session.context.range.length)
-        )
-        let predicted = String(triggerChar) + session.context.query
-        if actualSlice != predicted {
-            let trimmed = trimSession(session, in: storage, controller: controller)
-            if let trimmed { store(trimmed, controller: controller) } else { clear(controller: controller) }
-            return
-        }
-        // Match — leave session unchanged.
-    }
-
-    /// Re-derive the query length from storage when it diverges from the
-    /// predicted state. Returns the new session, or nil if the session
-    /// should close (whitespace in query, anchor lost, etc.).
-    private func trimSession(
+    private func shrinkOrCloseSession(
         _ session: CompletionSession,
-        in storage: NSAttributedString,
-        controller: EditorController
-    ) -> CompletionSession? {
+        deleting range: NSRange,
+        host: any CompletionSupporting
+    ) {
         let anchor = session.context.range.location
-        guard anchor < storage.length else { return nil }
-        var end = anchor + 1
-        let ns = storage.string as NSString
-        while end < storage.length {
-            let ch = ns.character(at: end)
-            let scalar = Unicode.Scalar(ch)
-            if let scalar, CharacterSet.whitespacesAndNewlines.contains(scalar) { break }
-            end += 1
+        let queryStart = anchor + 1
+        guard range.location >= queryStart, NSMaxRange(range) <= NSMaxRange(session.context.range) else {
+            clear(controller: host)
+            return
         }
-        let queryRange = NSRange(location: anchor + 1, length: end - (anchor + 1))
-        let query = ns.substring(with: queryRange)
+        let query = session.context.query as NSString
+        let local = NSRange(location: range.location - queryStart, length: range.length)
+        guard NSMaxRange(local) <= query.length else {
+            clear(controller: host)
+            return
+        }
         var updated = session
         updated.context = CompletionContext(
             triggerID: session.context.triggerID,
-            query: query,
+            query: query.replacingCharacters(in: local, with: ""),
+            range: NSRange(location: anchor, length: session.context.range.length - range.length),
+            caretRect: host.caretRect()
+        )
+        store(updated, controller: host)
+    }
+
+    private func deriveSession(from session: CompletionSession, host: any CompletionSupporting) {
+        let ns = host.textStorage.string as NSString
+        let anchor = session.context.range.location
+        guard anchor < ns.length,
+              let triggerChar = ns.substring(with: NSRange(location: anchor, length: 1)).first,
+              triggers.contains(where: { $0.prefix == triggerChar && $0.id == session.context.triggerID })
+        else {
+            clear(controller: host)
+            return
+        }
+        let expectedEnd = NSMaxRange(session.context.range)
+        if expectedEnd <= ns.length,
+           ns.substring(with: session.context.range) == String(triggerChar) + session.context.query {
+            return
+        }
+        if let trimmed = trimSession(session, in: ns) {
+            if trimmed != session { store(trimmed, controller: host) }
+        } else {
+            clear(controller: host)
+        }
+    }
+
+    private func trimSession(_ session: CompletionSession, in ns: NSString) -> CompletionSession? {
+        let anchor = session.context.range.location
+        guard anchor < ns.length else { return nil }
+        var end = anchor + 1
+        while end < ns.length {
+            let unit = ns.character(at: end)
+            if unit == MarkdownParagraph.objectReplacement { break }
+            if let scalar = Unicode.Scalar(unit), CharacterSet.whitespacesAndNewlines.contains(scalar) { break }
+            end += 1
+        }
+        var updated = session
+        updated.context = CompletionContext(
+            triggerID: session.context.triggerID,
+            query: ns.substring(with: NSRange(location: anchor + 1, length: end - anchor - 1)),
             range: NSRange(location: anchor, length: end - anchor),
-            caretRect: controller.caretRect()
+            caretRect: session.context.caretRect
         )
         return updated
     }
 
     private func shouldOpen(
         at location: Int,
-        in controller: EditorController,
+        replacing range: NSRange,
+        in host: any CompletionSupporting,
         trigger: CompletionTrigger
     ) -> Bool {
-        let storage = controller.textStorage
-        // Trigger must be at start of doc, after whitespace, or after a
-        // newline — typing "@" inside "x@y" shouldn't open a mention.
-        if location > 0, location <= storage.length {
-            let prev = (storage.string as NSString).substring(
-                with: NSRange(location: location - 1, length: 1)
-            )
-            if let ch = prev.first, !ch.isWhitespace, !ch.isNewline { return false }
+        let ns = host.textStorage.string as NSString
+        if location > 0, location <= ns.length {
+            let previous = ns.substring(with: NSRange(location: location - 1, length: 1))
+            if let ch = previous.first, !ch.isWhitespace, !ch.isNewline { return false }
         }
-        if !trigger.allowedInCode {
-            if location > 0, location <= storage.length {
-                let probe = max(0, min(location, storage.length - 1))
-                if storage.blockSpec(at: probe)?.isCodeBlock == true { return false }
-                if let marks = storage.markSet(at: probe), marks.contains(name: "code") {
-                    return false
-                }
-            }
-        }
-        return true
+        return host.allowsCompletionTrigger(at: location, replacing: range, allowedInCode: trigger.allowedInCode)
     }
 
-    private func currentSession(_ controller: EditorController) -> CompletionSession? {
-        controller.pluginState(for: Self.stateKey)
+    private func currentSession(_ controller: any ProseEditing) -> CompletionSession? {
+        Self.resolve(controller).pluginState(for: Self.stateKey)
     }
 
-    private func store(_ session: CompletionSession, controller: EditorController) {
-        controller.setPluginState(session, for: Self.stateKey)
+    private func store(_ session: CompletionSession, controller: any ProseEditing) {
+        Self.resolve(controller).setPluginState(session, for: Self.stateKey)
         onSessionChanged?(session)
     }
 
-    private func clear(controller: EditorController) {
-        controller.clearPluginState(for: Self.stateKey)
+    private func clear(controller: any ProseEditing) {
+        Self.resolve(controller).clearPluginState(for: Self.stateKey)
         onSessionChanged?(nil)
     }
 }

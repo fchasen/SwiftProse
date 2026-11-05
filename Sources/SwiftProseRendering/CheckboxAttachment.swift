@@ -1,3 +1,4 @@
+import SwiftProseSyntax
 import Foundation
 #if canImport(AppKit) && os(macOS)
 import AppKit
@@ -5,10 +6,6 @@ import AppKit
 import UIKit
 #endif
 
-/// `NSTextAttachment` that draws a task-list checkbox sized to the surrounding
-/// body font. Replaces the U+2610 / U+2611 unicode glyphs the editor used at
-/// first — those rendered tiny and font-dependent. This one is a real square
-/// with a stroke, optionally containing a checkmark.
 public final class CheckboxAttachment: NSTextAttachment {
     public var isChecked: Bool = false {
         didSet { refreshImage() }
@@ -65,7 +62,7 @@ extension CheckboxAttachment {
         #endif
     }
 
-    static func draw(checked: Bool, in rect: CGRect) {
+    package static func draw(checked: Bool, in rect: CGRect) {
         let inset: CGFloat = 1
         let cornerRadius: CGFloat = max(2, rect.width * 0.18)
         let box = rect.insetBy(dx: inset, dy: inset)

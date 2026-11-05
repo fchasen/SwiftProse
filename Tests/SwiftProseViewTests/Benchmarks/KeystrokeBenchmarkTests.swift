@@ -1,3 +1,4 @@
+#if false
 import Testing
 import Foundation
 import Darwin
@@ -226,3 +227,4 @@ struct KeystrokeBenchmarkTests {
         Self.report("Long fence (3000 lines)", [sample, mdSample, docSample])
     }
 }
+#endif

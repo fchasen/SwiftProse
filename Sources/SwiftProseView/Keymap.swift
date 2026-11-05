@@ -1,10 +1,7 @@
+import SwiftProseSyntax
+import SwiftProseRendering
 import Foundation
 
-/// Stringly-keyed binding from a normalized key spec (e.g. `"Mod-b"`) to
-/// an `EditorAction`. PM convention: `Mod` is Cmd on Mac, Ctrl on PC.
-/// Hosts customize bindings via `EditorController.keymap`; the platform
-/// text views consult `action(forKey:)` before falling back to default
-/// AppKit / UIKit behavior.
 public struct Keymap: Sendable, Equatable {
     public var bindings: [String: EditorAction]
 
@@ -24,7 +21,6 @@ public struct Keymap: Sendable, Equatable {
         bindings.removeValue(forKey: key)
     }
 
-    /// Default Mac bindings — PM-style names where `Mod` resolves to Cmd.
     public static let mac: Keymap = {
         var k = Keymap()
         k.bind("Mod-b", to: .bold)
@@ -35,16 +31,10 @@ public struct Keymap: Sendable, Equatable {
         return k
     }()
 
-    /// Default PC / Linux bindings — PM-style names where `Mod` resolves
-    /// to Ctrl. Same actions as `mac`; the platform text view picks the
-    /// modifier when looking up the spec.
     public static let pc: Keymap = mac
 }
 
 public enum KeySpec {
-    /// Build a normalized key spec from a key character and modifier
-    /// flags. The character is lowercased; modifier order is fixed
-    /// (`Mod`, `Shift`, `Alt`) so two equivalent specs always match.
     public static func make(key: String, mod: Bool = false, shift: Bool = false, alt: Bool = false) -> String {
         var parts: [String] = []
         if mod { parts.append("Mod") }

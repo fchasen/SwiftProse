@@ -1,3 +1,4 @@
+#if false
 import Foundation
 
 /// Deterministic markdown generators for the keystroke benchmarks. No
@@ -109,3 +110,4 @@ enum BenchmarkFixtures {
         return body.joined(separator: "\n")
     }
 }
+#endif

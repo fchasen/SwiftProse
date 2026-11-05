@@ -1,42 +1,55 @@
+import SwiftProseSyntax
+import SwiftProseRendering
 import Foundation
+#if canImport(AppKit) && os(macOS)
+import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
 
-/// Seams the out-of-package editing harness in `Examples/SwiftProseDemo`
-/// drives. `@_spi(Harness)` keeps them off the public API surface while
-/// letting a target that isn't a package test reach them — the harness
-/// lives in the demo app, which can't `@testable import`.
 extension EditorController {
-
-    /// Whether a platform edit is queued but not yet closed. The drain is
-    /// deferred to the next tick while a host text view is attached.
-    @_spi(Harness)
-    public var hasPendingEnvelopes: Bool { !pendingEnvelopes.isEmpty }
-
-    /// Close every queued platform envelope now.
-    @_spi(Harness)
-    public func drainPendingEnvelopesForHarness() {
-        drainPendingEnvelopes()
+    @_spi(Harness) public func settleForHarness() {
+        flushDocumentChanges()
+        drainDeferredEdits()
+        flushDocumentChanges()
+        refreshInlineContentIfNeeded()
     }
 
-    /// Turn the DEBUG post-edit spec assertion off so a fuzz run reports
-    /// many oracle failures instead of trapping on the first.
-    @_spi(Harness)
-    public var harnessAssertsOnDiagnostics: Bool {
-        get { assertsOnDiagnostics }
-        set { assertsOnDiagnostics = newValue }
+    @_spi(Harness) public var hasPendingWorkForHarness: Bool {
+        hasPendingDocumentChange || !deferredEdits.isEmpty
     }
 
-    /// Fires with `String(describing:)` of the class every closed platform
-    /// envelope was assigned — the fuzzer logs it as coverage feedback.
-    @_spi(Harness)
-    public var harnessClassificationProbe: ((String) -> Void)? {
-        get { harnessProbeBox }
-        set {
-            harnessProbeBox = newValue
-            guard let newValue else {
-                classificationProbe = nil
-                return
-            }
-            classificationProbe = { newValue(String(describing: $0)) }
-        }
+    @_spi(Harness) public var activeUndoManagerForHarness: UndoManager {
+        #if canImport(AppKit) && os(macOS)
+        if let manager = hostTextView?.undoManager { return manager }
+        #endif
+        return editSession.undoManager
+    }
+
+    @_spi(Harness) public func breakUndoCoalescingForHarness() {
+        #if canImport(AppKit) && os(macOS)
+        hostTextView?.breakUndoCoalescing()
+        #endif
+    }
+
+    @_spi(Harness) public var harnessEditRouteProbe: ((String) -> Void)? {
+        get { harnessRouteProbe }
+        set { harnessRouteProbe = newValue }
+    }
+
+    @_spi(Harness) public func harnessNormalizationDrift() -> String? {
+        let copy = NSMutableAttributedString(attributedString: textStorage)
+        let before = VocabularySnapshot(capturing: copy, in: NSRange(location: 0, length: copy.length))
+        normalizer.normalizeAll(copy)
+        restyler.restyleAll(copy)
+        guard !before.matches(copy) else { return nil }
+        return "normalizer or restyler changed the storage vocabulary"
+    }
+
+    @_spi(Harness) public func harnessTableGeometry(at index: Int) -> (row: Int, rows: Int, columns: Int)? {
+        guard index >= 0, index < textStorage.length,
+              let geometry = textStorage.attribute(.markdownTableGeometry, at: index, effectiveRange: nil) as? TableRowGeometry
+        else { return nil }
+        return (geometry.rowIndex, geometry.rowCount, max(0, geometry.columnEdges.count - 1))
     }
 }

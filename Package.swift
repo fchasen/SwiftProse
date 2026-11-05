@@ -12,18 +12,8 @@ let package = Package(
         .library(name: "SwiftProse", targets: ["SwiftProse"]),
         .library(name: "SwiftProseSyntax", targets: ["SwiftProseSyntax"])
     ],
-    dependencies: [
-        .package(url: "https://github.com/tree-sitter/swift-tree-sitter", from: "0.10.0"),
-        .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-markdown", from: "0.5.3")
-    ],
     targets: [
-        .target(
-            name: "SwiftProseSyntax",
-            dependencies: [
-                .product(name: "SwiftTreeSitter", package: "swift-tree-sitter"),
-                .product(name: "TreeSitterMarkdown", package: "tree-sitter-markdown"),
-            ]
-        ),
+        .target(name: "SwiftProseSyntax"),
         .target(
             name: "SwiftProseRendering",
             dependencies: ["SwiftProseSyntax"]
@@ -36,18 +26,23 @@ let package = Package(
             name: "SwiftProse",
             dependencies: ["SwiftProseSyntax", "SwiftProseRendering", "SwiftProseView"]
         ),
+        .target(
+            name: "SwiftProseTestSupport",
+            dependencies: ["SwiftProseSyntax", "SwiftProseView"],
+            path: "Tests/Support"
+        ),
         .testTarget(
             name: "SwiftProseSyntaxTests",
-            dependencies: ["SwiftProseSyntax"]
+            dependencies: ["SwiftProseSyntax", "SwiftProseTestSupport"]
         ),
         .testTarget(
             name: "SwiftProseViewTests",
-            dependencies: ["SwiftProseView", "SwiftProseSyntax"],
+            dependencies: ["SwiftProseView", "SwiftProseRendering", "SwiftProseSyntax", "SwiftProseTestSupport"],
             exclude: ["Benchmarks/BASELINE.md"]
         ),
         .testTarget(
             name: "SwiftProseTests",
-            dependencies: ["SwiftProse", "SwiftProseView", "SwiftProseSyntax"]
+            dependencies: ["SwiftProse", "SwiftProseView", "SwiftProseSyntax", "SwiftProseTestSupport"]
         )
     ]
 )

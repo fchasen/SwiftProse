@@ -1,17 +1,20 @@
+import SwiftProseSyntax
+import SwiftProseRendering
+import SwiftProseView
 import Foundation
 import SwiftUI
-import SwiftProseSyntax
-import SwiftProseView
 
-struct ProseToolbar: View {
+struct EditorToolbar: View {
     let items: [SwiftProseEditor.ToolbarItem]
     let perform: (SwiftProseEditor.Action) -> Void
     var canPerform: (SwiftProseEditor.Action) -> Bool = { _ in true }
     var isActive: (SwiftProseEditor.Action) -> Bool = { _ in false }
     var isEnabled: Bool = true
+    var mode: EditorMode = .rich
+    var onToggleMode: (() -> Void)?
 
     var body: some View {
-        let groups = makeGroups(from: items)
+        let groups = makeGroups(from: items, includesModeToggle: onToggleMode != nil)
         let row = HStack(spacing: 8) {
             ForEach(groups.indices, id: \.self) { i in
                 groupView(groups[i])
@@ -52,7 +55,7 @@ struct ProseToolbar: View {
         case .action(.heading(let level)):
             ToolbarLabelButton(
                 label: "H\(level)",
-                help: help(for: .heading(level: level)),
+                help: SwiftProseEditor.Action.heading(level: level).helpText,
                 shortcut: nil,
                 isActive: isActive(.heading(level: level)),
                 action: { perform(.heading(level: level)) }
@@ -60,8 +63,8 @@ struct ProseToolbar: View {
             .disabled(!canPerform(.heading(level: level)))
         case .action(let action):
             ToolbarActionButton(
-                systemImage: label(for: action),
-                help: help(for: action),
+                systemImage: action.systemImage,
+                help: action.helpText,
                 shortcut: nil,
                 isActive: isActive(action),
                 action: { perform(action) }
@@ -77,83 +80,28 @@ struct ProseToolbar: View {
             )
         case let .menu(_, label, symbol, _, entries):
             ToolbarMenuButton(systemImage: symbol, help: label, entries: entries)
+        case .modeToggle:
+            if let onToggleMode {
+                ToolbarActionButton(
+                    systemImage: SwiftProseEditor.modeToggleSystemImage(for: mode),
+                    help: SwiftProseEditor.modeToggleTitle(for: mode),
+                    shortcut: nil,
+                    isActive: false,
+                    action: onToggleMode
+                )
+            }
         case .divider, .spacer:
             EmptyView()
         }
     }
-
-    private func label(for action: SwiftProseEditor.Action) -> String {
-        switch action {
-        case .bold: return "bold"
-        case .italic: return "italic"
-        case .strikethrough: return "strikethrough"
-        case .heading(let level): return "h\(level).square"
-        case .unorderedList: return "list.bullet"
-        case .orderedList: return "list.number"
-        case .taskList: return "checklist"
-        case .blockquote: return "text.quote"
-        case .codeSpan: return "chevron.left.slash.chevron.right"
-        case .codeBlock: return "curlybraces"
-        case .link: return "link"
-        case .horizontalRule: return "minus"
-        case .indent: return "increase.indent"
-        case .outdent: return "decrease.indent"
-        case .insertTable: return "tablecells"
-        case .insertTableRowAbove: return "rectangle.stack.badge.plus"
-        case .insertTableRowBelow: return "rectangle.stack.badge.plus"
-        case .insertTableColumnBefore: return "rectangle.split.3x1"
-        case .insertTableColumnAfter: return "rectangle.split.3x1"
-        case .deleteTableRow: return "rectangle.stack.badge.minus"
-        case .deleteTableColumn: return "rectangle.split.3x1"
-        case .setTableColumnAlignment: return "text.alignleft"
-        }
-    }
-
-    private func help(for action: SwiftProseEditor.Action) -> String {
-        switch action {
-        case .bold: return "Bold (⌘B)"
-        case .italic: return "Italic (⌘I)"
-        case .strikethrough: return "Strikethrough"
-        case .heading(let level): return "Heading \(level)"
-        case .unorderedList: return "Bullet list"
-        case .orderedList: return "Numbered list"
-        case .taskList: return "Task list"
-        case .blockquote: return "Blockquote"
-        case .codeSpan: return "Inline code"
-        case .codeBlock: return "Code block"
-        case .link: return "Link (⌘K)"
-        case .horizontalRule: return "Horizontal rule"
-        case .indent: return "Indent (⌘])"
-        case .outdent: return "Outdent (⌘[)"
-        case .insertTable: return "Insert Table"
-        case .insertTableRowAbove: return "Insert Row Above"
-        case .insertTableRowBelow: return "Insert Row Below"
-        case .insertTableColumnBefore: return "Insert Column Left"
-        case .insertTableColumnAfter: return "Insert Column Right"
-        case .deleteTableRow: return "Delete Row"
-        case .deleteTableColumn: return "Delete Column"
-        case .setTableColumnAlignment: return "Column Alignment"
-        }
-    }
-
-    // SwiftUI `.keyboardShortcut` is window-scoped, so attaching one to a
-    // toolbar button broadcasts the shortcut to every SwiftProseEditor in
-    // the scene. Built-in actions handle their shortcuts inside the focused
-    // text view's `keyDown` (mac) / `keyCommands` (iOS) instead. Custom
-    // items can still pass an explicit shortcut, which `OptionalShortcut`
-    // applies below.
 }
 
-/// Splits the toolbar list into runs separated by `.divider` (which becomes a
-/// group break) and `.spacer` (which becomes a flexible spacer). Each run of
-/// actions becomes one `ControlGroup` in the rendered toolbar so the buttons
-/// read as related clusters rather than a single flat row.
 private enum ToolbarGroup {
     case items([SwiftProseEditor.ToolbarItem])
     case spacer
 }
 
-private func makeGroups(from items: [SwiftProseEditor.ToolbarItem]) -> [ToolbarGroup] {
+private func makeGroups(from items: [SwiftProseEditor.ToolbarItem], includesModeToggle: Bool) -> [ToolbarGroup] {
     var groups: [ToolbarGroup] = []
     var current: [SwiftProseEditor.ToolbarItem] = []
 
@@ -166,6 +114,8 @@ private func makeGroups(from items: [SwiftProseEditor.ToolbarItem]) -> [ToolbarG
 
     for item in items {
         switch item {
+        case .modeToggle where !includesModeToggle:
+            continue
         case .divider:
             flush()
         case .spacer:
@@ -280,11 +230,19 @@ private struct OptionalShortcut: ViewModifier {
     }
 }
 
-enum ProseToolbarActions {
+extension Array where Element == SwiftProseEditor.ToolbarItem {
+    var actions: [EditorAction] {
+        compactMap { item in
+            if case .action(let action) = item { return action }
+            return nil
+        }
+    }
+}
+
+enum EditorToolbarActions {
     static func perform(
         _ action: SwiftProseEditor.Action,
-        controller: EditorController,
-        text: Binding<String>
+        controller: EditorController
     ) {
         controller.perform(action)
     }

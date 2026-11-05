@@ -1,10 +1,8 @@
+import SwiftProseSyntax
+import SwiftProseRendering
+import SwiftProseView
 import Foundation
 import SwiftUI
-import SwiftProseView
-import SwiftProseRendering
-import SwiftProseSyntax
-
-// MARK: - environment values
 
 private struct ThemeKey: EnvironmentKey {
     static let defaultValue: ProseTheme = .default
@@ -22,15 +20,33 @@ private struct InlineContentRulesKey: EnvironmentKey {
     static let defaultValue: [InlineContentRule] = []
 }
 
-private struct ControllerReadyKey: EnvironmentKey {
-    static let defaultValue: ((EditorController) -> Void)? = nil
-}
-
 private struct CodeBlockHighlighterKey: EnvironmentKey {
     static let defaultValue: CodeBlockHighlighter? = nil
 }
 
+private struct EditorReadyKey: EnvironmentKey {
+    static let defaultValue: ((EditorController) -> Void)? = nil
+}
+
+private struct EditorModeKey: EnvironmentKey {
+    static let defaultValue: Binding<EditorMode>? = nil
+}
+
+private struct EditorHandleKey: EnvironmentKey {
+    static let defaultValue: ((EditorHandle) -> Void)? = nil
+}
+
 extension EnvironmentValues {
+    public var proseEditorMode: Binding<EditorMode>? {
+        get { self[EditorModeKey.self] }
+        set { self[EditorModeKey.self] = newValue }
+    }
+
+    public var proseHandleReady: ((EditorHandle) -> Void)? {
+        get { self[EditorHandleKey.self] }
+        set { self[EditorHandleKey.self] = newValue }
+    }
+
     public var proseTheme: ProseTheme {
         get { self[ThemeKey.self] }
         set { self[ThemeKey.self] = newValue }
@@ -51,14 +67,14 @@ extension EnvironmentValues {
         set { self[InlineContentRulesKey.self] = newValue }
     }
 
-    public var proseControllerReady: ((EditorController) -> Void)? {
-        get { self[ControllerReadyKey.self] }
-        set { self[ControllerReadyKey.self] = newValue }
-    }
-
     public var proseCodeBlockHighlighter: CodeBlockHighlighter? {
         get { self[CodeBlockHighlighterKey.self] }
         set { self[CodeBlockHighlighterKey.self] = newValue }
+    }
+
+    public var proseControllerReady: ((EditorController) -> Void)? {
+        get { self[EditorReadyKey.self] }
+        set { self[EditorReadyKey.self] = newValue }
     }
 }
 
@@ -71,48 +87,36 @@ extension View {
         environment(\.proseConfiguration, configuration)
     }
 
-    /// Render the content an `InlineContentRule` matched. Returning `nil`
-    /// leaves the matched source visible, so a host can decline a match it
-    /// doesn't recognise.
-    ///
-    /// Called on the compile queue as well as the main thread — build the
-    /// attachment here and draw it lazily from
-    /// `image(forBounds:textContainer:characterIndex:)`.
     public func inlineContentProvider(
         _ provider: @escaping ProseInlineContentProvider
     ) -> some View {
         environment(\.proseInlineContentProvider, provider)
     }
 
-    /// Patterns the compiler collapses into inline content. Pairs with
-    /// `.inlineContentProvider(_:)`; without a provider the rules never fire.
     public func inlineContentRules(_ rules: [InlineContentRule]) -> some View {
         environment(\.proseInlineContentRules, rules)
     }
 
-    /// Receive the live `EditorController` once the editor finishes setup.
-    /// Invoked from `onAppear`, so callers can capture the controller in
-    /// `@State` and route cursor-aware insertions (link, image, mention)
-    /// through it.
+    public func codeBlockHighlighter(_ highlighter: CodeBlockHighlighter?) -> some View {
+        environment(\.proseCodeBlockHighlighter, highlighter)
+    }
+
     public func onProseControllerReady(
         _ callback: @escaping (EditorController) -> Void
     ) -> some View {
         environment(\.proseControllerReady, callback)
     }
 
-    /// Inject a tree-sitter (or other) `CodeBlockHighlighter` to syntax-color
-    /// fenced code-block bodies. The host registers per-language grammars on
-    /// the highlighter before passing it in.
-    public func codeBlockHighlighter(
-        _ highlighter: CodeBlockHighlighter?
-    ) -> some View {
-        environment(\.proseCodeBlockHighlighter, highlighter)
+    public func editorMode(_ mode: Binding<EditorMode>) -> some View {
+        environment(\.proseEditorMode, mode)
     }
 
-    /// Toggle read-only mode without replacing the whole `Configuration`.
-    /// Typing is blocked, the toolbar greys out, and checkbox taps stop
-    /// mutating; selection and copy stay enabled. Combines with
-    /// `.disabled(_:)` — either one being off blocks editing.
+    public func onProseHandleReady(
+        _ callback: @escaping (EditorHandle) -> Void
+    ) -> some View {
+        environment(\.proseHandleReady, callback)
+    }
+
     public func editable(_ isEditable: Bool = true) -> some View {
         transformEnvironment(\.proseConfiguration) { config in
             config.isEditable = isEditable

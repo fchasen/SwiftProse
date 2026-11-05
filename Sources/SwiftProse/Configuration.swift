@@ -1,29 +1,41 @@
+import SwiftProseSyntax
+import SwiftProseRendering
+import SwiftProseView
 import Foundation
 import SwiftUI
-import SwiftProseView
 
 extension SwiftProseEditor {
-
     public typealias Action = EditorAction
 
-    /// One slot in the toolbar.
     public enum ToolbarItem {
         case action(Action)
         case divider
         case spacer
         case custom(id: String, label: String, systemImage: String, shortcut: KeyboardShortcut? = nil, topLevel: Bool = false, action: () -> Void)
-        /// A pull-down of related one-shot actions — a label picker, a table
-        /// of symbols. No `shortcut:`: SwiftUI keyboard shortcuts are
-        /// window-scoped and would fire in every editor in the scene.
         case menu(id: String, label: String, systemImage: String, topLevel: Bool = false, entries: [MenuEntry])
+        case modeToggle
     }
 
-    /// One row inside a `.menu` toolbar item.
+    public static func modeToggleTitle(for mode: EditorMode) -> String {
+        switch mode {
+        case .rich: "Markdown Source"
+        case .source: "Rich Text"
+        }
+    }
+
+    public static func modeToggleSystemImage(for mode: EditorMode) -> String {
+        switch mode {
+        case .rich: "chevron.left.forwardslash.chevron.right"
+        case .source: "doc.richtext"
+        }
+    }
+
     public struct MenuEntry {
         public var id: String
         public var title: String
         public var systemImage: String?
         public var action: () -> Void
+        public var editorAction: EditorAction?
 
         public init(
             id: String,
@@ -35,8 +47,26 @@ extension SwiftProseEditor {
             self.title = title
             self.systemImage = systemImage
             self.action = action
+            self.editorAction = nil
+        }
+
+        public init(editorAction: EditorAction) {
+            self.id = editorAction.stableID
+            self.title = editorAction.title
+            self.systemImage = editorAction.systemImage
+            self.action = {}
+            self.editorAction = editorAction
         }
     }
+
+    public static let tableMenuID = "swiftprose.table"
+
+    public static let tableMenu: ToolbarItem = .menu(
+        id: tableMenuID,
+        label: "Table",
+        systemImage: "tablecells",
+        entries: ([EditorAction.insertTable(rows: 2, columns: 3)] + EditorAction.tableActions).map(MenuEntry.init(editorAction:))
+    )
 
     public enum StatusItem: Sendable {
         case words
@@ -44,11 +74,6 @@ extension SwiftProseEditor {
         case cursor
     }
 
-    /// Item appended to the underlying text view's right-click / context menu.
-    /// Lets callers add app-specific actions (e.g. "Hide Format Bar") so
-    /// the choice appears even when the user right-clicks inside the text,
-    /// where the SwiftUI `.contextMenu` modifier is shadowed by the native
-    /// text view's own contextual menu.
     public struct ContextMenuItem {
         public var title: String
         public var systemImage: String?
@@ -68,41 +93,17 @@ extension SwiftProseEditor {
         }
     }
 
-    /// Aggregate configuration. Defaults match the SimpleMDE-style toolbar.
     public struct Configuration {
         public var toolbar: [ToolbarItem]
         public var statusItems: [StatusItem]
         public var contextMenuItems: [ContextMenuItem]
-        /// How the editor sizes itself within its SwiftUI parent. Defaults
-        /// to `.fitsContent` — the editor's height tracks its content.
-        /// Use `.fillContainer` for a fixed-height pane that scrolls
-        /// internally.
         public var sizing: EditorSizing
-        /// In `.fitsContent` mode, the editor starts at this height even
-        /// when empty, then grows as content gets taller. Has no effect in
-        /// `.fillContainer` mode.
         public var minHeight: CGFloat
-        /// Native spelling / grammar / autocorrect behavior. Defaults to
-        /// `.full` — continuous spelling underlines, grammar checking, and
-        /// automatic spelling correction. On macOS, code blocks and inline
-        /// code spans are excluded automatically.
         public var spellChecking: ProseSpellChecking
-        /// When `false`, the text view blocks typing and the controller
-        /// short-circuits `perform(_:)` / `canPerform(_:)` / checkbox taps
-        /// so the toolbar / keymap / context menu can't mutate the
-        /// document. Selection and copy remain enabled. The SwiftUI
-        /// surface keeps the built-in toolbar slot in place and disables
-        /// it, so the editor's height doesn't change. `SwiftProseEditor`
-        /// ANDs this with `EnvironmentValues.isEnabled`, so `.disabled(true)`
-        /// makes the editor read-only too. Defaults to `true`.
+        public var sourceSpellChecking: ProseSpellChecking
         public var isEditable: Bool
-        /// Opt-in escape hatch for read-only documents that should still
-        /// let the reader tick task-list checkboxes. Has no effect when
-        /// `isEditable == true` (checkboxes already toggle). Defaults to
-        /// `false`.
         public var allowsCheckboxToggle: Bool
-        /// When set, plain Return fires this callback; Shift+Return still
-        /// inserts a newline. The chat-style "Enter to send" idiom.
+        public var toolbarPadding: EdgeInsets
         public var onSubmit: (() -> Void)?
 
         public init(
@@ -112,8 +113,10 @@ extension SwiftProseEditor {
             sizing: EditorSizing = .fitsContent,
             minHeight: CGFloat = 96,
             spellChecking: ProseSpellChecking = .full,
+            sourceSpellChecking: ProseSpellChecking? = nil,
             isEditable: Bool = true,
             allowsCheckboxToggle: Bool = false,
+            toolbarPadding: EdgeInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
             onSubmit: (() -> Void)? = nil
         ) {
             self.toolbar = toolbar
@@ -122,8 +125,10 @@ extension SwiftProseEditor {
             self.sizing = sizing
             self.minHeight = minHeight
             self.spellChecking = spellChecking
+            self.sourceSpellChecking = sourceSpellChecking ?? spellChecking.withoutAutocorrection
             self.isEditable = isEditable
             self.allowsCheckboxToggle = allowsCheckboxToggle
+            self.toolbarPadding = toolbarPadding
             self.onSubmit = onSubmit
         }
 
@@ -144,12 +149,44 @@ extension SwiftProseEditor {
             .action(.codeSpan),
             .action(.codeBlock),
             .action(.link),
-            .action(.horizontalRule)
+            .action(.horizontalRule),
+            .divider,
+            SwiftProseEditor.tableMenu,
+            .spacer,
+            .modeToggle
         ]
     }
 }
 
 public extension Array where Element == SwiftProseEditor.ToolbarItem {
+    var editorActions: [EditorAction] {
+        flatMap { item -> [EditorAction] in
+            switch item {
+            case .action(let action): return [action]
+            case .menu(_, _, _, _, let entries): return entries.compactMap(\.editorAction)
+            default: return []
+            }
+        }
+    }
+
+    func resolvingEditorActions(
+        isAvailable: (EditorAction) -> Bool = { _ in true },
+        perform: @escaping (EditorAction) -> Void
+    ) -> [SwiftProseEditor.ToolbarItem] {
+        map { item in
+            guard case let .menu(id, label, symbol, topLevel, entries) = item,
+                  entries.contains(where: { $0.editorAction != nil }) else { return item }
+            let resolved = entries.compactMap { entry -> SwiftProseEditor.MenuEntry? in
+                guard let action = entry.editorAction else { return entry }
+                guard isAvailable(action) else { return nil }
+                var copy = entry
+                copy.action = { perform(action) }
+                return copy
+            }
+            return .menu(id: id, label: label, systemImage: symbol, topLevel: topLevel, entries: resolved)
+        }
+    }
+
     func replacing(_ action: SwiftProseEditor.Action, with replacement: SwiftProseEditor.ToolbarItem) -> [SwiftProseEditor.ToolbarItem] {
         map { item in
             if case .action(let existing) = item, existing == action {

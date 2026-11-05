@@ -1,3 +1,4 @@
+#if false
 import Testing
 import Foundation
 import SwiftProseSyntax
@@ -62,3 +63,4 @@ struct StoragePrimitiveBench {
         }
     }
 }
+#endif

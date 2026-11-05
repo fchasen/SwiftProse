@@ -1,3539 +1,1072 @@
-import Foundation
 import SwiftProseSyntax
 import SwiftProseRendering
+import Foundation
 #if canImport(AppKit) && os(macOS)
 import AppKit
 #elseif canImport(UIKit)
 import UIKit
 #endif
 
-public final class EditorController {
-
-    public let textStorage: NSTextStorage
-    /// Same object as `textStorage`, typed. Carries the capture hook and
-    /// the `EditOrigin` stack.
-    let proseStorage: ProseTextStorage
-    public let contentStorage: NSTextContentStorage
-    public let layoutManager: NSTextLayoutManager
-    public let textContainer: NSTextContainer
-
-    public var theme: ProseTheme {
-        didSet {
-            recompile()
-            refreshTypingAttributes(at: currentSelection.location)
-        }
-    }
-
-    /// Host-supplied patterns whose matches the compiler collapses into a
-    /// single attachment character. Setting either these or
-    /// `inlineContentProvider` recompiles the document.
-    public var inlineContentRules: [InlineContentRule] = [] {
-        didSet { pushInlineContentConfiguration() }
-    }
-
-    public var inlineContentProvider: ProseInlineContentProvider? {
-        didSet { pushInlineContentConfiguration() }
-    }
-
-    private var isBatchingInlineContent = false
-
-    /// Set both halves in one shot — assigning them separately would compile
-    /// the document twice.
-    public func setInlineContent(
-        rules: [InlineContentRule],
-        provider: ProseInlineContentProvider?
-    ) {
-        isBatchingInlineContent = true
-        inlineContentRules = rules
-        inlineContentProvider = provider
-        isBatchingInlineContent = false
-        pushInlineContentConfiguration()
-    }
-
-    /// Both compilers must agree: the main one serves every `Step`, the
-    /// background one serves the async `setMarkdown` path. Configuring one
-    /// alone gives a token that renders on load and reverts on the next edit.
-    ///
-    /// The queue hop lands before `recompile()`'s own compile on the same
-    /// serial queue, so the recompile observes the new configuration.
-    private func pushInlineContentConfiguration() {
-        guard !isBatchingInlineContent else { return }
-        let rules = inlineContentRules
-        let provider = inlineContentProvider
-        compiler.inlineContentRules = rules
-        compiler.inlineContentProvider = provider
-        compileQueue.async { [backgroundCompiler] in
-            backgroundCompiler.inlineContentRules = rules
-            backgroundCompiler.inlineContentProvider = provider
-        }
-        recompile()
-    }
-
-    /// Line-level segmentation of the current storage, derived on demand.
-    ///
-    /// O(document). Nothing in the editor reads this — it exists for hosts
-    /// that want a flat outline. It used to be a cached array rebuilt on
-    /// every keystroke, which was the single largest per-character cost in
-    /// the editor.
-    public var blocks: [BlockSegment] {
-        drainPendingEnvelopes()
-        var segs: [BlockSegment] = []
-        proseStorage.contents.enumerateBlockSpecs { range, spec in
-            segs.append(BlockSegment(
-                range: range,
-                tag: tagFor(spec: spec),
-                level: levelFor(spec: spec),
-                blockquoteDepth: spec.blockquoteDepth,
-                language: languageFor(spec: spec),
-                listLevel: spec.listLevel,
-                orderedIndex: orderedIndexFor(spec: spec),
-                isChecked: isCheckedFor(spec: spec),
-                firstInListItem: false
-            ))
-        }
-        return segs
-    }
-
-    /// Tree view of the current storage. Cached between accesses and
-    /// invalidated by the storage observer on every edit, so repeated reads
-    /// hand back the same `ProseDocument` instance until the user (or a
-    /// step) mutates the storage.
-    public var document: ProseDocument {
-        drainPendingEnvelopes()
-        if let cached = cachedDocument { return cached }
-        if let spliced = projection.spliced(
-            storage: proseStorage.contents,
-            schema: compiler.schema
-        ) {
-            splicedProjectionRunCount += 1
-            cachedDocument = spliced
-            projection.adopt(spliced)
-            return spliced
-        }
-        projectionRunCount += 1
-        let fresh = ProseDocument.from(storage: proseStorage.contents, schema: compiler.schema)
-        cachedDocument = fresh
-        projection.adopt(fresh)
-        return fresh
-    }
-
-    private var cachedDocument: ProseDocument?
-    private var projection = IncrementalProjection()
-
-    /// Test-only counter; bumped when `document` was rebuilt by splicing
-    /// rather than re-projecting the whole storage.
-    var splicedProjectionRunCount: Int = 0
-
-    /// Test-only invocation counter; bumped whenever `document` misses the
-    /// cache and re-projects the storage. Lets tests assert that a
-    /// keystroke costs zero projections when nobody reads the tree.
-    var projectionRunCount: Int = 0
-
-    /// Test seam: drop the projected-tree cache without mutating storage.
-    func invalidateDocumentCacheForBenchmark() {
-        cachedDocument = nil
-        projection.reset()
-    }
-
-    /// The controller does its own grouping — one `HistoryRecord` per
-    /// group — so `groupsByEvent` is off. Left on, `UndoManager` wraps
-    /// everything an event produces in one outer group, and the typed
-    /// character plus the input rule it triggered would collapse into a
-    /// single undo instead of two.
-    public let undoManager: UndoManager = {
-        let manager = UndoManager()
-        manager.groupsByEvent = false
-        return manager
-    }()
-    /// Set by the platform `UIViewRepresentable` / `NSViewRepresentable`
-    /// when the host text view is created. Hosts that need to configure the
-    /// underlying view (e.g. attach an iOS `inputAccessoryView`) observe
-    /// `onHostTextViewChange` rather than polling this property.
-    public weak var hostTextView: AnyObject? {
-        didSet {
-            guard hostTextView !== oldValue else { return }
-            onHostTextViewChange?(hostTextView)
-            if hostTextView != nil {
-                refreshTypingAttributes(at: currentSelection.location)
-            }
-        }
-    }
-    /// Fires when `hostTextView` is set or cleared. Receives the new value
-    /// (a `UITextView` on iOS or `NSTextView` on macOS, or `nil` when the
-    /// view tears down). Use this in lieu of polling to react to platform
-    /// view availability.
-    public var onHostTextViewChange: ((AnyObject?) -> Void)?
-    public var intrinsicSizeInvalidator: (() -> Void)?
-    public var onDiagnostic: ((SpecDiagnostic) -> Void)?
-    /// Fires for each `SchemaDiagnostic` produced after a transaction —
-    /// typed-tree-level violations (unknown node/mark types, content-rule
-    /// mismatches, marks on disallowed parents). Distinct from
-    /// `onDiagnostic` so hosts can route them to a separate sink (e.g.
-    /// surface schema drift as warnings rather than user-facing errors).
-    public var onSchemaDiagnostic: ((SchemaDiagnostic) -> Void)?
-
-    // Multi-subscriber observer lists. Single-callback properties above
-    // remain for the common case; `addOn…` registers additional
-    // subscribers and returns a token usable with `removeObserver`.
-    private var documentChangeObservers: [(UUID, (DocumentChange) -> Void)] = []
-    private var diagnosticObservers: [(UUID, (SpecDiagnostic) -> Void)] = []
-    private var selectionChangedObservers: [(UUID, (NSRange) -> Void)] = []
-
+public final class EditorController: NSObject, NSTextStorageDelegate, NSTextContentStorageDelegate {
     public struct ObserverToken: Hashable, Sendable {
         let id: UUID
     }
 
-    @discardableResult
-    public func addOnDocumentChange(_ handler: @escaping (DocumentChange) -> Void) -> ObserverToken {
-        let id = UUID()
-        documentChangeObservers.append((id, handler))
-        return ObserverToken(id: id)
+    public let textStorage: NSTextStorage
+    public let textContentStorage: NSTextContentStorage
+    public let textLayoutManager: NSTextLayoutManager
+    public let textContainer: NSTextContainer
+    public let undoManager: UndoManager
+
+    public var theme: ProseTheme {
+        didSet {
+            guard theme != oldValue else { return }
+            decorationCache.invalidate()
+            restyler.theme = theme
+            withoutBinding { restyler.restyleAll(textStorage) }
+            if codeHighlighting.isActive { rehighlightCodeBlocks() }
+            textLayoutManager.invalidateLayout(for: textContentStorage.documentRange)
+            applyThemeToHost()
+            requestHostRedisplay()
+        }
     }
 
-    @discardableResult
-    public func addOnDiagnostic(_ handler: @escaping (SpecDiagnostic) -> Void) -> ObserverToken {
-        let id = UUID()
-        diagnosticObservers.append((id, handler))
-        return ObserverToken(id: id)
-    }
-
-    @discardableResult
-    public func addOnSelectionChanged(_ handler: @escaping (NSRange) -> Void) -> ObserverToken {
-        let id = UUID()
-        selectionChangedObservers.append((id, handler))
-        return ObserverToken(id: id)
-    }
-
-    public func removeObserver(_ token: ObserverToken) {
-        documentChangeObservers.removeAll { $0.0 == token.id }
-        diagnosticObservers.removeAll { $0.0 == token.id }
-        selectionChangedObservers.removeAll { $0.0 == token.id }
-    }
-
-    func fanoutDocumentChange(_ change: DocumentChange) {
-        onDocumentChange?(change)
-        for (_, handler) in documentChangeObservers { handler(change) }
-    }
-
-    func fanoutDiagnostic(_ diagnostic: SpecDiagnostic) {
-        onDiagnostic?(diagnostic)
-        for (_, handler) in diagnosticObservers { handler(diagnostic) }
-    }
-
-    func fanoutSelectionChanged(_ range: NSRange) {
-        // The marks a typed character inherits are a property of where the
-        // caret is, so moving it re-resolves them. Without this the next
-        // character carries whatever the last edit left behind.
-        refreshTypingAttributes(at: range.location)
-        onSelectionChanged?(range)
-        for (_, handler) in selectionChangedObservers { handler(range) }
-    }
-    /// Fires whenever the host text view's selection moves, with the new
-    /// selection range. Hosts wire this to keep an observable selection in
-    /// sync without polling. Forwarded by the platform coordinators in
-    /// `ProseTextViewMac` / `ProseTextViewIOS`.
-    public var onSelectionChanged: ((NSRange) -> Void)?
-    /// Fires once per edit group with a `DocumentChange` carrying a
-    /// `Step.replaceText` describing the storage edit and a lazily-projected
-    /// `document`. Wire this to maintain a tree mirror, drive collaborative-
-    /// editing transport, or react to document changes in general.
-    ///
-    /// One publish per group, not per storage write: an N-step transaction
-    /// fires once, and the normalization the controller runs on its own
-    /// edits (attribute scrubbing, the trailing paragraph, code-block
-    /// rehighlighting) does not fire separately. Attribute-only edits are
-    /// skipped since they have no clean `replaceText` mapping; the cache
-    /// still invalidates.
-    public var onDocumentChange: ((DocumentChange) -> Void)?
-
-    public let commands: CommandRegistry
-    public let inputRules: InputRuleRunner
-    /// Key spec → EditorAction bindings. Platform text views consult
-    /// `keymap.action(forKey:)` before falling back to default behavior.
+    public private(set) var inlineContentRules: [InlineContentRule]
+    public private(set) var inlineContentProvider: ProseInlineContentProvider?
+    public var codeBlockHighlighter: CodeBlockHighlighter? { codeHighlighting.highlighter }
     public var keymap: Keymap = .mac
-    /// When `false`, `perform(_:)` / `canPerform(_:)` / `toggleCheckbox(_:)`
-    /// short-circuit so toolbar buttons, keymap dispatch, and checkbox
-    /// taps can't mutate the document. The platform text view's own
-    /// `isEditable` gates typing. Programmatic mutations (`apply(_:)`,
-    /// `setMarkdown(_:)`, `insert(text:)`, …) stay available so hosts can
-    /// still drive content. Kept in sync by the SwiftUI surface from
-    /// `Configuration.isEditable`; direct callers set it themselves.
-    public var isEditable: Bool = true {
-        didSet {
-            guard oldValue != isEditable else { return }
-            TableAttachmentViewProvider.sharedIsEditable = isEditable
-            propagateIsEditableToTables()
-        }
-    }
-    /// Escape hatch for `toggleCheckbox(at:)` while `isEditable == false`.
-    /// Lets read-only documents keep interactive task-list checkboxes.
-    /// No effect when `isEditable == true`.
+    public var isEditable: Bool = true
     public var allowsCheckboxToggle: Bool = false
-    /// Last input rule that fired and the line range it touched. Backspace
-    /// consults this; if the cursor hasn't moved since the rule fired,
-    /// Backspace undoes the rule rather than deleting a character.
-    public private(set) var lastInputRule: (id: String, lineRange: NSRange)?
 
-    /// Record that an input rule fired. Called by InputRuleRunner.
-    public func didFireInputRule(id: String, lineRange: NSRange) {
-        lastInputRule = (id, lineRange)
-    }
-
-    /// Try to undo the most-recently-fired input rule. Returns true when
-    /// an undo was performed. Bound as the head of the Backspace chain
-    /// so a stray autoprompt rule doesn't confuse the user.
-    @discardableResult
-    public func undoInputRule() -> Bool {
-        guard lastInputRule != nil else { return false }
-        guard undoManager.canUndo else {
-            lastInputRule = nil
-            return false
-        }
-        undoManager.undo()
-        lastInputRule = nil
-        return true
-    }
-    /// Registered plugins — order matters: filterTransaction / appendTransaction
-    /// run in registration order.
-    public private(set) var plugins: [EditorPlugin] = []
-    private var pluginStates: [AnyPluginKey: Any] = [:]
-    private var runningAppendTransactions = false
-    /// Undo / redo configuration. Setting applies depth to the
-    /// undoManager; newGroupDelay is consulted by `closeHistoryGroup`.
-    public var historyConfig: HistoryConfig = .default {
+    public weak var hostTextView: PlatformTextView? {
         didSet {
-            if let depth = historyConfig.depth {
-                undoManager.levelsOfUndo = depth
-            }
+            guard hostTextView !== oldValue else { return }
+            onHostTextViewChange?(hostTextView)
         }
     }
 
-    /// Force the next transaction into a fresh undo group. Mirrors PM's
-    /// `closeHistory(tr)`.
-    public func closeHistoryGroup() {
-        drainPendingEnvelopes()
-        closeTypingRecord()
-        if undoManager.groupingLevel > 0 {
-            undoManager.endUndoGrouping()
-            undoManager.beginUndoGrouping()
-        }
-    }
+    public var onHostTextViewChange: ((PlatformTextView?) -> Void)?
+    public var onSelectionChanged: ((NSRange) -> Void)?
+    public var onEditTableStructure: ((TableStructureModel) -> Void)?
+    public var intrinsicSizeInvalidator: (() -> Void)?
 
-    /// Whether anything is undoable. UI bind-target.
-    public var undoDepth: Int {
-        undoManager.canUndo ? 1 : 0
-    }
+    public private(set) var plugins: [EditorPlugin] = []
 
-    /// Whether anything is redoable.
-    public var redoDepth: Int {
-        undoManager.canRedo ? 1 : 0
-    }
-
-    /// Whether `transaction` would be recorded as a history step. False
-    /// for transactions tagged `meta["addToHistory"] == false`.
-    public func isHistoryTransaction(_ transaction: Transaction) -> Bool {
-        (transaction.getMeta("addToHistory") as? Bool) != false
-    }
-    /// Registry of `NodeViewProvider`s keyed by node-type name. Hosts
-    /// register providers at startup to take over the rendering of an
-    /// `isolating`-flagged node type (today: `table`). Empty by default —
-    /// no provider means the legacy flat-storage rendering applies.
-    public let nodeViewRegistry: NodeViewRegistry = NodeViewRegistry()
-
-    private(set) var compiler: MarkdownAttributedCompiler
-    private(set) var serializer: AttributedMarkdownSerializer
-
-    private static let carryForwardAttributeKeys: [NSAttributedString.Key] = [
-        .font, .foregroundColor, .paragraphStyle,
-        .proseNodePath, .proseMarks
-    ]
-    private let layoutDelegate: LayoutManagerDelegate
-
-    /// Marks queued for the next typed character. ProseMirror's storedMarks:
-    /// click bold with no selection, then the next char you type is bold.
-    /// Anchored to the cursor location at the time of the toggle so a click
-    /// elsewhere drops them; a typed character consumes them.
-    private(set) var storedInlineMarks: Set<InlineMark> = []
-    private(set) var storedMarksAnchor: Int? = nil
-
-    /// Single-flight flag for the deferred code-block rehighlight.
-    private var rehighlightScheduled = false
-
-    /// Union of `editedRange` values seen since the last rehighlight ran.
-    /// Used to find the code blocks that were touched and re-stamp syntax
-    /// highlight colors on their body text. Cleared after the pass.
-    private var pendingHighlightRange: NSRange?
-
-    /// Generation counter for `setMarkdown(_:async:)`. Each call bumps this
-    /// so that a compile result arriving back from the background queue can
-    /// detect that a newer call has superseded it and drop on the floor
-    /// (latest-wins). Wraparound is fine — only equality matters.
-    private var compileGeneration: UInt64 = 0
-
-    /// Serial queue for off-main markdown compilation. Background compiles
-    /// from rapid external binding writes serialize here so the dedicated
-    /// `backgroundCompiler` is touched from one thread at a time.
-    private let compileQueue = DispatchQueue(
-        label: "dev.swiftprose.compile",
-        qos: .userInitiated
-    )
-
-    /// Separate compiler instance reserved for background work. Sharing the
-    /// main-thread `compiler` with off-main calls would race on the
-    /// underlying `MarkdownParser` state — `Step` operations regularly call
-    /// `compiler.compile` from main during a transaction.
-    private let backgroundCompiler: MarkdownAttributedCompiler
+    var textSink: ((String) -> Void)?
+    var lastPushed: String
+    var bindingDirty = false
+    var originalText: String
+    var serializedAtLoad: String
+    private var stringAtLoad = ""
+    private var vocabularyAtLoad: VocabularySnapshot?
+    private(set) var historyEpoch = 0
+    var restyler: Restyler
+    let normalizer = Normalizer()
+    let codeHighlighting = CodeHighlighting()
+    private(set) var isLoading = false
+    private(set) var isRestyling = false
+    private var isProcessingEdit = false
+    private var needsInlineContentRefresh = false
+    var commandDepth = 0
+    var isSettingMarkedText = false
+    var isWritingToolsActive = false
+    var usesNativeListEditing: Bool
+    private(set) var deferredEdits: [() -> Void] = []
+    private var deferredDrainScheduled = false
+    var pendingInput: TypedInput?
+    var headlessTypingAttributes: [NSAttributedString.Key: Any] = [:]
+    lazy var editSession = EditSession(controller: self)
+    private var pendingChange: DocumentChange?
+    private var pendingChangeIsParagraphLocal = false
+    private var typedEdit: (range: NSRange, isParagraphLocal: Bool)?
+    private var flushScheduled = false
+    private let layoutDelegate = LayoutManagerDelegate()
+    let decorationCache = DecorationCache()
+    private var pluginStates: [AnyPluginKey: Any] = [:]
+    private var documentObservers: [(UUID, (DocumentChange) -> Void)] = []
+    private var selectionObservers: [(UUID, (NSRange) -> Void)] = []
+    private var queuedChanges: [DocumentChange] = []
+    private var isFanningOut = false
+    var headlessSelection = NSRange(location: 0, length: 0)
+    var harnessRouteProbe: ((String) -> Void)?
 
     public init(
-        initialMarkdown: String = "",
+        markdown: String = "",
         theme: ProseTheme = .default,
-        commands: CommandRegistry = .makeDefault(),
-        inputRules: InputRuleRunner = .makeDefault(),
-        codeBlockHighlighter: CodeBlockHighlighter? = nil,
         inlineContentRules: [InlineContentRule] = [],
         inlineContentProvider: ProseInlineContentProvider? = nil,
-        containerSize: CGSize = CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
-    ) throws {
+        codeBlockHighlighter: CodeBlockHighlighter? = nil,
+        undoManager: UndoManager = UndoManager()
+    ) {
         self.theme = theme
-        self.commands = commands
-        self.inputRules = inputRules
         self.inlineContentRules = inlineContentRules
         self.inlineContentProvider = inlineContentProvider
-        self.compiler = try MarkdownAttributedCompiler(
-            codeBlockHighlighter: codeBlockHighlighter,
-            inlineContentRules: inlineContentRules,
-            inlineContentProvider: inlineContentProvider
-        )
-        self.backgroundCompiler = try MarkdownAttributedCompiler(
-            codeBlockHighlighter: codeBlockHighlighter,
-            inlineContentRules: inlineContentRules,
-            inlineContentProvider: inlineContentProvider
-        )
-        self.serializer = AttributedMarkdownSerializer()
-        // Register the table view provider class once — TextKit 2 looks
-        // up view providers by attachment file type, so the registration
-        // must happen before the first compile produces an attachment.
-        TableAttachmentViewProvider.registerOnce()
-        TableAttachmentViewProvider.sharedTheme = theme
-
-        let storage = ProseTextStorage()
-        self.proseStorage = storage
-        self.textStorage = storage
-        self.contentStorage = NSTextContentStorage()
-        self.contentStorage.textStorage = textStorage
-        self.layoutManager = NSTextLayoutManager()
-        self.contentStorage.addTextLayoutManager(layoutManager)
-        self.textContainer = NSTextContainer(size: containerSize)
-        self.layoutManager.textContainer = textContainer
-
-        self.layoutDelegate = LayoutManagerDelegate()
-        layoutManager.delegate = layoutDelegate
+        self.undoManager = undoManager
+        self.restyler = Restyler(theme: theme)
+        self.restyler.preservesCodeForeground = codeBlockHighlighter != nil
+        self.codeHighlighting.highlighter = codeBlockHighlighter
+        self.textStorage = NSTextStorage()
+        self.textContentStorage = NSTextContentStorage()
+        self.textLayoutManager = NSTextLayoutManager()
+        self.textContainer = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        self.lastPushed = markdown
+        self.originalText = markdown
+        self.serializedAtLoad = markdown
+        #if canImport(AppKit) && os(macOS)
+        self.usesNativeListEditing = true
+        #else
+        self.usesNativeListEditing = false
+        #endif
+        super.init()
+        textContentStorage.textStorage = textStorage
+        textContentStorage.delegate = self
+        textContentStorage.addTextLayoutManager(textLayoutManager)
+        textLayoutManager.textContainer = textContainer
         layoutDelegate.controller = self
-
-        proseStorage.withOrigin(.load) {
-            let initial = compileFor(initialMarkdown)
-            textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: initial)
-        }
-        ensureTrailingParagraph()
-        scheduleCodeBlockRehighlight()
-
-        // Wire the table view provider's dispatch back into this
-        // controller now that `self` is fully initialized.
-        TableAttachmentViewProvider.sharedDispatch = { [weak self] tx in
-            _ = self?.apply(tx)
-        }
-        // When a cell edit / structural mutation changes the table's
-        // measured size, the view provider asks us to invalidate the
-        // attachment's storage range so TextKit 2 re-queries
-        // `attachmentBounds`. Without this, line fragments host the
-        // table at its stale height and clip the taller rows.
-        TableAttachmentViewProvider.sharedInvalidateAttachment = { [weak self] att in
-            self?.invalidateTableAttachmentLayout(att)
-        }
-
-        proseStorage.captureContextProvider = { [weak self] in
-            guard let self else {
-                return CaptureContext(
-                    selectionBefore: NSRange(location: 0, length: 0),
-                    markedTextActive: false,
-                    hint: nil,
-                    timestamp: 0
-                )
-            }
-            let hint = self.nextEditHint
-            self.nextEditHint = nil
-            return CaptureContext(
-                selectionBefore: self.currentSelection,
-                markedTextActive: self.isComposingIME,
-                hint: hint,
-                timestamp: self.historyClock()
-            )
-        }
-        proseStorage.editObserver = { [weak self] record in
-            self?.storageDidProcessEditing(record)
-        }
-    }
-
-    // MARK: - envelopes
-
-    /// One platform edit group, held from `processEditing` until the drain
-    /// closes it. Deferring lets the text view finish its own post-edit
-    /// work (selection, typing attributes) before we normalize, validate,
-    /// and publish.
-    struct PendingEnvelope {
-        var record: EditRecord
-    }
-
-    private(set) var pendingEnvelopes: [PendingEnvelope] = []
-    private var drainScheduled = false
-    private var isDraining = false
-
-    /// Hint stamped by the platform delegate for the edit it is about to
-    /// allow. Consumed by `captureContextProvider` at the first capture.
-    var nextEditHint: EditHint?
-
-    /// Monotonic clock for edit timestamps. A test seam so undo-grouping
-    /// tests can drive `newGroupDelay` without sleeping.
-    var historyClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
-
-    /// Companion seam: tests install this to move `historyClock` forward.
-    var testClockAdvance: ((TimeInterval) -> Void)?
-
-    /// A table step changes the document without touching storage, so no
-    /// `EditRecord` is produced and none of the storage-driven invalidation
-    /// runs. Do it by hand: the attachment's own range is a valid dirty
-    /// range, and re-projecting that block re-lifts the live subtree.
-    private func invalidateForOutOfBandSubtree(_ applied: AppliedTransaction?) {
-        guard let applied, applied.touchesOutOfBandSubtree else { return }
-        cachedDocument = nil
-        projection.record(editedRange: applied.mappedRange, changeInLength: 0)
-    }
-
-    private func storageDidProcessEditing(_ record: EditRecord) {
-        // Cache invalidation runs for every origin so the next `document`
-        // read after `setMarkdown` / `replaceStorage` re-derives.
-        if !record.editedMask.isEmpty {
-            cachedDocument = nil
-            if record.origin == .load {
-                // A load replaces the document; there is nothing to reuse.
-                projection.reset()
-            } else {
-                // Attribute-only edits count too: re-stamping a node path
-                // restructures the tree without moving a character. They
-                // dirty the range they touched, which is all the splice
-                // needs.
-                projection.record(
-                    editedRange: record.editedRange,
-                    changeInLength: record.isCharacterEdit ? record.changeInLength : 0
-                )
-            }
-            layoutDelegate.decorationProvider.invalidate(
-                editedRange: record.editedRange,
-                changeInLength: record.changeInLength
-            )
-        }
-        // A transaction or history replay that only touched attributes — a
-        // mark toggle — still changed the document; platform and
-        // normalization attribute writes are not content.
-        let publishesAttributeOnly = record.origin == .transaction || record.origin == .history
-        guard record.isCharacterEdit || publishesAttributeOnly else { return }
-
-        switch record.origin {
-        case .normalize:
-            // A side effect of an edit that is publishing on its own
-            // behalf. Its inverse joins that edit's undo unit when one is
-            // being assembled.
-            if collectingInverses != nil, !record.captures.isEmpty {
-                collectingInverses?.insert(contentsOf: inverseSteps(from: record), at: 0)
-            }
-            return
-        case .transaction, .history, .load:
-            if record.isCharacterEdit { accumulateHighlightRange(record.editedRange) }
-            fanoutDocumentChange(DocumentChange(step: derivedStep(from: record), controller: self, origin: record.origin))
-        case .platform:
-            pendingEnvelopes.append(PendingEnvelope(record: record))
-            if hostTextView == nil {
-                drainPendingEnvelopes()
-            } else {
-                scheduleDrain()
-            }
-        }
-    }
-
-    /// Coalesce envelope closes onto the next main-runloop tick when a host
-    /// text view is attached. Headless controllers close synchronously so a
-    /// read right after a storage write sees settled state.
-    private func scheduleDrain() {
-        guard !drainScheduled else { return }
-        drainScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.drainScheduled = false
-            self.drainPendingEnvelopes()
-        }
-    }
-
-    /// Close every queued platform envelope, in order. Idempotent and
-    /// re-entrancy guarded — closing an envelope runs input rules and
-    /// append transactions, which call back into `apply`, which drains.
-    func drainPendingEnvelopes() {
-        guard !isDraining else { return }
-        guard !pendingEnvelopes.isEmpty else { return }
-        isDraining = true
-        defer { isDraining = false }
-        while !pendingEnvelopes.isEmpty {
-            let envelope = pendingEnvelopes.removeFirst()
-            closeEnvelope(envelope)
-        }
-    }
-
-    private func closeEnvelope(_ envelope: PendingEnvelope) {
-        let record = envelope.record
-        let userEditedRange = record.editedRange
-        let editClass = classify(record)
-        classificationProbe?(editClass)
-
-        accumulateHighlightRange(userEditedRange)
-
-        // Everything the close does to fix up this edit joins its undo
-        // unit: undoing the keystroke also undoes the demotion, the
-        // trailing paragraph, and the attribute repair it triggered.
-        let outerCollecting = collectingInverses
-        collectingInverses = []
-        defer { collectingInverses = outerCollecting }
-
-        switch editClass {
-        case .compositionInterim, .dictationInterim:
-            // Not content yet. Keep the cache and highlight bookkeeping the
-            // caller already did, and stop — no normalization, no publish,
-            // no input rules, no undo entry.
-            scheduleCodeBlockRehighlight()
-            return
-        case .attributeOnly:
-            scheduleCodeBlockRehighlight()
-            return
-        default:
-            break
-        }
-
-        let step: Step
-        if editClass == .compositionCommit, let baseline = compositionBaseline {
-            compositionBaseline = nil
-            pendingCompositionPreImage = baseline.preImage
-            let end = max(baseline.range.location, userEditedRange.location + userEditedRange.length)
-            let span = NSRange(
-                location: baseline.range.location,
-                length: min(end - baseline.range.location, max(0, textStorage.length - baseline.range.location))
-            )
-            let post = textStorage.attributedSubstring(from: span.clamped(to: textStorage.length))
-            // Esc mid-composition puts the pre-image back; nothing happened.
-            if post.isEqual(to: baseline.preImage) {
-                scheduleCodeBlockRehighlight()
-                return
-            }
-            committedCompositionLength = post.length
-            step = .replaceText(range: baseline.range, with: post)
-        } else {
-            step = derivedStep(from: record)
-        }
-
-        normalizeAfterEdit(
-            in: userEditedRange,
-            accumulateHighlight: false,
-            writtenSpans: writtenSpans(in: record)
+        textLayoutManager.delegate = layoutDelegate
+        textStorage.delegate = self
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(invalidateDecorationCache(_:)),
+            name: NSTextStorage.didProcessEditingNotification,
+            object: textStorage
         )
-        // The typed character already received our storedMarks via
-        // typingAttributes; further typing should inherit naturally from
-        // the new cursor position, not from the storedMark set.
-        clearStoredInlineMarks()
-
-        registerEnvelope(record, class: editClass, step: step)
-
-        fanoutDocumentChange(DocumentChange(step: step, controller: self))
-
-        // Input rules fire only for a typed character. Paste, deletion,
-        // autocorrect, composition, and undo/redo all skip: a rule that
-        // rewrites what autocorrect just produced is the classic
-        // double-transform bug.
-        var inputRuleFired = false
-        if editClass == .typing {
-            inputRuleFired = evaluateInputRules()
-        } else {
-            lastInputRule = nil
-            inputRules.clearLastFiredRule()
-        }
-        if !inputRuleFired {
-            runAppendTransactions(after: [Transaction(steps: [step])])
-        }
+        setMarkdown(markdown)
     }
 
-    /// What a platform edit group turned out to be, decided at drain with
-    /// the delegate's hint as a starting point and storage as the truth.
-    enum EditClass: Equatable {
-        /// Undo or redo replay.
-        case history
-        /// Interim IME composition — marked text, not content yet.
-        case compositionInterim
-        /// Marked text resolved. The whole composition collapses to one
-        /// edit against the state before it started.
-        case compositionCommit
-        /// iOS dictation placeholder text. Dropped; the final phrase
-        /// arrives through `insertDictationResult` as a paste.
-        case dictationInterim
-        /// One character at the caret.
-        case typing
-        /// Backspace / forward-delete / delete selection.
-        case deletion
-        /// Autocorrect, text replacement, Edit > Find > Replace, smart
-        /// substitution — the affected range is not the selection.
-        case correction
-        /// Paste, drag-move, multi-character insert, Replace All.
-        case bulk
-        /// Font panel, Format menu — no character change.
-        case attributeOnly
-    }
-
-    /// State captured when a composition started, so the commit can be
-    /// expressed as one edit against the pre-composition document.
-    struct CompositionBaseline {
-        let range: NSRange
-        let preImage: NSAttributedString
-        let selectionBefore: NSRange
-        let timestamp: TimeInterval
-    }
-
-    private(set) var compositionBaseline: CompositionBaseline?
-
-    /// DEBUG-only: turn the post-edit spec assertion off. Tests that
-    /// deliberately corrupt storage set this.
-    var assertsOnDiagnostics = true
-
-    /// Test seam: fires with the class every closed platform envelope was
-    /// assigned.
-    var classificationProbe: ((EditClass) -> Void)?
-
-    /// Backing store for the `@_spi(Harness)` string-typed probe, so its
-    /// getter hands back what was set rather than the wrapped closure.
-    var harnessProbeBox: ((String) -> Void)?
-
-    /// Carried from building a composition-commit step to registering its
-    /// inverse a few lines later.
-    private var pendingCompositionPreImage: NSAttributedString?
-    private var committedCompositionLength = 0
-
-    /// Marked text has gone away. A commit consumes the baseline as it
-    /// drains; a composition that ends any other way — Escape, an IME that
-    /// drops it, a click elsewhere — leaves one behind, and it has to go.
-    ///
-    /// A stale baseline is not a small thing: every interim reports marked
-    /// text as *already* active, so the next composition never opens a
-    /// baseline of its own and commits against a range from the abandoned
-    /// one. That range no longer describes anything, the commit reads as
-    /// "the pre-image came back", and the composed text lands with no
-    /// normalization behind it.
-    ///
-    /// Deferred a tick so the commit's own envelope — queued by the same
-    /// `insertText` that unmarked — drains first and clears it properly.
-    func compositionDidEnd() {
-        guard compositionBaseline != nil else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, !self.isComposingIME else { return }
-            self.drainPendingEnvelopes()
-            guard !self.isComposingIME else { return }
-            self.compositionBaseline = nil
-            self.pendingCompositionPreImage = nil
-            self.committedCompositionLength = 0
-        }
-    }
-
-    /// Decide what `record` was. First match wins.
-    func classify(_ record: EditRecord) -> EditClass {
-        if undoManager.isUndoing || undoManager.isRedoing { return .history }
-        if dictationPlaceholderActive { return .dictationInterim }
-
-        let composingNow = isComposingIME
-        let context = record.context
-        if composingNow {
-            if context?.markedTextActive == false || compositionBaseline == nil {
-                let first = record.captures.first
-                compositionBaseline = CompositionBaseline(
-                    range: first?.range ?? record.editedRange,
-                    preImage: first?.preImage ?? NSAttributedString(),
-                    selectionBefore: context?.selectionBefore ?? currentSelection,
-                    timestamp: context?.timestamp ?? historyClock()
-                )
-            }
-            return .compositionInterim
-        }
-        if compositionBaseline != nil { return .compositionCommit }
-
-        // A single bracket holding several character mutations is
-        // structurally bulk — a drag-move, Replace All, or an NSTextFinder
-        // pass. Attribute captures don't count: AppKit's `insertText`
-        // follows the one character it inserts with `setAttributes` for the
-        // typing attributes, in the same bracket.
-        let characterCaptures = record.captures.filter {
-            if case .characters = $0.kind { return true }
-            return false
-        }
-        if characterCaptures.count > 1 { return .bulk }
-
-        switch context?.hint {
-        case .attributeOnly:
-            return .attributeOnly
-        case .correction:
-            return .correction
-        case .deletion:
-            return .deletion
-        case .typing:
-            // Storage is the truth: a hint that says typing but a record
-            // that grew by more than one character is bulk.
-            return record.changeInLength == 1 ? .typing : .bulk
-        case .bulk, .composition:
-            return .bulk
-        case nil:
-            // No hint — a host wrote storage directly, or a test did.
-            let inserted: Int
-            if case .characters(let n)? = characterCaptures.first?.kind {
-                inserted = n
-            } else {
-                inserted = max(0, record.changeInLength)
-            }
-            if inserted == 1, record.changeInLength == 1 { return .typing }
-            if inserted == 0 { return .deletion }
-            return .bulk
-        }
-    }
-
-    /// Run the run-scoped structural invariants — ordered-list
-    /// renumbering, list-level clamping, blockquote continuity — over the
-    /// structural run the edit landed in.
-    ///
-    /// `capturing: true` so the fix-up joins the undo unit of the edit that
-    /// caused it: one undo of the deletion also puts the numbering back.
-    private func enforceDocumentInvariants(around editedRange: NSRange) {
-        let env = makeStepEnvironment()
-        proseStorage.withOrigin(.normalize, capturing: true) {
-            DocumentInvariants.enforce(in: textStorage, around: editedRange, env: env)
-        }
-    }
-
-    /// Bring storage back to its invariants after an edit touched
-    /// `editedRange`. Shared by the platform envelope close and the direct
-    /// mutators so both leave the buffer in the same state.
-    /// `scrub` cleans up attributes AppKit copies onto typed characters
-    /// from the run before them. It is a platform-typing artifact — a
-    /// programmatic mutation gets its attributes from the compiler, and
-    /// scrubbing there strips the list marker off its own tab.
-    private func normalizeAfterEdit(
-        in editedRange: NSRange,
-        accumulateHighlight: Bool = true,
-        scrub: Bool = true,
-        demoteEmptyLines: Bool = true,
-        writtenSpans: [NSRange] = []
-    ) {
-        if accumulateHighlight { accumulateHighlightRange(editedRange) }
-        if scrub { scrubTypedAttributes(in: editedRange) }
-        normalizeInsertedAttributes(in: editedRange, writtenSpans: writtenSpans)
-        if demoteEmptyLines { demoteEmptyStyledLines(in: editedRange) }
-        enforceDocumentInvariants(around: editedRange)
-        // Last of the passes: a cut shifts every offset after it, so
-        // nothing measured against the pre-cut buffer may follow.
-        cutStrandedListMarkers(in: editedRange)
-        scheduleCodeBlockRehighlight()
-        // Reconcile the trailing paragraph only when the edit reached the
-        // document end. A mid-document keystroke can't change which block
-        // is last, so this avoids a per-keystroke storage mutation (and
-        // caret nudge) at the tail for the common typing case.
-        if editedRange.location + editedRange.length >= textStorage.length {
-            ensureTrailingParagraph()
-        }
-        intrinsicSizeInvalidator?()
-    }
-
-    /// Put the closed envelope on the undo stack.
-    ///
-    /// Typing, deletion, and correction coalesce into one burst while the
-    /// user keeps working in the same place; everything else opens its own
-    /// unit. A composition is always one unit measured against the state
-    /// before it started.
-    private func registerEnvelope(
-        _ record: EditRecord,
-        class editClass: EditClass,
-        step: Step
-    ) {
-        guard editClass != .history else { return }
-        var inverses = collectingInverses ?? []
-        if editClass == .compositionCommit, case .replaceText(let range, _) = step {
-            // The whole composition inverts to one edit: put back what was
-            // there before the first marked-text pass.
-            let baselinePre = pendingCompositionPreImage ?? NSAttributedString()
-            pendingCompositionPreImage = nil
-            let postLength = max(0, textStorage.length - range.location)
-            let span = NSRange(
-                location: range.location,
-                length: min(committedCompositionLength, postLength)
-            )
-            inverses.append(.replaceText(range: span, with: baselinePre))
-        } else {
-            inverses.append(contentsOf: inverseSteps(from: record))
-        }
-        guard !inverses.isEmpty else { return }
-        let coalescing: Bool
-        switch editClass {
-        case .typing, .deletion, .correction: coalescing = true
-        default: coalescing = false
-        }
-        let context = record.context
-        registerOrJoin(
-            inverseSteps: inverses,
-            selectionBefore: context?.selectionBefore ?? currentSelection,
-            selectionAfter: currentSelection,
-            touched: record.editedRange,
-            at: context?.timestamp ?? historyClock(),
-            coalescing: coalescing
-        )
-    }
-
-    /// Forward-only `Step.replaceText` describing `record`. The pre-edit
-    /// range is reconstructed by subtracting `changeInLength`; the post-edit
-    /// content is read from current storage.
-    private func derivedStep(from record: EditRecord) -> Step {
-        let editedRange = record.editedRange
-        let preLength = max(0, editedRange.length - record.changeInLength)
-        let preRange = NSRange(location: editedRange.location, length: preLength)
-        let safeEdited = editedRange.clamped(to: textStorage.length)
-        return .replaceText(range: preRange, with: textStorage.attributedSubstring(from: safeEdited))
-    }
-
-    /// Give characters an edit just inserted the structure of the line
-    /// they landed in, without minting anything.
-    ///
-    /// Replaces the old repair pass. That one derived a `BlockSpec` from
-    /// the line and re-stamped it, which mints fresh `ProseNode`s — so
-    /// deleting the first item of a list gave the surviving items a brand
-    /// new list ancestor, splitting one list into two and losing the
-    /// numbering. Here the line's dominant existing `NodePathBox` is
-    /// reused, so identity survives every edit.
-    private func normalizeInsertedAttributes(in edited: NSRange, writtenSpans: [NSRange] = []) {
-        let writtenBreaks = Self.lineBreaks(in: writtenSpans, of: textStorage.string as NSString)
-        let total = textStorage.length
-        guard total > 0 else { return }
-        guard edited.location >= 0, edited.location <= total else { return }
-        let ns = textStorage.string as NSString
-        let probe = edited.clamped(to: total)
-        var union = ns.paragraphRange(for: probe)
-        guard union.length > 0 else { return }
-        // An edit that inserted a line break split one block into two, and
-        // the second half sits *after* the edited paragraph — a newline
-        // terminates the paragraph it belongs to, so `paragraphRange` alone
-        // never reaches the new block. Without this the two halves keep one
-        // node and serialize as a single paragraph containing a newline.
-        if writtenBreaks.contains(where: { $0 >= probe.location && $0 < NSMaxRange(probe) }),
-           union.location + union.length < total {
-            let next = ns.paragraphRange(
-                for: NSRange(location: union.location + union.length, length: 0)
-            )
-            union = NSRange(
-                location: union.location,
-                length: next.location + next.length - union.location
-            )
-        }
-
-        proseStorage.withOrigin(.normalize, capturing: true) {
-            textStorage.beginEditing()
-            var cursor = union.location
-            let end = union.location + union.length
-            var claimed: Set<ObjectIdentifier> = []
-            while cursor < end, cursor < textStorage.length {
-                let line = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
-                guard line.length > 0 else { break }
-                normalizeLineAttributes(line, claimed: &claimed, writtenSpans: writtenSpans)
-                let next = line.location + line.length
-                cursor = next > cursor ? next : cursor + 1
-            }
-            splitNodesAtWrittenBreaks(writtenBreaks)
-            textStorage.endEditing()
-        }
-    }
-
-    /// The post-edit span this edit actually changed.
-    ///
-    /// `pre` and the text now at `location` are trimmed of their common
-    /// prefix and suffix; only what lies between changed, so a terminator
-    /// outside it predates the edit. A newline the edit wrote is a block
-    /// boundary; one it merely typed beside is a soft break.
-    func writtenSpan(
-        replacing pre: NSString,
-        at location: Int,
-        insertedLength: Int
-    ) -> NSRange? {
-        let ns = textStorage.string as NSString
-        guard location >= 0, location <= ns.length, insertedLength > 0 else { return nil }
-        let end = min(location + insertedLength, ns.length)
-        guard end > location else { return nil }
-        let postLength = end - location
-        let shared = min(pre.length, postLength)
-        var prefix = 0
-        while prefix < shared, pre.character(at: prefix) == ns.character(at: location + prefix) {
-            prefix += 1
-        }
-        var suffix = 0
-        while suffix < shared - prefix,
-              pre.character(at: pre.length - 1 - suffix) == ns.character(at: end - 1 - suffix) {
-            suffix += 1
-        }
-        let lo = location + prefix
-        let hi = end - suffix
-        guard hi > lo else { return nil }
-        return NSRange(location: lo, length: hi - lo)
-    }
-
-    /// How much of `range` lies outside every span in `spans`.
-    private static func lengthOutside(_ spans: [NSRange], of range: NSRange) -> Int {
-        guard !spans.isEmpty else { return range.length }
-        var outside = 0
-        var index = range.location
-        let end = NSMaxRange(range)
-        while index < end {
-            if !spans.contains(where: { NSLocationInRange(index, $0) }) { outside += 1 }
-            index += 1
-        }
-        return outside
-    }
-
-    /// The newline positions inside `spans`.
-    private static func lineBreaks(in spans: [NSRange], of ns: NSString) -> Set<Int> {
-        var out: Set<Int> = []
-        for span in spans {
-            var index = max(0, span.location)
-            let end = min(NSMaxRange(span), ns.length)
-            while index < end {
-                if ns.character(at: index) == 0x0A { out.insert(index) }
-                index += 1
-            }
-        }
-        return out
-    }
-
-    /// True when no character of `line`, terminator aside, predates this
-    /// edit. Such a line is content the edit added past the end of the block
-    /// above it, not a continuation of it.
-    private static func lineIsEntirelyWritten(
-        _ line: NSRange,
-        writtenSpans: [NSRange],
-        in ns: NSString
-    ) -> Bool {
-        guard !writtenSpans.isEmpty else { return false }
-        var index = max(0, line.location)
-        let end = min(NSMaxRange(line), ns.length)
-        var sawText = false
-        while index < end {
-            if ns.character(at: index) != 0x0A {
-                sawText = true
-                if !writtenSpans.contains(where: { NSLocationInRange(index, $0) }) { return false }
-            }
-            index += 1
-        }
-        return sawText
-    }
-
-    /// True when the line above `line` holds content, so a block may run
-    /// from it into this one. A blank line above ends the block.
-    private func continuesPreviousLine(_ line: NSRange) -> Bool {
-        guard line.location > 0 else { return false }
-        let ns = textStorage.string as NSString
-        let previous = ns.paragraphRange(for: NSRange(location: line.location - 1, length: 0))
-        return !Self.lineIsBlank(previous, in: ns)
-    }
-
-    private static func lineIsBlank(_ line: NSRange, in ns: NSString) -> Bool {
-        var index = max(0, line.location)
-        let end = min(NSMaxRange(line), ns.length)
-        while index < end {
-            let ch = ns.character(at: index)
-            if ch != 0x0A, ch != 0x20, ch != 0x09 { return false }
-            index += 1
-        }
-        return true
-    }
-
-    /// One span per character mutation in the group. A group can hold
-    /// several — a drag-move is a delete plus an insert inside one bracket.
-    func writtenSpans(in record: EditRecord) -> [NSRange] {
-        var out: [NSRange] = []
-        for capture in record.captures {
-            guard case .characters(let inserted) = capture.kind else { continue }
-            if let span = writtenSpan(
-                replacing: capture.preImage.string as NSString,
-                at: capture.range.location,
-                insertedLength: inserted
-            ) {
-                out.append(span)
-            }
-        }
-        return out
-    }
-
-    /// Cut the node in front of each written break, and give everything
-    /// after the break that still belongs to it one node of its own.
-    ///
-    /// The whole run moves, not the next line: a three-line block split at
-    /// its second line would otherwise leave the third on the old node, and
-    /// one box owning two disjoint runs projects as three blocks.
-    private func splitNodesAtWrittenBreaks(_ breaks: Set<Int>) {
-        guard !breaks.isEmpty else { return }
-        let ns = textStorage.string as NSString
-        let full = NSRange(location: 0, length: textStorage.length)
-        for position in breaks.sorted(by: >) {
-            guard position >= 0, position + 1 < ns.length else { continue }
-            guard ns.character(at: position) == 0x0A else { continue }
-            guard let owner = textStorage.attribute(
-                .proseNodePath, at: position, effectiveRange: nil
-            ) as? NodePathBox else { continue }
-            guard let follower = textStorage.attribute(
-                .proseNodePath, at: position + 1, effectiveRange: nil
-            ) as? NodePathBox, follower === owner else { continue }
-            guard !isMultiLineBlock(owner.path) else { continue }
-            var effective = NSRange(location: 0, length: 0)
-            _ = textStorage.safeAttribute(
-                .proseNodePath,
-                at: position + 1,
-                longestEffectiveRange: &effective,
-                in: full
-            )
-            let tail = NSRange(
-                location: position + 1,
-                length: max(0, NSMaxRange(effective) - position - 1)
-            )
-            guard tail.length > 0 else { continue }
-            let captured = InlineLeafRuns.capture(in: textStorage, range: tail)
-            textStorage.setBlockSpec(
-                BlockSpec.fromNodePath(owner.path) ?? BlockSpec(kind: .paragraph),
-                in: tail
-            )
-            InlineLeafRuns.restamp(captured.leaves, in: textStorage, lineRange: tail)
-        }
-    }
-
-    /// One line: every character carries the same `proseNodePath` box, and
-    /// characters that carry none inherit it. A list marker flag on a line
-    /// that isn't a list item is dropped.
-    ///
-    /// A single-line block's node may not span a newline. Typed and pasted
-    /// characters carry the insertion point's node forward, so a multi-line
-    /// paste arrives as one paragraph covering every line it created; each
-    /// line after the first gets a node of its own here. Multi-line blocks
-    /// — code fences, tables — are exempt: one node covering many lines is
-    /// exactly what they are.
-    private func normalizeLineAttributes(_ line: NSRange, claimed: inout Set<ObjectIdentifier>, writtenSpans: [NSRange] = []) {
-        var tally: [ObjectIdentifier: (box: NodePathBox, weight: Int)] = [:]
-        // A character this edit inserted carries whatever the platform's
-        // typing attributes handed it, which says nothing about which block
-        // it belongs to. Where the line still holds older characters, they
-        // are the ones with standing.
-        var priorTally: [ObjectIdentifier: (box: NodePathBox, weight: Int)] = [:]
-        var unstamped: [NSRange] = []
-        // An inline-content leaf ends its path one level below the line's
-        // block. It is neither a candidate for the line's winning path nor a
-        // foreign block that dragged its styling in, so it sits out the
-        // election and is re-hung off the winner afterwards.
-        let captured = InlineLeafRuns.capture(in: textStorage, range: line)
-        let inlineLeafRuns = captured.leaves
-        textStorage.enumerateAttribute(.proseNodePath, in: line) { value, runRange, _ in
-            if let box = value as? NodePathBox {
-                guard !InlineLeafRuns.isLiftable(box.path.leaf) else { return }
-                tally[ObjectIdentifier(box), default: (box, 0)].weight += runRange.length
-                let older = Self.lengthOutside(writtenSpans, of: runRange)
-                if older > 0 {
-                    priorTally[ObjectIdentifier(box), default: (box, 0)].weight += older
-                }
-            } else {
-                unstamped.append(runRange)
-            }
-        }
-        unstamped.append(contentsOf: captured.demoted)
-        // Ties are broken by the line terminator's node. A character
-        // inserted into a line carries the *insertion point's* node
-        // forward, which may belong to the block before it; the newline
-        // that ends the line never does. Without a deterministic rule here
-        // `Dictionary` iteration order decides, and a one-character line
-        // resolves differently from run to run.
-        let terminator = terminatorBox(of: line)
-        let electorate = priorTally.isEmpty ? tally : priorTally
-        guard let winner = electorate.values.max(by: { lhs, rhs in
-            if lhs.weight != rhs.weight { return lhs.weight < rhs.weight }
-            let lhsIsTerminator = terminator.map { $0 === lhs.box } ?? false
-            let rhsIsTerminator = terminator.map { $0 === rhs.box } ?? false
-            return !lhsIsTerminator && rhsIsTerminator
-        })?.box else {
-            // Nothing on this line carries structure — content injected
-            // straight into storage, or the first character of an empty
-            // document. There is no identity to preserve, so minting one
-            // is safe. `setBlockSpec` reuses the predecessor's list and
-            // blockquote ancestors.
-            textStorage.setBlockSpec(BlockSpec(kind: .paragraph), in: line)
-            textStorage.addAttribute(.proseMarks, value: MarkSetBox(MarkSet()), range: line)
-            if let minted = textStorage.attribute(.proseNodePath, at: line.location, effectiveRange: nil) as? NodePathBox {
-                claimed.insert(ObjectIdentifier(minted))
-            }
-            InlineLeafRuns.restamp(inlineLeafRuns, in: textStorage, lineRange: line)
-            return
-        }
-        // Two block kinds on one line means a join pulled them together.
-        // Re-stamping the path alone leaves the losing half rendered as the
-        // block it came from — join a heading into a paragraph and its text
-        // stays heading-sized and bold, which `stampMarks` then reads back
-        // as a literal `strong` mark.
-        if tally.count > 1 {
-            restyleForeignRuns(in: line, winner: winner)
-        }
-        let key = ObjectIdentifier(winner)
-        // A box that reaches this line from the one above is a block
-        // spanning a soft break, which is what it is meant to be. Mint only
-        // when an earlier line in this pass claimed the box and its run does
-        // NOT reach here — one box owning two disjoint runs is the corrupt
-        // state. Splitting at a break the edit wrote is a separate pass.
-        let spans = spansAnEarlierLine(winner, line: line)
-        // One box owning two disjoint runs is the corrupt state. A blank
-        // line ends a block in markdown, so a run may not cross one into
-        // content either.
-        let disjoint = claimed.contains(key) && !spans
-        let crossedABlankLine = spans && !continuesPreviousLine(line)
-        // The run grew past the terminator it used to end at: every
-        // character on this line is new, so the box never reached here.
-        let allNewText = spans && Self.lineIsEntirelyWritten(
-            line, writtenSpans: writtenSpans, in: textStorage.string as NSString
-        )
-        if !isMultiLineBlock(winner.path), disjoint || crossedABlankLine || allNewText {
-            textStorage.setBlockSpec(
-                BlockSpec.fromNodePath(winner.path) ?? BlockSpec(kind: .paragraph),
-                in: line
-            )
-            if let minted = textStorage.attribute(.proseNodePath, at: line.location, effectiveRange: nil) as? NodePathBox {
-                claimed.insert(ObjectIdentifier(minted))
-            }
-        } else {
-            claimed.insert(key)
-            if tally.count > 1 || !unstamped.isEmpty {
-                textStorage.addAttribute(.proseNodePath, value: winner, range: line)
-            }
-        }
-        InlineLeafRuns.restamp(inlineLeafRuns, in: textStorage, lineRange: line)
-        // Inserted characters inherit the marks of the run before them;
-        // there is nothing else they could reasonably belong to. PM
-        // `ResolvedPos.marks()`: a mark that isn't inclusive ends with its
-        // own run, so it carries only when the run after the gap has it too.
-        for gap in unstamped where gap.length > 0 {
-            let fromBefore = gap.location > line.location
-            let donor = fromBefore ? gap.location - 1 : NSMaxRange(gap)
-            let box = donor < textStorage.length
-                ? textStorage.attribute(.proseMarks, at: donor, effectiveRange: nil) as? MarkSetBox
-                : nil
-            var value = box ?? MarkSetBox(MarkSet())
-            if fromBefore, let box {
-                let after = NSMaxRange(gap)
-                let follower = after < textStorage.length
-                    ? (textStorage.attribute(.proseMarks, at: after, effectiveRange: nil) as? MarkSetBox)?.marks
-                    : nil
-                let kept = box.marks.marks.filter { mark in
-                    compiler.schema.markType(mark.type)?.inclusive != false
-                        || follower?.contains(type: mark.type) == true
-                }
-                // Mint only when a mark was actually dropped: reusing the
-                // donor's box is what keeps the gap in one attribute run.
-                if kept.count != box.marks.marks.count { value = MarkSetBox(MarkSet(kept)) }
-            }
-            textStorage.addAttribute(.proseMarks, value: value, range: gap)
-        }
-        if textStorage.blockSpec(at: line.location)?.isListItem != true {
-            textStorage.removeAttribute(.proseListMarker, range: line)
-        }
-    }
-
-    /// Cut every marker glyph sitting on a line that is not a list item,
-    /// across the lines `range` touches.
-    ///
-    /// Dropping the `\u{FFFC}` matters as much as dropping the flag: left
-    /// behind, it is a character with no node to belong to and it
-    /// serializes into the markdown as text.
-    @discardableResult
-    private func cutStrandedListMarkers(in range: NSRange) -> Bool {
-        guard let cuts = strandedListMarkers(in: range) else { return false }
-        proseStorage.withOrigin(.normalize, capturing: true) {
-            textStorage.beginEditing()
-            // Back to front: an earlier cut would move the later ranges.
-            for cut in cuts.sorted(by: { $0.location > $1.location }) {
-                textStorage.replaceCharacters(in: cut.clamped(to: textStorage.length), with: "")
-            }
-            textStorage.endEditing()
-        }
-        return true
-    }
-
-    private func strandedListMarkers(in range: NSRange) -> [NSRange]? {
-        let ns = textStorage.string as NSString
-        guard ns.length > 0 else { return nil }
-        let safe = range.clamped(to: ns.length)
-        let anchor = min(safe.location, ns.length - 1)
-        let scan = safe.length > 0
-            ? ns.paragraphRange(for: safe)
-            : ns.paragraphRange(for: NSRange(location: anchor, length: 0))
-        var cuts: [NSRange] = []
-        var cursor = scan.location
-        while cursor < NSMaxRange(scan), cursor < ns.length {
-            let line = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
-            guard line.length > 0 else { break }
-            if textStorage.blockSpec(at: line.location)?.isListItem != true,
-               let stray = strandedMarkerRun(in: line) {
-                cuts.append(stray)
-            }
-            let next = NSMaxRange(line)
-            cursor = next > cursor ? next : cursor + 1
-        }
-        return cuts.isEmpty ? nil : cuts
-    }
-
-    /// The list marker on `line`, together with the whitespace the compiler
-    /// laid down after it.
-    ///
-    /// Found by attachment class, not by the `\u{FFFC}` character or the
-    /// `proseListMarker` flag: a table and a horizontal rule are the same
-    /// character, and the flag is cleared before this runs.
-    private func strandedMarkerRun(in line: NSRange) -> NSRange? {
-        let ns = textStorage.string as NSString
-        var start = -1
-        var i = line.location
-        while i < NSMaxRange(line), i < ns.length {
-            if ns.character(at: i) == 0xFFFC, Self.isListMarkerAttachment(
-                textStorage.attribute(.attachment, at: i, effectiveRange: nil)
-            ) {
-                start = i
-                break
-            }
-            i += 1
-        }
-        guard start >= 0 else { return nil }
-        var end = start + 1
-        while end < NSMaxRange(line), end < ns.length {
-            let ch = ns.character(at: end)
-            guard ch == 0x20 || ch == 0x09 else { break }
-            end += 1
-        }
-        return NSRange(location: start, length: end - start)
-    }
-
-    /// Re-render the runs on `line` that belong to a different block kind
-    /// than the one the line settled on, keeping each run's own marks.
-    ///
-    /// The block's base styling is read off a run that already belongs to
-    /// the winner and carries no marks — those characters were compiled for
-    /// this block, so they are the honest source. Only the block-level
-    /// attributes are overwritten: `addAttributes` merges, so a link or a
-    /// code span on a restyled run keeps the rest of its rendering.
-    private func restyleForeignRuns(in line: NSRange, winner: NodePathBox) {
-        guard let winnerKind = BlockSpec.fromNodePath(winner.path)?.kind else { return }
-        var base: [NSAttributedString.Key: Any]?
-        var foreign: [(range: NSRange, marks: MarkSet, isStyled: Bool)] = []
-        textStorage.enumerateAttributes(in: line, options: []) { attrs, runRange, _ in
-            let marks = (attrs[.proseMarks] as? MarkSetBox)?.marks ?? MarkSet()
-            guard let box = attrs[.proseNodePath] as? NodePathBox else { return }
-            if box === winner {
-                if base == nil, marks.isEmpty { base = attrs }
-                return
-            }
-            guard BlockSpec.fromNodePath(box.path)?.kind != winnerKind else { return }
-            let isStyled = attrs[.link] != nil || attrs[.proseLink] != nil
-                || attrs[.proseInline] != nil
-            foreign.append((runRange, marks, isStyled))
-        }
-        guard let base, !foreign.isEmpty else { return }
-        let baseFont = (base[.font] as? PlatformFont) ?? theme.bodyFont
-        for run in foreign {
-            var attrs: [NSAttributedString.Key: Any] = [.font: font(baseFont, with: run.marks)]
-            if let style = base[.paragraphStyle] { attrs[.paragraphStyle] = style }
-            if !run.isStyled, let color = base[.foregroundColor] {
-                attrs[.foregroundColor] = color
-            }
-            textStorage.addAttributes(attrs, range: run.range)
-        }
-    }
-
-    /// `base` with the font traits `marks` implies. The canonical mark set
-    /// is what decides, not the traits the run happens to carry.
-    private func font(_ base: PlatformFont, with marks: MarkSet) -> PlatformFont {
-        var font = marks.contains(type: "code") ? theme.monospaceFont : base
-        if marks.contains(type: "strong") { font = font.togglingProseTrait(.bold, enable: true) }
-        if marks.contains(type: "em") { font = font.togglingProseTrait(.italic, enable: true) }
-        return font
-    }
-
-    private func terminatorBox(of line: NSRange) -> NodePathBox? {
-        let last = line.location + line.length - 1
-        guard last >= 0, last < textStorage.length else { return nil }
-        return textStorage.attribute(.proseNodePath, at: last, effectiveRange: nil) as? NodePathBox
-    }
-
-    /// True when `box` already covers a line before this one and its block
-    /// is single-line, so this line needs a node of its own.
-    private func spansAnEarlierLine(_ box: NodePathBox, line: NSRange) -> Bool {
-        guard line.location > 0 else { return false }
-        if isMultiLineBlock(box.path) { return false }
-        let full = NSRange(location: 0, length: textStorage.length)
-        var effective = NSRange(location: 0, length: 0)
-        _ = textStorage.safeAttribute(
-            .proseNodePath,
-            at: line.location,
-            longestEffectiveRange: &effective,
-            in: full
-        )
-        return effective.location < line.location
-    }
-
-    private func isMultiLineBlock(_ path: NodePath) -> Bool {
-        if let leaf = path.leaf, ["code_block", "html_block", "table"].contains(leaf.type) {
-            return true
-        }
-        return path.nodes.contains { $0.type == "table" }
-    }
-
-    private func scrubTypedAttributes(in editedRange: NSRange) {
-        guard editedRange.length > 0 else { return }
-        let safe = editedRange.clamped(to: textStorage.length)
-        guard safe.length > 0 else { return }
-        let ns = textStorage.string as NSString
-
-        // Enumerate runs where each attribute is actually present. AppKit
-        // sometimes copies the previous run's .attachment / .proseListMarker
-        // onto adjacent typed text — those copies live on non-FFFC chars
-        // and need to be cleared. Runs that already lack the attribute
-        // contribute no work.
-        var attachmentStrays: [NSRange] = []
-        textStorage.enumerateAttribute(.attachment, in: safe) { value, runRange, _ in
-            guard value != nil else { return }
-            attachmentStrays.append(contentsOf: Self.nonAttachmentSubranges(of: runRange, in: ns))
-        }
-        var markerStrays: [NSRange] = []
-        textStorage.enumerateAttribute(.proseListMarker, in: safe) { value, runRange, _ in
-            guard (value as? Bool) == true else { return }
-            markerStrays.append(contentsOf: Self.nonAttachmentSubranges(of: runRange, in: ns))
-        }
-        if attachmentStrays.isEmpty && markerStrays.isEmpty { return }
-
-        proseStorage.withOrigin(.normalize, capturing: true) {
-            textStorage.beginEditing()
-            for r in attachmentStrays { textStorage.removeAttribute(.attachment, range: r) }
-            for r in markerStrays { textStorage.removeAttribute(.proseListMarker, range: r) }
-            textStorage.endEditing()
-        }
-    }
-
-    /// Subranges of `range` whose characters are NOT the FFFC attachment
-    /// glyph. Used by scrubTypedAttributes to spot positions where AppKit
-    /// stamped a run-level attribute onto typed text.
-    private static func nonAttachmentSubranges(of range: NSRange, in ns: NSString) -> [NSRange] {
-        var out: [NSRange] = []
-        var start: Int?
-        let end = range.location + range.length
-        for i in range.location..<end {
-            if ns.character(at: i) == 0xFFFC {
-                if let s = start {
-                    out.append(NSRange(location: s, length: i - s))
-                    start = nil
-                }
-            } else if start == nil {
-                start = i
-            }
-        }
-        if let s = start {
-            out.append(NSRange(location: s, length: end - s))
-        }
-        return out
-    }
-
-    /// After a character edit, scan every line the edit touched and reset
-    /// the block attribution on any line whose content text is now empty —
-    /// "delete clears the formatting." Without this, emptying a heading
-    /// (or a blockquote, or an HR, …) leaves that line's spec on the
-    /// trailing newline so the next keystroke renders in the prior style.
-    ///
-    /// Skipped:
-    /// - plain paragraphs (depth 0): nothing to demote.
-    /// - list items: demote runs through `handleBackspace` at body-start
-    ///   so forward-delete / select-and-delete don't pull markers out.
-    /// - fenced/indented code and pipe tables: structural multi-line
-    ///   blocks. Demoting one body line would split the surrounding
-    ///   fence/table apart.
-    private func demoteEmptyStyledLines(in editedRange: NSRange) {
-        let plainAttrs = theme.plainParagraphAttributes()
-        if textStorage.length == 0 {
-            applyTypingAttributes(plainAttrs)
-            return
-        }
-        let ns = textStorage.string as NSString
-        guard editedRange.length >= 0, editedRange.location >= 0 else { return }
-        let scanRange = editedRange.clamped(to: ns.length)
-        let unionRange: NSRange = scanRange.length > 0
-            ? ns.paragraphRange(for: scanRange)
-            : ns.paragraphRange(for: NSRange(location: scanRange.location, length: 0))
-        guard unionRange.length > 0 else { return }
-
-        var demoted = false
-        proseStorage.withOrigin(.normalize, capturing: true) {
-            var cursor = unionRange.location
-            let end = unionRange.location + unionRange.length
-            textStorage.beginEditing()
-            while cursor < end {
-                let lineRange = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
-                if demoteLineIfEmpty(lineRange: lineRange, plainAttrs: plainAttrs) {
-                    demoted = true
-                }
-                let next = lineRange.location + lineRange.length
-                cursor = next > cursor ? next : cursor + 1
-            }
-            textStorage.endEditing()
-        }
-        if demoted {
-            applyTypingAttributes(plainAttrs)
-        }
-    }
-
-    /// Returns true when the given line's spec was reset to plain paragraph.
-    private func demoteLineIfEmpty(
-        lineRange: NSRange,
-        plainAttrs: [NSAttributedString.Key: Any]
-    ) -> Bool {
-        guard lineRange.length > 0,
-              lineRange.location + lineRange.length <= textStorage.length else {
-            return false
-        }
-        let ns = textStorage.string as NSString
-        let lineText = ns.substring(with: lineRange)
-        let stripped = lineText
-            .replacingOccurrences(of: "\u{FFFC}", with: "")
-            .replacingOccurrences(of: "\t", with: "")
-            .replacingOccurrences(of: "\n", with: "")
-        guard stripped.isEmpty else { return false }
-
-        let probe = lineRange.location
-        guard probe < textStorage.length,
-              let spec = textStorage.blockSpec(at: probe) else { return false }
-        if spec.kind == .paragraph, spec.blockquoteDepth == 0 { return false }
-        if spec.isListItem { return false }
-        if spec.isCodeBlock { return false }
-        // The strip above drops every `\u{FFFC}` so a bullet's marker
-        // doesn't read as content. A horizontal rule's is content — it is
-        // the whole node — so a line still holding one is not empty, and
-        // demoting it would leave a paragraph carrying a stray attachment.
-        // List items returned above, so any attachment left here is the
-        // rule; once it is deleted the line demotes like any other.
-        if spec.kind == .horizontalRule, lineText.contains("\u{FFFC}") { return false }
-
-        textStorage.addAttributes(plainAttrs, range: lineRange)
-        return true
-    }
-
-    /// Push our desired typing attributes into the host text view's cache.
-    ///
-    /// Deferred to the next main-runloop tick because callers can fire from
-    /// inside `NSTextStorage.didProcessEditingNotification` (e.g. when the
-    /// user deletes the last character). At that moment the storage edit
-    /// transaction is still in flight: the storage length has shrunk but
-    /// the text view's `selectedRange` has not yet been clamped. AppKit's
-    /// `setTypingAttributes:` synchronously calls `updateFontPanel` →
-    /// `fallbackFontInfoForSelectedRange:` → `enumerateAttribute:inRange:`,
-    /// which then raises `NSRangeException` against the stale selection.
-    /// Deferring lets AppKit settle the selection first.
-    private func applyTypingAttributes(_ attrs: [NSAttributedString.Key: Any]) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            #if canImport(AppKit) && os(macOS)
-            if let tv = self.hostTextView as? NSTextView {
-                tv.typingAttributes = attrs
-            }
-            #elseif canImport(UIKit)
-            if let tv = self.hostTextView as? UITextView {
-                tv.typingAttributes = attrs
-            }
-            #endif
-        }
-    }
-
-    /// Replace the document with `markdown`. When a host text view is
-    /// attached we compile off the main thread on `compileQueue` and apply
-    /// the result back on main; the latest-wins generation counter discards
-    /// stale results when rapid binding writes pile up. Headless callers
-    /// (no host) and explicit `async: false` callers stay synchronous so
-    /// existing tests reading `markdown()` immediately after `setMarkdown`
-    /// see the new content on return.
-    public func setMarkdown(_ markdown: String, async: Bool = true) {
-        drainPendingEnvelopes()
-        if async, hostTextView != nil {
-            setMarkdownAsync(markdown)
-        } else {
-            let compiled = compileFor(markdown)
-            replaceStorage(with: compiled)
-        }
-    }
-
-    private func setMarkdownAsync(_ markdown: String) {
-        compileGeneration &+= 1
-        let myGeneration = compileGeneration
-        let theme = self.theme
-        compileQueue.async { [weak self] in
-            guard let self else { return }
-            let compiled = self.backgroundCompiler.compile(
-                markdown,
-                theme: theme
-            )
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                // Newer setMarkdown call has bumped the generation; this
-                // result is stale.
-                guard self.compileGeneration == myGeneration else { return }
-                self.replaceStorage(with: compiled)
-            }
-        }
-    }
-
-    public var text: String {
-        get { markdown() }
-        set { setMarkdown(newValue) }
+    @objc private func invalidateDecorationCache(_ notification: Notification) {
+        decorationCache.invalidate()
     }
 
     public func markdown() -> String {
-        drainPendingEnvelopes()
-        let md = serializer.serializeFromTree(proseStorage.contents)
-        // Public document text matches prosemirror-markdown: blocks are
-        // separated by blank lines but the document carries no terminal
-        // newline. (The tree serializer newline-terminates each block; the
-        // boundary trims the final one.)
-        return md.hasSuffix("\n") ? String(md.dropLast()) : md
+        markdown(serialized: serialize())
     }
 
-    public func loadProseMirrorJSON(_ json: String, schemaMap: SchemaMap = .basic) throws {
-        drainPendingEnvelopes()
-        let codec = ProseMirrorCodec(schemaMap: schemaMap, theme: theme)
-        let compiled = try codec.decode(json)
-        replaceStorage(with: compiled)
+    private func markdown(serialized: String) -> String {
+        serialized == serializedAtLoad && storageMatchesLoad ? originalText : serialized
     }
 
-    public func loadProseMirrorJSON(_ data: Data, schemaMap: SchemaMap = .basic) throws {
-        drainPendingEnvelopes()
-        let codec = ProseMirrorCodec(schemaMap: schemaMap, theme: theme)
-        let compiled = try codec.decode(data)
-        replaceStorage(with: compiled)
+    private var storageMatchesLoad: Bool {
+        textStorage.string == stringAtLoad && vocabularyAtLoad?.matches(textStorage) != false
     }
 
-    public func exportProseMirrorJSON(schemaMap: SchemaMap = .basic) throws -> Data {
-        drainPendingEnvelopes()
-        let codec = ProseMirrorCodec(schemaMap: schemaMap, theme: theme)
-        return try codec.encodeToJSON(textStorage)
+    func serialize() -> String {
+        MarkdownWriter().markdown(from: textStorage)
     }
 
-    public func recompile() {
-        let md = markdown()
-        setMarkdown(md)
+    public func setMarkdown(_ markdown: String) {
+        load(markdown, resetsHistory: true)
     }
 
-    var testSelection: NSRange?
-    /// Test seam next to `testSelection` — lets headless classification
-    /// tests drive the composition path without an input system.
-    var testMarkedText: Bool?
-
-    public var currentSelection: NSRange {
-        if let testSelection { return testSelection }
-        #if canImport(AppKit) && os(macOS)
-        if let tv = hostTextView as? NSTextView { return tv.selectedRange() }
-        #elseif canImport(UIKit)
-        if let tv = hostTextView as? UITextView { return tv.selectedRange }
-        #endif
-        return NSRange(location: 0, length: 0)
+    private struct LoadSnapshot {
+        var storage: NSAttributedString
+        var selection: NSRange
+        var originalText: String
+        var serializedAtLoad: String
+        var stringAtLoad: String
+        var vocabularyAtLoad: VocabularySnapshot?
     }
 
-    /// Typed view of `currentSelection`. For now, every selection
-    /// surfaces as `.text` — `.node` and `.all` are reserved for future
-    /// commands (Backspace-on-HR selects the node, Cmd+A produces
-    /// `.all`). Hosts that want to react differently to a node selection
-    /// inspect the case.
-    public var currentTypedSelection: Selection {
-        let range = currentSelection
-        let head = range.location + range.length
-        return .text(range: range, anchor: range.location, head: head)
-    }
-
-
-    /// Insert plain text at the host text view's cursor (or replace its
-    /// selection). Cursor lands after the inserted text.
-    @discardableResult
-    public func insert(text: String) -> NSRange {
-        drainPendingEnvelopes()
-        let selection = currentSelection
-        var result = NSRange(location: 0, length: 0)
-        withCharacterMutation(range: selection) {
-            result = Operations.insertText(
-                in: textStorage,
-                replacing: selection,
-                with: text,
-                fallbackAttributes: theme.plainParagraphAttributes()
-            )
-        }
-        setHostSelection(result)
-        return result
-    }
-
-    /// When `true`, multi-character non-IME insertions arriving through
-    /// the macOS text-view delegate (`shouldChangeTextIn`) are routed
-    /// through the paste pipeline so dictation, autocomplete, and other
-    /// bulk insertions become a single undo step with correct paragraph
-    /// splits. Set to `false` if a host relies on raw per-string
-    /// `insertText` semantics for those events.
-    public var useStructuredBulkInsert: Bool = true
-
-    /// Return the first non-nil value pulled from `props` by `extract`,
-    /// walking plugins in registration order. PM-equivalent to
-    /// `EditorView.someProp`. Used by paste / dictation dispatch to find
-    /// the consuming plugin without ordering surprises.
-    public func firstNonNilPluginProp<T>(_ extract: (PluginProps) -> T?) -> T? {
-        for plugin in plugins {
-            if let value = extract(plugin.props) { return value }
-        }
-        return nil
-    }
-
-    /// Run the paste pipeline for `event`:
-    ///   1. `handleDictation` (for `.dictation` events only) then
-    ///      `handlePaste` (first that returns true consumes).
-    ///   2. `transformPastedText` chain (rewrites the plain-text body).
-    ///   3. `transformPasted` chain (rewrites the whole event).
-    ///   4. Slice branch — HTML present and not plain-text-only routes
-    ///      through `ClipboardParser`; otherwise the plain-text branch
-    ///      inserts the text directly (code blocks verbatim, others
-    ///      paragraph-split).
-    ///
-    /// The whole operation lands as one `withCharacterMutation` group,
-    /// so dictation and paste become one undo step.
-    @discardableResult
-    public func dispatchPaste(_ event: PasteEvent) -> Bool {
-        drainPendingEnvelopes()
-        var current = event
-        if current.source == .dictation {
-            for plugin in plugins {
-                if plugin.props.handleDictation?(self, current) == true { return true }
-            }
-        }
-        for plugin in plugins {
-            if plugin.props.handlePaste?(self, current) == true { return true }
-        }
-        if let raw = current.text {
-            var text = raw
-            let asPlain = current.inCode || current.plainText
-            for plugin in plugins {
-                if let transform = plugin.props.transformPastedText {
-                    text = transform(self, text, asPlain)
-                }
-            }
-            current.text = text
-        }
-        for plugin in plugins {
-            if let transform = plugin.props.transformPasted {
-                current = transform(self, current)
-            }
-        }
-        if let html = current.html, !html.isEmpty, !current.plainText, !current.inCode {
-            let parser = ClipboardParser(schema: compiler.schema)
-            if let slice = parser.parseFromClipboard(
-                controller: self,
-                text: current.text,
-                html: html,
-                plainText: false,
-                selection: current.selection
-            ) {
-                return insertSlice(slice, replacing: current.selection)
-            }
-        }
-        return performDefaultPasteInsertion(current)
-    }
-
-    /// Insert a `Slice` at the given storage range via a typed
-    /// `Step.replaceRange` transaction. The step's `apply` round-trips
-    /// the slice through markdown (a minimal fitter — PM-equivalent
-    /// defining / isolating / allowed-marks semantics layer on top in
-    /// follow-up work).
-    @discardableResult
-    private func insertSlice(_ slice: Slice, replacing range: NSRange, label: String = "Paste") -> Bool {
-        guard isEditable else { return false }
-        guard !slice.isEmpty else { return false }
-        let from = range.location
-        let to = range.location + range.length
-        var transaction = Transaction(steps: [
-            .replaceRange(from: from, to: to, slice: slice)
-        ])
-        transaction.label = label
-        _ = apply(transaction)
-        return true
-    }
-
-    /// Insert markdown at the cursor, replacing the selection, compiled the
-    /// same way the document is — an `InlineContentRule` fires immediately, so
-    /// its source never shows as raw text waiting for another edit to
-    /// recompile. A single-paragraph fragment merges into the block the cursor
-    /// is in rather than starting one of its own.
-    @discardableResult
-    public func insertMarkdown(_ markdown: String, label: String = "Insert") -> Bool {
-        guard isEditable, !markdown.isEmpty else { return false }
-        drainPendingEnvelopes()
-        let compiled = compiler.compile(markdown, theme: theme)
-        let doc = ProseDocument.from(storage: compiled, schema: compiler.schema)
-        guard case .structural(_, let kids) = doc.root, !kids.isEmpty else { return false }
-        let slice: Slice
-        if kids.count == 1, let (inlineKids, depth) = Self.openTextblock(kids[0], depth: 1) {
-            slice = Slice(content: Fragment(inlineKids), openStart: depth, openEnd: depth)
-        } else {
-            slice = Slice(content: Fragment(kids), openStart: 0, openEnd: 0)
-        }
-        return insertSlice(slice, replacing: currentSelection, label: label)
-    }
-
-    /// Insert `event.text` as plain text. Code-block destinations keep
-    /// every newline; other destinations collapse runs of two-or-more
-    /// newlines to a single `\n` so the storage segmenter / repair pass
-    /// turns each into a paragraph break.
-    @discardableResult
-    private func performDefaultPasteInsertion(_ event: PasteEvent) -> Bool {
-        guard isEditable, let raw = event.text, !raw.isEmpty else { return false }
-        let normalized = normalizeLineEndings(raw)
-        let toInsert: String
-        if event.inCode {
-            toInsert = normalized
-        } else {
-            toInsert = collapseBlankLineRuns(normalized)
-        }
-        var result = NSRange(location: event.selection.location, length: 0)
-        withCharacterMutation(range: event.selection) {
-            result = Operations.insertText(
-                in: textStorage,
-                replacing: event.selection,
-                with: toInsert,
-                fallbackAttributes: theme.plainParagraphAttributes()
-            )
-        }
-        setHostSelection(result)
-        refreshTypingAttributes(at: result.location)
-        return true
-    }
-
-    /// Slice the current storage to the given character range and project
-    /// it as a `Slice` suitable for the clipboard. Single-paragraph
-    /// selections unwrap to inline content with `openStart == openEnd == 1`
-    /// so they merge into surrounding context on paste; multi-block
-    /// selections stay closed so each top-level block survives.
-    public func sliceForRange(_ range: NSRange) -> Slice {
-        drainPendingEnvelopes()
-        let total = textStorage.length
-        guard total > 0 else { return .empty }
-        let safe = range.clamped(to: total)
-        guard safe.length > 0 else { return .empty }
-        let doc = ProseDocument.from(storage: proseStorage.contents, range: safe, schema: compiler.schema)
-        guard case .structural(_, let kids) = doc.root else { return .empty }
-        let children = kids
-        guard !children.isEmpty else { return .empty }
-        // PM `serializeForClipboard`: a selection inside one textblock is
-        // open to that block's depth, so pasting it merges into the
-        // destination block instead of bringing the ancestors along — a
-        // few words copied out of a list item are words, not a list.
-        if children.count == 1,
-           let (inlineKids, depth) = Self.openTextblock(children[0], depth: 1) {
-            return Slice(content: Fragment(inlineKids), openStart: depth, openEnd: depth)
-        }
-        return Slice(content: Fragment(children), openStart: 0, openEnd: 0)
-    }
-
-    private static func openTextblock(_ node: TreeNode, depth: Int) -> ([TreeNode], Int)? {
-        guard case .structural(let pn, let kids) = node else { return nil }
-        if pn.type == "paragraph" { return (kids, depth) }
-        guard kids.count == 1 else { return nil }
-        return openTextblock(kids[0], depth: depth + 1)
-    }
-
-    /// True when a literal tab typed at the cursor would lead its block's
-    /// text, where markdown cannot hold it: the parser strips leading
-    /// whitespace off a heading, and reads an indented paragraph back as a
-    /// code block. Writing one produces a document that changes meaning the
-    /// next time it is loaded.
-    ///
-    /// A code block is exempt — there a tab is content.
-    public func tabWouldLeadBlockContent() -> Bool {
-        drainPendingEnvelopes()
-        let total = textStorage.length
-        // Nothing to lead but itself: a lone tab is an indented code block.
-        guard total > 0 else { return true }
-        let cursor = currentSelection.location
-        let probe = max(0, min(cursor, total - 1))
-        if textStorage.blockSpec(at: probe)?.isCodeBlock == true { return false }
-        let line = (textStorage.string as NSString)
-            .paragraphRange(for: NSRange(location: probe, length: 0))
-        // A list marker or checkbox occupies storage without being content.
-        var start = line.location
-        while start < NSMaxRange(line), isPresentationPrefix(at: start) { start += 1 }
-        return cursor <= start
-    }
-
-    private static func isListMarkerAttachment(_ value: Any?) -> Bool {
-        value is BulletGlyphAttachment || value is CheckboxAttachment || value is BulletAttachment
-    }
-
-    private func isPresentationPrefix(at location: Int) -> Bool {
-        if (textStorage.attribute(.proseListMarker, at: location, effectiveRange: nil) as? Bool) == true {
-            return true
-        }
-        return textStorage.attribute(
-            NSAttributedString.Key("NSAttachment"),
-            at: location,
-            effectiveRange: nil
-        ) != nil
-    }
-
-    /// Resolve the storage offset's enclosing block spec and return true
-    /// when the cursor sits in a code block. Used by the paste / dictation
-    /// dispatchers to flip the inCode branch.
-    func isLocationInCodeBlock(_ location: Int) -> Bool {
-        let total = textStorage.length
-        guard total > 0 else { return false }
-        let probe = max(0, min(location, total - 1))
-        return textStorage.blockSpec(at: probe)?.isCodeBlock == true
-    }
-
-    func normalizeLineEndings(_ s: String) -> String {
-        // Scalar-level: `Character` folds CRLF into one grapheme, so a
-        // pure-CRLF payload never satisfies `contains("\r")`.
-        if !s.unicodeScalars.contains("\r") { return s }
-        return s.replacingOccurrences(of: "\r\n", with: "\n")
-                .replacingOccurrences(of: "\r", with: "\n")
-    }
-
-    /// Collapse any run of 2+ newlines to a single `\n`. In storage,
-    /// blocks are separated by exactly one newline; the surrounding
-    /// validate-and-repair pass derives block specs from the synthesized
-    /// node-path after the edit.
-    func collapseBlankLineRuns(_ s: String) -> String {
-        guard s.contains("\n\n") else { return s }
-        var out = String()
-        out.reserveCapacity(s.count)
-        var newlineRun = 0
-        for ch in s {
-            if ch == "\n" {
-                newlineRun += 1
-                if newlineRun == 1 { out.append(ch) }
-            } else {
-                newlineRun = 0
-                out.append(ch)
-            }
-        }
-        return out
-    }
-
-    /// Register a plugin. Plugins are consulted in registration order
-    /// for filterTransaction / appendTransaction / props hooks.
-    public func register(plugin: EditorPlugin) {
-        plugins.append(plugin)
-    }
-
-    /// Retrieve the typed state slot a plugin previously stored.
-    public func pluginState<State>(for key: PluginKey<State>) -> State? {
-        pluginStates[key.any] as? State
-    }
-
-    /// Store typed state for a plugin under `key`.
-    public func setPluginState<State>(_ state: State, for key: PluginKey<State>) {
-        pluginStates[key.any] = state
-    }
-
-    /// Drop the state slot for `key`. Used by plugins on session close
-    /// (e.g. completion menu dismissed) to free observers.
-    public func clearPluginState<State>(for key: PluginKey<State>) {
-        pluginStates.removeValue(forKey: key.any)
-    }
-
-    public func makeStepEnvironment() -> StepEnvironment {
-        StepEnvironment(
-            compiler: compiler,
-            serializer: serializer,
-            theme: theme
+    private func captureLoadSnapshot() -> LoadSnapshot {
+        LoadSnapshot(
+            storage: NSAttributedString(attributedString: textStorage),
+            selection: currentSelection,
+            originalText: originalText,
+            serializedAtLoad: serializedAtLoad,
+            stringAtLoad: stringAtLoad,
+            vocabularyAtLoad: vocabularyAtLoad
         )
     }
 
-    /// Apply a transaction. Wraps each step in the controller's undo
-    /// machinery so an arbitrary spec mutation is reversible from the
-    /// menu/keyboard. Returns the mapped range of the last applied step
-    /// (the host text view's selection lands there).
-    @discardableResult
-    public func apply(_ transaction: Transaction) -> NSRange {
-        drainPendingEnvelopes()
-        lastInputRule = nil
-        guard let resultRange = applyCore(transaction) else { return currentSelection }
-        runAppendTransactions(after: [transaction])
-        return resultRange
-    }
-
-    @discardableResult
-    private func applyCore(_ transaction: Transaction, ignoringFilterPluginAt ignoredPluginIndex: Int? = nil) -> NSRange? {
-        guard !transaction.steps.isEmpty else { return nil }
-        for (index, plugin) in plugins.enumerated()
-        where ignoredPluginIndex.map({ $0 == index }) != true
-            && !plugin.filterTransaction(transaction, controller: self) {
-            return nil
-        }
-        if (transaction.getMeta("closeHistory") as? Bool) == true {
-            closeHistoryGroup()
-        }
-        let recordHistory = (transaction.getMeta("addToHistory") as? Bool) != false
-        let env = makeStepEnvironment()
-        var lastRange = currentSelection
-        let preSelection = currentSelection
-        let preMutationRange = mutationRange(for: transaction)
-        var appliedTransaction: AppliedTransaction?
-        // Normalization that follows the steps belongs to the same undo
-        // unit — undoing the command undoes the trailing paragraph it
-        // caused, not one keystroke later.
-        let outerCollecting = collectingInverses
-        collectingInverses = []
-        proseStorage.withOrigin(.transaction) {
-            let preLength = self.textStorage.length
-            let applied = transaction.apply(to: self.textStorage, env: env)
-            appliedTransaction = applied
-            lastRange = applied.mappedRange
-            let delta = self.textStorage.length - preLength
-            let unionLength = max(0, preMutationRange.length + max(0, delta))
-            let validationRange = NSRange(
-                location: min(preMutationRange.location, max(0, self.textStorage.length)),
-                length: min(unionLength, self.textStorage.length - min(preMutationRange.location, max(0, self.textStorage.length)))
-            )
-            // A command makes the same structural mess a keystroke can —
-            // a new ordered item leaves the ones below it misnumbered — so
-            // it gets the same run-scoped fix-up, inside this scope so the
-            // inverses join the command's own undo unit.
-            self.enforceDocumentInvariants(around: validationRange)
-            self.validate(in: validationRange.clamped(to: self.textStorage.length))
-        }
-        invalidateForOutOfBandSubtree(appliedTransaction)
-        ensureTrailingParagraph()
-        scheduleCodeBlockRehighlight()
-        intrinsicSizeInvalidator?()
-        let normalizationInverses = collectingInverses ?? []
-        collectingInverses = outerCollecting
-
-        // tr.selection wins; otherwise collapse to the end of the changed
-        // range, backing off from a trailing newline when the render emitted
-        // a block terminator.
-        let resultRange: NSRange
-        if let sel = transaction.selection {
-            resultRange = sel.resolvedRange(documentLength: textStorage.length)
-        } else {
-            let end = lastRange.location + lastRange.length
-            let cursor: Int
-            if lastRange.length > 0,
-               end <= textStorage.length,
-               (textStorage.string as NSString).character(at: end - 1) == 0x0A {
-                cursor = end - 1
-            } else {
-                cursor = end
-            }
-            resultRange = NSRange(location: cursor, length: 0)
-        }
-        setHostSelection(resultRange)
-        refreshTypingAttributes(at: resultRange.location)
-        if recordHistory, let applied = appliedTransaction {
-            // `meta["coalesce"]` marks a transaction that stands in for a
-            // keystroke (a typed character rerouted around an isolating
-            // block): it joins the open typing burst and leaves it open, so
-            // the rest of the word lands in the same undo unit.
-            let coalescing = (transaction.getMeta("coalesce") as? Bool) == true
-            // A command always opens its own unit — typing before it must
-            // not be swept in.
-            if !coalescing { closeTypingRecord() }
-            registerOrJoin(
-                inverseSteps: normalizationInverses + applied.inverse.steps,
-                selectionBefore: preSelection,
-                selectionAfter: resultRange,
-                touched: applied.mappedRange,
-                at: historyClock(),
-                coalescing: coalescing,
-                label: transaction.label
-            )
-        }
-        if transaction.scrollIntoView {
-            scrollSelectionIntoView()
-        }
-        return resultRange
-    }
-
-    private func runAppendTransactions(after rootTransactions: [Transaction]) {
-        guard !runningAppendTransactions, !rootTransactions.isEmpty, !plugins.isEmpty else { return }
-        runningAppendTransactions = true
-        defer { runningAppendTransactions = false }
-
-        var transactions = rootTransactions
-        var seen: [Int]?
-
-        while true {
-            var haveNew = false
-            for index in plugins.indices {
-                let start = seen?[index] ?? 0
-                guard start < transactions.count else {
-                    if seen != nil { seen![index] = transactions.count }
-                    continue
-                }
-                let newTransactions = Array(transactions[start..<transactions.count])
-                if var follow = plugins[index].appendTransaction(after: newTransactions, controller: self) {
-                    follow.setMeta("appendedTransaction", true)
-                    if applyCore(follow, ignoringFilterPluginAt: index) != nil {
-                        if seen == nil {
-                            seen = plugins.indices.map { $0 < index ? transactions.count : 0 }
-                        }
-                        transactions.append(follow)
-                        haveNew = true
-                    }
-                }
-                if seen != nil {
-                    seen![index] = transactions.count
-                }
-            }
-            if !haveNew { return }
-        }
-    }
-
-    /// Scroll the host text view so the current selection is visible.
-    /// Called when a transaction sets `scrollIntoView == true`.
-    private func scrollSelectionIntoView() {
+    func loadRecordingUndo(_ markdown: String, actionName: String) {
+        guard markdown != self.markdown() else { return }
+        unmarkHostText()
         #if canImport(AppKit) && os(macOS)
-        if let tv = hostTextView as? NSTextView {
-            tv.scrollRangeToVisible(tv.selectedRange())
-        }
-        #elseif canImport(UIKit)
-        if let tv = hostTextView as? UITextView {
-            tv.scrollRangeToVisible(tv.selectedRange)
-        }
+        hostTextView?.breakUndoCoalescing()
         #endif
+        let manager = editSession.undoManager
+        let before = captureLoadSnapshot()
+        load(markdown, resetsHistory: false)
+        let after = captureLoadSnapshot()
+        manager.beginUndoGrouping()
+        registerLoadRestore(on: manager, restoring: before, counterpart: after, actionName: actionName)
+        manager.endUndoGrouping()
     }
 
-    /// Check the spec invariants in `range` and forward any diagnostics.
-    ///
-    /// Validation only — nothing is repaired. Normalization already ran
-    /// (`normalizeInsertedAttributes`, `DocumentInvariants`), so a
-    /// diagnostic here means one of those has a bug, and silently patching
-    /// the buffer would hide it. In DEBUG it trips an assertion.
-    ///
-    /// Two validators run sequentially:
-    /// 1. `SpecValidator` — line-level structural invariants.
-    /// 2. `SchemaValidator` — typed-tree-level checks (unknown node /
-    ///    mark types, content-rule mismatches, marks on disallowed
-    ///    parents), gated on a handler being installed.
-    func validate(in range: NSRange) {
-        let specDiagnostics = SpecValidator.validate(in: textStorage, range: range)
-        for diagnostic in specDiagnostics {
-            fanoutDiagnostic(diagnostic)
+    private func registerLoadRestore(on manager: UndoManager, restoring snapshot: LoadSnapshot, counterpart: LoadSnapshot, actionName: String) {
+        manager.registerUndo(withTarget: self) { [weak manager] controller in
+            guard let manager else { return }
+            let opens = manager.groupingLevel == 0
+            if opens { manager.beginUndoGrouping() }
+            controller.registerLoadRestore(on: manager, restoring: counterpart, counterpart: snapshot, actionName: actionName)
+            if opens { manager.endUndoGrouping() }
+            controller.restore(snapshot)
         }
-        #if DEBUG
-        // Reaching here means normalization left the buffer inconsistent.
-        // Repairing would hide the bug; assert instead so it surfaces in
-        // the suite and in the demo app.
-        if !specDiagnostics.isEmpty, assertsOnDiagnostics {
-            assertionFailure(
-                "spec invariants violated after an edit: \(specDiagnostics)"
-            )
-        }
-        #endif
-        // Project the live storage to a typed tree and run the schema-level
-        // validator. Diagnostics surface through onSchemaDiagnostic so hosts
-        // can wire them into the same surface as block-spec diagnostics.
-        // Gated on a handler being installed: the projection is O(document)
-        // and every transaction would otherwise pay for it unobserved.
-        guard let schemaHandler = onSchemaDiagnostic else { return }
-        let document = ProseDocument.from(storage: proseStorage.contents, schema: compiler.schema)
-        for diagnostic in SchemaValidator.validate(document) {
-            schemaHandler(diagnostic)
-        }
+        if !actionName.isEmpty { manager.setActionName(actionName) }
     }
 
-    private func mutationRange(for transaction: Transaction) -> NSRange {
-        var lo = textStorage.length
-        var hi = 0
-        for step in transaction.steps {
-            switch step {
-            case .replaceText(let range, _),
-                 .setSpec(let range, _),
-                 .setSpecPreservingLineTerminator(let range, _),
-                 .toggleInlineMark(let range, _),
-                 .addMark(let range, _),
-                 .removeMark(let range, _),
-                 .setMarkAttrs(let range, _, _):
-                lo = min(lo, range.location)
-                hi = max(hi, range.location + range.length)
-            case .replaceAround(let outer, _, _, _):
-                lo = min(lo, outer.location)
-                hi = max(hi, outer.location + outer.length)
-            case .setNodeAttrs, .setNodeAttrsAt, .replaceCellInline, .setTableSubtree,
-                 .addNodeMark, .removeNodeMark, .setDocAttr:
-                // Identity-addressed; no positional bounds — leave as the
-                // current accumulator. The apply path resolves the
-                // affected range from the stored NodePath / table id.
-                continue
-            case .replaceRange(let from, let to, _):
-                lo = min(lo, from)
-                hi = max(hi, to)
+    private func restore(_ snapshot: LoadSnapshot) {
+        unmarkHostText()
+        let previousLength = textStorage.length
+        isLoading = true
+        textStorage.beginEditing()
+        textStorage.setAttributedString(snapshot.storage)
+        restyler.restyleAll(textStorage)
+        codeHighlighting.resetAll(in: textStorage, baseColor: codeBaseColor)
+        textStorage.endEditing()
+        isLoading = false
+        pendingInput = nil
+        pendingChange = nil
+        originalText = snapshot.originalText
+        serializedAtLoad = snapshot.serializedAtLoad
+        stringAtLoad = snapshot.stringAtLoad
+        vocabularyAtLoad = snapshot.vocabularyAtLoad
+        setSelection(snapshot.selection)
+        bindingDirty = true
+        pushBinding()
+        intrinsicSizeInvalidator?()
+        fanoutDocumentChange(DocumentChange(
+            editedRange: NSRange(location: 0, length: textStorage.length),
+            changeInLength: textStorage.length - previousLength,
+            origin: .undo
+        ))
+    }
+
+    private func load(_ markdown: String, resetsHistory: Bool) {
+        isLoading = true
+        unmarkHostText()
+        let loaded = MarkdownLoader(
+            inlineContentRules: inlineContentRules,
+            inlineContentProvider: inlineContentProvider
+        ).load(markdown)
+        let previousLength = textStorage.length
+        textStorage.beginEditing()
+        textStorage.setAttributedString(loaded)
+        restyler.restyleAll(textStorage)
+        codeHighlighting.resetAll(in: textStorage, baseColor: codeBaseColor)
+        textStorage.endEditing()
+        isLoading = false
+        needsInlineContentRefresh = false
+        if resetsHistory {
+            historyEpoch += 1
+            undoManager.removeAllActions()
+            let activeManager = editSession.undoManager
+            if activeManager !== undoManager { activeManager.removeAllActions() }
+        }
+        pendingInput = nil
+        pendingChange = nil
+        deferredEdits.removeAll()
+        originalText = markdown
+        lastPushed = markdown
+        bindingDirty = false
+        serializedAtLoad = serialize()
+        stringAtLoad = textStorage.string
+        vocabularyAtLoad = VocabularySnapshot(
+            capturing: textStorage,
+            in: NSRange(location: 0, length: textStorage.length)
+        )
+        let caret = min(currentSelection.location, textStorage.length)
+        headlessSelection = NSRange(location: caret, length: 0)
+        if caret < textStorage.length {
+            applyTypingAttributes(typingAttributes(at: caret))
+        } else {
+            applyTypingAttributes(typingAttributes(for: .paragraph, textLists: []))
+            if caret > 0, (textStorage.string as NSString).character(at: caret - 1) != MarkdownParagraph.separator {
+                applyTypingAttributes(typingAttributes(at: caret))
             }
         }
-        guard hi > lo else { return NSRange(location: 0, length: 0) }
-        return NSRange(location: lo, length: hi - lo)
+        intrinsicSizeInvalidator?()
+        fanoutDocumentChange(DocumentChange(
+            editedRange: NSRange(location: 0, length: textStorage.length),
+            changeInLength: textStorage.length - previousLength,
+            origin: .load
+        ))
     }
 
-    public func canPerform(_ action: EditorAction) -> Bool {
-        guard isEditable else { return false }
-        return commands.canExecute(action, storage: textStorage, selection: currentSelection)
+    public func setInlineContent(rules: [InlineContentRule], provider: ProseInlineContentProvider?) {
+        inlineContentRules = rules
+        inlineContentProvider = provider
+        needsInlineContentRefresh = true
+        refreshInlineContentIfNeeded()
     }
 
-    /// Bounding rect of the caret in the host text view's coordinate
-    /// space. Returns nil when no host view is attached or layout isn't
-    /// ready. Used by completion popups, ghost-text overlays, and
-    /// anything else that needs to track the cursor on screen.
+    public func setCodeBlockHighlighter(_ highlighter: CodeBlockHighlighter?) {
+        guard highlighter !== codeHighlighting.highlighter else { return }
+        codeHighlighting.highlighter = highlighter
+        restyler.preservesCodeForeground = highlighter != nil
+        rehighlightCodeBlocks()
+    }
+
+    package var codeBaseColor: PlatformColor {
+        theme.codeBlock.textColor ?? theme.foregroundColor
+    }
+
+    func rehighlightCodeBlocks() {
+        withoutBinding {
+            textStorage.beginEditing()
+            if codeHighlighting.isActive {
+                codeHighlighting.resetAll(in: textStorage, baseColor: codeBaseColor)
+            } else {
+                codeHighlighting.removeAll()
+                restyler.restyleAll(textStorage)
+            }
+            textStorage.endEditing()
+        }
+    }
+
+    func refreshInlineContentIfNeeded() {
+        guard needsInlineContentRefresh, !isLoading, !isProcessingEdit, !isApplyingCommand,
+              !hostHasMarkedText, !isSettingMarkedText else { return }
+        needsInlineContentRefresh = false
+        let reloaded = MarkdownLoader(
+            inlineContentRules: inlineContentRules,
+            inlineContentProvider: inlineContentProvider
+        ).load(markdown())
+        restyler.restyleAll(reloaded)
+        let current = textStorage.markdownParagraphRanges()
+        let updated = reloaded.markdownParagraphRanges()
+        var changes: [(range: NSRange, replacement: NSAttributedString)] = []
+        if current.count == updated.count {
+            for (old, new) in zip(current, updated) {
+                guard let change = inlineContentChange(from: old, to: new, in: reloaded) else { continue }
+                changes.append(change)
+            }
+        } else {
+            changes = [(NSRange(location: 0, length: textStorage.length), reloaded)]
+        }
+        guard !changes.isEmpty else { return }
+        let selection = currentSelection
+        let start = Self.location(selection.location, shiftedBy: changes)
+        let end = Self.location(NSMaxRange(selection), shiftedBy: changes)
+        performEdit(
+            "",
+            ranges: changes.map(\.range),
+            replacements: changes.map(\.replacement.string),
+            ignoringEditability: true,
+            selection: NSRange(location: start, length: max(0, end - start))
+        ) { storage in
+            for change in changes.reversed() {
+                storage.replaceCharacters(in: change.range, with: change.replacement)
+            }
+        }
+    }
+
+    private func inlineContentChange(
+        from old: NSRange,
+        to new: NSRange,
+        in reloaded: NSAttributedString
+    ) -> (range: NSRange, replacement: NSAttributedString)? {
+        let oldText = textStorage.string as NSString
+        let newText = reloaded.string as NSString
+        func same(_ oldIndex: Int, _ newIndex: Int) -> Bool {
+            let unit = oldText.character(at: oldIndex)
+            guard unit == newText.character(at: newIndex) else { return false }
+            guard unit == 0xFFFC else { return true }
+            let lhs = textStorage.proseSourceAttachment(at: oldIndex)
+            let rhs = reloaded.proseSourceAttachment(at: newIndex)
+            guard let lhs, let rhs else { return lhs == nil && rhs == nil }
+            return type(of: lhs) == type(of: rhs)
+                && lhs.markdownSource == rhs.markdownSource
+                && lhs.contentKind == rhs.contentKind
+        }
+        let shorter = min(old.length, new.length)
+        var prefix = 0
+        while prefix < shorter, same(old.location + prefix, new.location + prefix) { prefix += 1 }
+        if prefix == old.length, prefix == new.length { return nil }
+        var suffix = 0
+        while suffix < shorter - prefix, same(NSMaxRange(old) - suffix - 1, NSMaxRange(new) - suffix - 1) { suffix += 1 }
+        let range = NSRange(location: old.location + prefix, length: old.length - prefix - suffix)
+        let source = NSRange(location: new.location + prefix, length: new.length - prefix - suffix)
+        let replacement = NSMutableAttributedString(attributedString: reloaded.attributedSubstring(from: source))
+        if old.length > 0, replacement.length > 0 {
+            let full = NSRange(location: 0, length: replacement.length)
+            let paragraph = textStorage.attributes(at: old.location, effectiveRange: nil)
+            replacement.addAttribute(.markdownBlock, value: paragraph[.markdownBlock] ?? MarkdownBlock.paragraph, range: full)
+            if let style = paragraph[.paragraphStyle] {
+                replacement.addAttribute(.paragraphStyle, value: style, range: full)
+            }
+        }
+        return (range, replacement)
+    }
+
+    private static func location(_ location: Int, shiftedBy changes: [(range: NSRange, replacement: NSAttributedString)]) -> Int {
+        var shift = 0
+        for change in changes {
+            if NSMaxRange(change.range) <= location {
+                shift += change.replacement.length - change.range.length
+            } else if change.range.location < location {
+                return change.range.location + shift + change.replacement.length
+            } else {
+                break
+            }
+        }
+        return location + shift
+    }
+
+    func applyExternalText(_ text: String) {
+        guard text != lastPushed else { return }
+        setMarkdown(text)
+    }
+
+    func withoutBinding(_ work: () -> Void) {
+        let wasRestyling = isRestyling
+        isRestyling = true
+        defer { isRestyling = wasRestyling }
+        work()
+    }
+
+    func pushBinding() {
+        guard !isLoading, !hostHasMarkedText, !isSettingMarkedText, bindingDirty else { return }
+        bindingDirty = false
+        let serialized = serialize()
+        let value = markdown(serialized: serialized)
+        guard value != lastPushed else { return }
+        lastPushed = value
+        textSink?(value)
+    }
+
+    public var currentSelection: NSRange {
+        #if canImport(AppKit) && os(macOS)
+        if let hostTextView { return hostTextView.selectedRange() }
+        #elseif canImport(UIKit)
+        if let hostTextView { return hostTextView.selectedRange }
+        #endif
+        return headlessSelection
+    }
+
+    public func setSelection(_ range: NSRange) {
+        let clamped = Normalizer.clamp(range, to: textStorage.length)
+        headlessSelection = clamped
+        #if canImport(AppKit) && os(macOS)
+        hostTextView?.setSelectedRange(clamped)
+        #elseif canImport(UIKit)
+        hostTextView?.selectedRange = clamped
+        #endif
+    }
+
+    var hostHasMarkedText: Bool {
+        guard let hostTextView else { return false }
+        #if canImport(AppKit) && os(macOS)
+        return hostTextView.hasMarkedText()
+        #elseif canImport(UIKit)
+        return hostTextView.markedTextRange != nil
+        #else
+        return false
+        #endif
+    }
+
+    var hostMarkedRange: NSRange? {
+        guard let hostTextView else { return nil }
+        #if canImport(AppKit) && os(macOS)
+        guard hostTextView.hasMarkedText() else { return nil }
+        let range = hostTextView.markedRange()
+        return range.location == NSNotFound ? nil : range
+        #elseif canImport(UIKit)
+        guard let marked = hostTextView.markedTextRange else { return nil }
+        let start = hostTextView.offset(from: hostTextView.beginningOfDocument, to: marked.start)
+        let end = hostTextView.offset(from: hostTextView.beginningOfDocument, to: marked.end)
+        return NSRange(location: start, length: max(0, end - start))
+        #else
+        return nil
+        #endif
+    }
+
+    func unmarkHostText() {
+        guard hostHasMarkedText, let hostTextView else { return }
+        hostTextView.unmarkText()
+    }
+
+    var hostTypingAttributes: [NSAttributedString.Key: Any] {
+        #if canImport(AppKit) && os(macOS)
+        if let hostTextView { return hostTextView.typingAttributes }
+        #elseif canImport(UIKit)
+        if let hostTextView { return hostTextView.typingAttributes }
+        #endif
+        return headlessTypingAttributes
+    }
+
+    func applyTypingAttributes(_ attributes: [NSAttributedString.Key: Any]) {
+        headlessTypingAttributes = attributes
+        #if canImport(AppKit) && os(macOS)
+        hostTextView?.typingAttributes = attributes
+        #elseif canImport(UIKit)
+        hostTextView?.typingAttributes = attributes
+        #endif
+    }
+
+    func typingAttributes(for block: MarkdownBlock, textLists: [NSTextList], intent: MarkdownInlineIntent = []) -> [NSAttributedString.Key: Any] {
+        let style = restyler.paragraphStyle(for: block, textLists: textLists)
+        return restyler.typingAttributes(for: block, intent: intent, paragraphStyle: style)
+    }
+
+    package func typingAttributes(at location: Int) -> [NSAttributedString.Key: Any] {
+        let info = paragraphInfo(at: location)
+        var intent: MarkdownInlineIntent = []
+        if location > info.content.location, location - 1 < textStorage.length {
+            intent = textStorage.markdownInlineIntent(at: location - 1).intersection(.markdownMarks)
+        }
+        return typingAttributes(for: info.block, textLists: info.lists, intent: intent)
+    }
+
+    func adjustedTypingAttributes(_ proposed: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+        var attributes = proposed
+        attributes.removeValue(forKey: .markdownLiteral)
+        attributes.removeValue(forKey: .attachment)
+        attributes.removeValue(forKey: .markdownTableSeparator)
+        if let block = attributes.markdownBlock, block.isTableRow, tableContext(at: currentSelection.location) == nil {
+            let plain = block.with(leaf: .paragraph)
+            attributes.markdownBlock = plain
+            attributes[.paragraphStyle] = restyler.paragraphStyle(for: plain, textLists: (attributes[.paragraphStyle] as? NSParagraphStyle)?.textLists ?? [])
+        }
+        if attributes.markdownBlock == nil {
+            let fallback = typingAttributes(at: currentSelection.location)
+            attributes.markdownBlock = fallback.markdownBlock
+            if attributes[.paragraphStyle] == nil { attributes[.paragraphStyle] = fallback[.paragraphStyle] }
+        }
+        if attributes.markdownBlock?.isCode == true {
+            attributes.markdownInlineIntent = []
+            attributes.removeValue(forKey: .link)
+        }
+        attributes.markdownInlineIntent = attributes.markdownInlineIntent.subtracting(.softBreak)
+        return attributes
+    }
+
     public func caretRect() -> CGRect? {
-        let cursor = currentSelection.location
-        let total = textStorage.length
-        guard cursor >= 0, cursor <= total else { return nil }
-        let docStart = contentStorage.documentRange.location
-        guard let location = contentStorage.location(docStart, offsetBy: cursor) else { return nil }
-        let textRange = NSTextRange(location: location)
+        rect(forCharacterAt: currentSelection.location)
+    }
+
+    public func rect(forCharacterAt index: Int) -> CGRect? {
+        guard index >= 0, index <= textStorage.length else { return nil }
+        let docStart = textContentStorage.documentRange.location
+        guard let location = textContentStorage.location(docStart, offsetBy: index) else { return nil }
         var rect: CGRect?
-        layoutManager.enumerateTextSegments(
-            in: textRange,
+        textLayoutManager.enumerateTextSegments(
+            in: NSTextRange(location: location),
             type: .standard,
             options: [.upstreamAffinity, .rangeNotRequired]
         ) { _, frame, _, _ in
             rect = frame
             return false
         }
-        guard var caretRect = rect else { return nil }
-        // Translate from layout-fragment coords to text-view coords by
-        // adding the host's textContainerInset.
+        guard var result = rect else { return nil }
         #if canImport(AppKit) && os(macOS)
-        if let tv = hostTextView as? NSTextView {
-            caretRect.origin.x += tv.textContainerInset.width
-            caretRect.origin.y += tv.textContainerInset.height
+        if let hostTextView {
+            result.origin.x += hostTextView.textContainerOrigin.x
+            result.origin.y += hostTextView.textContainerOrigin.y
         }
         #elseif canImport(UIKit)
-        if let tv = hostTextView as? UITextView {
-            caretRect.origin.x += tv.textContainerInset.left
-            caretRect.origin.y += tv.textContainerInset.top
+        if let hostTextView {
+            result.origin.x += hostTextView.textContainerInset.left
+            result.origin.y += hostTextView.textContainerInset.top
         }
         #endif
-        return caretRect
-    }
-
-    /// True when the action's effect is currently in force at the
-    /// selection — bold mark covers the range, heading kind matches the
-    /// cursor's block. Drives toolbar "pressed" state.
-    public func isActionActive(_ action: EditorAction) -> Bool {
-        commands.isActive(action, storage: textStorage, selection: currentSelection, controller: self)
-    }
-
-    /// Stable IDs of every registered action whose `isActive` returns
-    /// true. Recomputed on demand from the SwiftUI layer; cheap because
-    /// each command only inspects the cursor neighbourhood.
-    public func activeActionIDs() -> Set<String> {
-        var ids: Set<String> = []
-        let storage = textStorage
-        let selection = currentSelection
-        for command in commands.registeredCommands {
-            if command.isActive(storage: storage, selection: selection, controller: self) {
-                ids.insert(command.id)
-            }
-        }
-        return ids
-    }
-
-    @discardableResult
-    public func perform(_ action: EditorAction) -> NSRange {
-        guard isEditable else { return currentSelection }
-        drainPendingEnvelopes()
-        defer { refreshTypingAttributes(at: currentSelection.location) }
-        if case .link(let url, let label) = action {
-            return performLink(url: url, label: label)
-        }
-        // Parameterized table actions don't fit the registry's
-        // stableID-based dispatch (rows/columns/alignment payloads aren't
-        // carried by the id). Build a fresh command per call.
-        if case .insertTable(let rows, let columns) = action {
-            let cmd = InsertTableCommand(rows: rows, columns: columns)
-            return runCommand(cmd)
-        }
-        if case .setTableColumnAlignment(let alignment) = action {
-            let cmd = SetTableColumnAlignmentCommand(alignment: alignment)
-            return runCommand(cmd)
-        }
-        if currentSelection.length == 0, let mark = inlineMark(for: action) {
-            toggleStoredInlineMark(mark)
-            return currentSelection
-        }
-        guard let command = commands.command(for: action) else {
-            return currentSelection
-        }
-        return runCommand(command)
-    }
-
-    private func runCommand(_ command: Command) -> NSRange {
-        guard let tx = command.transaction(
-            storage: textStorage,
-            selection: currentSelection,
-            env: makeStepEnvironment()
-        ) else {
-            return currentSelection
-        }
-        return apply(tx)
-    }
-
-    /// Apply a single-cell edit dispatched from the SwiftUI sheet. Builds a
-    /// transaction that swaps the entire table source for the re-rendered
-    /// version with the cell text updated. Returns the affected range.
-    @discardableResult
-    public func applyTableCellEdit(
-        tableRange: NSRange,
-        row: Int,
-        column: Int,
-        text: String
-    ) -> NSRange {
-        guard let tx = makeSetTableCellTextTransaction(
-            storage: textStorage,
-            tableRange: tableRange,
-            row: row,
-            column: column,
-            text: text,
-            env: makeStepEnvironment()
-        ) else {
-            return currentSelection
-        }
-        return apply(tx)
-    }
-
-    private func inlineMark(for action: EditorAction) -> InlineMark? {
-        switch action {
-        case .bold: return .bold
-        case .italic: return .italic
-        case .strikethrough: return .strikethrough
-        case .codeSpan: return .codeSpan
-        default: return nil
-        }
-    }
-
-    private func toggleStoredInlineMark(_ mark: InlineMark) {
-        let cursor = currentSelection.location
-        if storedMarksAnchor != cursor {
-            storedInlineMarks.removeAll()
-            storedMarksAnchor = cursor
-        }
-        if storedInlineMarks.contains(mark) {
-            storedInlineMarks.remove(mark)
-        } else {
-            storedInlineMarks.insert(mark)
-        }
-        if storedInlineMarks.isEmpty {
-            storedMarksAnchor = nil
-        }
-    }
-
-    private func clearStoredInlineMarks() {
-        storedInlineMarks.removeAll()
-        storedMarksAnchor = nil
-    }
-
-    /// Re-stamp syntax colors on the code blocks the pending edits touched.
-    ///
-    /// Coalesced onto the next main-runloop tick when a host text view is
-    /// attached, so a burst of keystrokes rehighlights once. Headless
-    /// callers run synchronously so a read right after an edit sees settled
-    /// colors.
-    func scheduleCodeBlockRehighlight() {
-        guard pendingHighlightRange != nil else { return }
-        guard hostTextView != nil else {
-            flushCodeBlockRehighlight()
-            return
-        }
-        guard !rehighlightScheduled else { return }
-        rehighlightScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.rehighlightScheduled = false
-            self.flushCodeBlockRehighlight()
-        }
-    }
-
-    private func flushCodeBlockRehighlight() {
-        guard let pending = pendingHighlightRange else { return }
-        pendingHighlightRange = nil
-        rehighlightRunCount += 1
-        rehighlightCodeBlocks(intersecting: pending)
-    }
-
-    /// Test-only counter, bumped at the start of every rehighlight pass so
-    /// tests can verify coalescing without stubbing out the work.
-    var rehighlightRunCount: Int = 0
-
-    /// Test seam: fires with the range of each code block recolored.
-    var rehighlightProbe: ((NSRange) -> Void)?
-
-    var isComposingIME: Bool {
-        if let testMarkedText { return testMarkedText }
-        #if canImport(AppKit) && os(macOS)
-        if let tv = hostTextView as? NSTextView { return tv.hasMarkedText() }
-        #elseif canImport(UIKit)
-        if let tv = hostTextView as? UITextView { return tv.markedTextRange != nil }
-        #endif
-        return false
-    }
-
-    /// Set by `ProseUITextView` between `insertDictationResultPlaceholder`
-    /// and `removeDictationResultPlaceholder`. Interim dictation writes
-    /// placeholder text into storage; none of it is real content.
-    var dictationPlaceholderActive = false
-
-    @discardableResult
-    func evaluateInputRules() -> Bool {
-        let cursor = currentSelection.location
-        var didFire = false
-        _ = inputRules.evaluate(
-            storage: textStorage,
-            cursor: cursor,
-            env: makeStepEnvironment(),
-            apply: { [weak self] tx in
-                _ = self?.apply(tx)
-                didFire = true
-            }
-        )
-        if didFire, let fired = inputRules.lastFiredRule {
-            lastInputRule = fired
-        } else {
-            lastInputRule = nil
-            inputRules.clearLastFiredRule()
-        }
-        if didFire {
-            // Inline rules (bold, italic, code-span, etc.) conclude a
-            // styling event — the user has just closed `**bold**` or `` `code` ``.
-            // Reset typing attributes to plain so the next typed character
-            // escapes the inline mark instead of inheriting it from the
-            // run that the rule just stamped.
-            applyTypingAttributes(theme.plainParagraphAttributes())
-            clearStoredInlineMarks()
-        }
-        return didFire
-    }
-
-    /// `.link` without a URL: the selection stays the label, and becomes
-    /// the destination too when it already reads as one. Otherwise the
-    /// destination is the placeholder `"url"` for the host's link editor
-    /// to replace (see `updateLink(in:href:title:)`).
-    private func performLink(url: String?, label: String?) -> NSRange {
-        let selected = selectedText()
-        let href = url ?? (selected.map(Self.looksLikeURL) == true ? selected! : "url")
-        return insertLink(label: label ?? "link", url: href)
-    }
-
-    /// Insert a link at the host text view's cursor. If the user has a
-    /// non-empty selection, that text becomes the link's display label;
-    /// otherwise the supplied `label` (e.g. `"bug 12345"`) is used. The URL
-    /// rides on the `link` mark and round-trips as `[label](url)`.
-    @discardableResult
-    public func insertLink(label: String, url: String) -> NSRange {
-        drainPendingEnvelopes()
-        let selection = currentSelection
-        let actualLabel = selectedText() ?? label
-        var result = NSRange(location: selection.location, length: 0)
-        withCharacterMutation(range: selection) {
-            result = Operations.insertLink(
-                in: textStorage,
-                replacing: selection,
-                label: actualLabel,
-                url: url,
-                theme: theme
-            )
-            // `Operations.insertLink` lays down rendering attributes; the
-            // canonical `proseMarks` come from them.
-            let linked = NSRange(location: selection.location, length: (actualLabel as NSString).length)
-            NodePathSynthesizer(schema: compiler.schema)
-                .stampMarks(in: textStorage, range: linked.clamped(to: textStorage.length))
-        }
-        setHostSelection(result)
-        refreshTypingAttributes(at: result.location)
         return result
     }
 
-    /// The selected text, or nil when the selection is empty.
-    private func selectedText() -> String? {
-        let selection = currentSelection
-        guard selection.length > 0,
-              selection.location + selection.length <= textStorage.length else { return nil }
-        let text = (textStorage.string as NSString).substring(with: selection)
-        return text.isEmpty ? nil : text
+    public func inlineContentKind(at index: Int) -> String? {
+        textStorage.proseSourceAttachment(at: index)?.contentKind
     }
 
-    static func looksLikeURL(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains(" ") else { return false }
-        if let url = URL(string: trimmed), let scheme = url.scheme, !scheme.isEmpty,
-           url.host != nil || scheme == "mailto" {
+    public func register(plugin: EditorPlugin) {
+        plugins.append(plugin)
+    }
+
+    public func pluginState<State>(for key: PluginKey<State>) -> State? {
+        pluginStates[key.any] as? State
+    }
+
+    public func setPluginState<State>(_ state: State, for key: PluginKey<State>) {
+        pluginStates[key.any] = state
+    }
+
+    public func clearPluginState<State>(for key: PluginKey<State>) {
+        pluginStates.removeValue(forKey: key.any)
+    }
+
+    @discardableResult
+    public func addOnDocumentChange(_ handler: @escaping (DocumentChange) -> Void) -> ObserverToken {
+        let id = UUID()
+        documentObservers.append((id, handler))
+        return ObserverToken(id: id)
+    }
+
+    @discardableResult
+    public func addOnSelectionChanged(_ handler: @escaping (NSRange) -> Void) -> ObserverToken {
+        let id = UUID()
+        selectionObservers.append((id, handler))
+        return ObserverToken(id: id)
+    }
+
+    public func removeObserver(_ token: ObserverToken) {
+        documentObservers.removeAll { $0.0 == token.id }
+        selectionObservers.removeAll { $0.0 == token.id }
+    }
+
+    func fanoutDocumentChange(_ change: DocumentChange) {
+        queuedChanges.append(change)
+        guard !isFanningOut else { return }
+        isFanningOut = true
+        defer { isFanningOut = false }
+        while !queuedChanges.isEmpty {
+            let next = queuedChanges.removeFirst()
+            for plugin in plugins { plugin.documentDidChange(next, controller: self) }
+            for (_, handler) in documentObservers { handler(next) }
+        }
+    }
+
+    func selectionDidChange(_ range: NSRange) {
+        headlessSelection = range
+        onSelectionChanged?(range)
+        for (_, handler) in selectionObservers { handler(range) }
+    }
+
+    func isLocationInCode(_ location: Int) -> Bool {
+        let total = textStorage.length
+        guard total > 0 else { return false }
+        let info = paragraphInfo(at: location)
+        if info.block.isCode { return true }
+        guard location > info.content.location, location < NSMaxRange(info.content) else { return false }
+        return textStorage.markdownInlineIntent(at: location - 1).contains(.code)
+            && textStorage.markdownInlineIntent(at: location).contains(.code)
+    }
+
+    var isApplyingCommand: Bool { commandDepth > 0 || editSession.isPerforming }
+
+    func hostShouldChangeText(in range: NSRange, replacement: String?) -> Bool {
+        if !isApplyingCommand, let replacement {
+            for plugin in plugins {
+                if plugin.props.handleTextInput?(self, range, replacement) == true { return false }
+            }
+        }
+        return shouldChangeText(in: range, replacement: replacement)
+    }
+
+    func shouldChangeText(in range: NSRange, replacement: String?) -> Bool {
+        typedEdit = nil
+        guard !isApplyingCommand else { return true }
+        let manager = editSession.undoManager
+        guard !manager.isUndoing, !manager.isRedoing else {
+            pendingInput = nil
             return true
         }
-        return trimmed.hasPrefix("www.")
-    }
-
-    // MARK: - undo
-
-    /// The typing / deletion / correction burst currently accepting more
-    /// edits. Closed by the delay, by a non-adjacent edit, by any other
-    /// edit class, and by every command entry point.
-    private var openTypingRecord: HistoryRecord?
-
-    /// While non-nil, normalization inverses are collected here instead of
-    /// being dropped, so the pass that fixes up an edit is undone with it.
-    private var collectingInverses: [Step]?
-
-    /// True while `applyHistory` is replaying; suppresses re-registration
-    /// from nested paths.
-    private(set) var isApplyingHistory = false
-
-    /// Turn a storage record's captures into inverse steps, newest first.
-    ///
-    /// Each capture's pre-image is replaced back over the range the capture
-    /// produced. Reversing the order is what makes it valid: the last
-    /// capture's post-range is correct in the final state, and undoing it
-    /// restores the state the one before it was measured against.
-    func inverseSteps(from record: EditRecord) -> [Step] {
-        record.captures.reversed().map { capture in
-            let inserted: Int
-            switch capture.kind {
-            case .characters(let n): inserted = n
-            case .attributes: inserted = capture.range.length
-            }
-            let postRange = NSRange(location: capture.range.location, length: inserted)
-            return .replaceText(range: postRange.clamped(to: textStorage.length), with: capture.preImage)
+        if !hostHasMarkedText, !isSettingMarkedText, applyTableEdit(range: range, replacement: replacement) {
+            pendingInput = nil
+            return false
         }
-    }
-
-    /// Close the open typing burst so the next edit starts a fresh unit.
-    func closeTypingRecord() {
-        openTypingRecord = nil
-    }
-
-    /// Put `record` on the undo stack as one unit.
-    private func register(_ record: HistoryRecord) {
-        guard !isApplyingHistory else { return }
-        undoManager.beginUndoGrouping()
-        undoManager.registerUndo(withTarget: self) { controller in
-            controller.performUndo(of: record)
+        if let replacement, !replacement.isEmpty, !hostHasMarkedText, !isSettingMarkedText,
+           redirectTypingIntoAtom(range: range, text: replacement) {
+            pendingInput = nil
+            return false
         }
-        if let label = record.label {
-            undoManager.setActionName(label)
+        recordTypedInput(range: range, replacement: replacement)
+        #if canImport(AppKit) && os(macOS)
+        if let replacement, replacement.contains("\n"), !hostHasMarkedText,
+           paragraphInfo(at: range.location).block.task != nil {
+            hostTextView?.breakUndoCoalescing()
         }
-        undoManager.endUndoGrouping()
+        #endif
+        if let replacement {
+            let ns = textStorage.string as NSString
+            let removed = Normalizer.clamp(range, to: ns.length)
+            let isParagraphLocal = replacement.rangeOfCharacter(from: .newlines) == nil
+                && ns.substring(with: removed).rangeOfCharacter(from: .newlines) == nil
+            typedEdit = (removed, isParagraphLocal)
+        }
+        return true
     }
 
-    /// Register `record`, or fold it into the open burst when it belongs
-    /// to the same one. Returns the unit that ended up holding it.
     @discardableResult
-    private func registerOrJoin(
-        inverseSteps: [Step],
-        selectionBefore: NSRange,
-        selectionAfter: NSRange,
-        touched: NSRange,
-        at time: TimeInterval,
-        coalescing: Bool,
-        label: String? = nil
-    ) -> HistoryRecord? {
-        guard !inverseSteps.isEmpty else { return nil }
-        if coalescing,
-           let open = openTypingRecord,
-           time - open.lastEditAt <= historyConfig.newGroupDelay,
-           open.touches(touched) {
-            open.absorb(
-                inverseSteps: inverseSteps,
-                selectionAfter: selectionAfter,
-                touched: touched,
-                at: time
-            )
-            return open
-        }
-        let record = HistoryRecord(
-            inverseSteps: inverseSteps,
-            selectionBefore: selectionBefore,
-            selectionAfter: selectionAfter,
-            touchedRanges: [touched],
-            lastEditAt: time,
-            label: label
+    func performEdit(
+        _ actionName: String,
+        ranges: [NSRange],
+        replacements: [String]?,
+        ignoringEditability: Bool = false,
+        selection: NSRange? = nil,
+        _ body: (NSTextStorage) -> Void
+    ) -> Bool {
+        let manager = editSession.undoManager
+        let opensGroup = !manager.groupsByEvent && manager.groupingLevel == 0 && manager.isUndoRegistrationEnabled
+        if opensGroup { manager.beginUndoGrouping() }
+        commandDepth += 1
+        let applied = editSession.perform(
+            actionName: actionName,
+            ranges: ranges,
+            replacements: replacements,
+            ignoringEditability: ignoringEditability,
+            body
         )
-        register(record)
-        openTypingRecord = coalescing ? record : nil
-        return record
-    }
-
-    /// Move the caret, on whichever surface owns it.
-    ///
-    /// `testSelection` is the headless seam and takes precedence over the
-    /// host text view in `currentSelection`; writing it while a host is
-    /// attached pins the selection for good, because nothing clears it
-    /// again. Every later command then reads a stale range — a toolbar
-    /// mark applies where the last undo landed rather than where the user
-    /// is.
-    private func installSelection(_ range: NSRange) {
-        setHostSelection(range)
-        if hostTextView == nil { testSelection = range }
-    }
-
-    /// Undo (or redo — `UndoManager` routes the re-registration for us)
-    /// one unit, then push its counterpart with the selections swapped.
-    private func performUndo(of record: HistoryRecord) {
-        closeTypingRecord()
-        let applied = applyHistory(Transaction(steps: record.inverseSteps, label: record.label))
-        installSelection(record.selectionBefore)
-        refreshTypingAttributes(at: record.selectionBefore.location)
-
-        let counterpart = HistoryRecord(
-            inverseSteps: applied.inverse.steps,
-            selectionBefore: record.selectionAfter,
-            selectionAfter: record.selectionBefore,
-            touchedRanges: [applied.mappedRange],
-            lastEditAt: historyClock(),
-            label: record.label
-        )
-        register(counterpart)
-    }
-
-    /// Replay `transaction` as history: sequential, no plugin filters, no
-    /// registration of its own, no append transactions. Matches what the
-    /// old undo closures did.
-    @discardableResult
-    func applyHistory(_ transaction: Transaction) -> AppliedTransaction {
-        var env = makeStepEnvironment()
-        env.isHistoryReplay = true
-        let wasApplying = isApplyingHistory
-        isApplyingHistory = true
-        defer { isApplyingHistory = wasApplying }
-
-        var applied: AppliedTransaction!
-        proseStorage.withOrigin(.history) {
-            applied = transaction.apply(to: textStorage, env: env, sequential: true)
-            // Replay skips normalization so the identities the pre-image
-            // carries survive. The marker rule doesn't touch identity: a
-            // glyph on a line that is not a list item is a stray character
-            // however the line came to be.
-            cutStrandedListMarkers(in: applied.mappedRange)
-            validate(in: applied.mappedRange.clamped(to: textStorage.length))
-        }
-        invalidateForOutOfBandSubtree(applied)
-        ensureTrailingParagraph()
-        accumulateHighlightRange(applied.mappedRange)
-        scheduleCodeBlockRehighlight()
-        intrinsicSizeInvalidator?()
+        commandDepth -= 1
+        if opensGroup { manager.endUndoGrouping() }
+        if applied, let selection { setSelection(selection) }
+        flushDocumentChanges()
         return applied
     }
 
-    /// Run `body` as one undoable character mutation.
-    ///
-    /// The pre-image of `range` *is* the inverse — it carries the original
-    /// attributes, `NodePathBox` references included, so undo restores node
-    /// identity rather than re-deriving it.
-    func withCharacterMutation(
-        range: NSRange,
-        demoteEmptyLines: Bool = true,
-        _ body: () -> Void
-    ) {
-        drainPendingEnvelopes()
-        let preLength = textStorage.length
-        let preRange = range.clamped(to: preLength)
-        let pre = textStorage.attributedSubstring(from: preRange)
-        let preSelection = currentSelection
-        let outerCollecting = collectingInverses
-        collectingInverses = []
-        proseStorage.withOrigin(.transaction) { body() }
-        let delta = textStorage.length - preLength
-        let postRange = NSRange(location: preRange.location, length: max(0, preRange.length + delta))
-
-        normalizeAfterEdit(
-            in: postRange,
-            scrub: false,
-            demoteEmptyLines: demoteEmptyLines,
-            writtenSpans: [
-                writtenSpan(
-                    replacing: pre.string as NSString,
-                    at: preRange.location,
-                    insertedLength: max(0, preRange.length + delta)
-                )
-            ].compactMap { $0 }
-        )
-        clearStoredInlineMarks()
-        let normalizationInverses = collectingInverses ?? []
-        collectingInverses = outerCollecting
-
-        // A programmatic mutation always opens its own undo unit.
-        closeTypingRecord()
-        registerOrJoin(
-            inverseSteps: normalizationInverses
-                + [.replaceText(range: postRange.clamped(to: textStorage.length), with: pre)],
-            selectionBefore: preSelection,
-            selectionAfter: currentSelection,
-            touched: postRange,
-            at: historyClock(),
-            coalescing: false
-        )
-        // Plugins' append transactions (auto-link, completion) run for
-        // programmatic insertion; input rules do not. A rule that rewrites
-        // what a host just inserted is not what the host asked for.
-        let step = Step.replaceText(
-            range: preRange,
-            with: textStorage.attributedSubstring(from: postRange.clamped(to: textStorage.length))
-        )
-        runAppendTransactions(after: [Transaction(steps: [step])])
-    }
-
-    /// Run `body` as one undoable attribute mutation. Same mechanism as
-    /// `withCharacterMutation` — the pre-image restores the attributes.
-    func withAttributeMutation(range: NSRange, _ body: () -> Void) {
-        let safe = range.clamped(to: textStorage.length)
-        let pre = textStorage.attributedSubstring(from: safe)
-        let preSelection = currentSelection
-        proseStorage.withOrigin(.transaction) { body() }
-        closeTypingRecord()
-        registerOrJoin(
-            inverseSteps: [.replaceText(range: safe.clamped(to: textStorage.length), with: pre)],
-            selectionBefore: preSelection,
-            selectionAfter: currentSelection,
-            touched: safe,
-            at: historyClock(),
-            coalescing: false
-        )
-    }
-
-    /// After programmatic storage edits, NSTextView's `typingAttributes`
-    /// can still hold attributes from the prior content (heading font,
-    /// bullet marker color, etc.). Re-derive them from the storage at the
-    /// cursor — or fall back to plain paragraph defaults when storage is
-    /// empty — so the user's next keystroke renders as expected.
-    private func refreshTypingAttributes(at location: Int) {
-        let total = textStorage.length
-        var attrs = theme.plainParagraphAttributes()
-        if total > 0 {
-            let probe = max(0, min(location, total - 1))
-            var raw = textStorage.safeAttributes(at: probe)
-            // The caret sitting just past an inline leaf probes the leaf's own
-            // character; typing there must not extend the leaf's path onto the
-            // new text.
-            if let box = raw[.proseNodePath] as? NodePathBox,
-               InlineLeafRuns.isLiftable(box.path.leaf) {
-                raw[.proseNodePath] = NodePathBox(box.path.droppingLast())
-            }
-            // Carry forward only the paragraph-level attributes. Inline-only
-            // flags (.proseListMarker, .proseInline, .attachment, .link,
-            // .proseLink, .strikethroughStyle) deliberately do not appear in
-            // this whitelist so they cannot bleed into typed text.
-            let onLink = raw[.link] != nil || raw[.proseLink] != nil
-            // `.font` and `.proseMarks` are what render an inline mark, so
-            // they come from the mark probe; the block-level attributes
-            // stay on the caret's own character.
-            let markRaw = textStorage.safeAttributes(at: inclusiveMarkProbe(at: location, total: total))
-            for key in EditorController.carryForwardAttributeKeys {
-                if onLink && key == .foregroundColor { continue }
-                let source = (key == .font || key == .proseMarks) ? markRaw : raw
-                if let v = source[key] { attrs[key] = v }
-            }
-            // Inline-code carry-forward is gated on the cursor sitting
-            // strictly inside an existing code span — the chars on both
-            // sides must already be tagged. Typing at the trailing edge
-            // (after `code` but before the next char) doesn't extend the
-            // span, matching PM's non-inclusive `code` mark behavior.
-            if isInsideCodeSpan(at: location) {
-                attrs[.proseInline] = InlineTag.codeSpan
-            }
-        }
-        if let anchor = storedMarksAnchor, anchor == location, !storedInlineMarks.isEmpty {
-            attrs = applyingStoredMarks(to: attrs)
-        } else if !storedInlineMarks.isEmpty {
-            clearStoredInlineMarks()
-        }
-        applyTypingAttributes(attrs)
-    }
-
-    /// PM `ResolvedPos.marks()`: at a run boundary a typed character takes
-    /// the marks of the character *before* the caret, so typing at the
-    /// trailing edge of a bold run extends it — `strong` is inclusive.
-    ///
-    /// The probe stays on the caret's own line: the character before a line
-    /// start belongs to another block. It steps back only when every mark
-    /// that would come with it is inclusive — `link` is not, and neither is
-    /// `code`, whose `excludesAll` means a code character carries nothing
-    /// else and so can be refused wholesale.
-    private func inclusiveMarkProbe(at location: Int, total: Int) -> Int {
-        let here = max(0, min(location, total - 1))
-        guard location > 0, location <= total else { return here }
-        let before = location - 1
-        guard (textStorage.string as NSString).character(at: before) != 0x0A else { return here }
-        let beforeMarks = textStorage.markSet(at: before) ?? MarkSet()
-        let hereMarks = location < total
-            ? (textStorage.markSet(at: location) ?? MarkSet())
-            : MarkSet()
-        for mark in beforeMarks.marks where !hereMarks.contains(type: mark.type) {
-            if mark.type == "code" { return here }
-            if compiler.schema.markType(mark.type)?.inclusive == false { return here }
-        }
-        return before
-    }
-
-    private func isInsideCodeSpan(at location: Int) -> Bool {
-        let total = textStorage.length
-        guard total > 0, location > 0, location < total else { return false }
-        let before = textStorage.safeAttribute(.proseInline, at: location - 1) as? InlineTag
-        let after = textStorage.safeAttribute(.proseInline, at: location) as? InlineTag
-        return before == .codeSpan && after == .codeSpan
-    }
-
-    private func applyingStoredMarks(
-        to base: [NSAttributedString.Key: Any]
-    ) -> [NSAttributedString.Key: Any] {
-        var attrs = base
-        let baseFont = (attrs[.font] as? PlatformFont) ?? theme.bodyFont
-        var font = baseFont
-        if storedInlineMarks.contains(.codeSpan) {
-            font = theme.monospaceFont
-            attrs[.proseInline] = InlineTag.codeSpan
-        }
-        if storedInlineMarks.contains(.bold) {
-            font = font.togglingProseTrait(.bold, enable: true)
-        }
-        if storedInlineMarks.contains(.italic) {
-            font = font.togglingProseTrait(.italic, enable: true)
-        }
-        attrs[.font] = font
-        if storedInlineMarks.contains(.strikethrough) {
-            attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-        }
-        // The canonical store as well as the rendering one. Projecting only
-        // fonts left typed characters serializing as bold — `markdown()`
-        // re-derives from the font — while `storage.markSet(at:)` saw plain
-        // text. `adding(_:in:)` applies the schema's excludes.
-        var marks = (base[.proseMarks] as? MarkSetBox)?.marks ?? MarkSet()
-        for stored in storedInlineMarks {
-            marks = marks.adding(ProseMark(type: stored.markName), in: Schema.defaultMarkdown)
-        }
-        attrs[.proseMarks] = MarkSetBox(marks)
-        return attrs
-    }
-
-
     @discardableResult
-    public func toggleCheckbox(at location: Int) -> Bool {
-        guard isEditable || allowsCheckboxToggle else { return false }
-        drainPendingEnvelopes()
-        let total = textStorage.length
-        guard location >= 0, location < total else { return false }
-        guard let existing = textStorage.safeAttribute(.attachment, at: location) as? CheckboxAttachment,
-              let spec = textStorage.blockSpec(at: location) else { return false }
-        guard case .taskListItem = spec.kind else { return false }
-        let newChecked = !existing.isChecked
-        let newAttachment = CheckboxAttachment()
-        newAttachment.isChecked = newChecked
-        let newSpec = BlockSpec(
-            kind: .taskListItem(checked: newChecked),
-            blockquoteDepth: spec.blockquoteDepth,
-            listLevel: spec.listLevel
-        )
-        let ns = textStorage.string as NSString
-        let lineRange = ns.paragraphRange(for: NSRange(location: location, length: 0))
-        withAttributeMutation(range: lineRange) {
-            textStorage.beginEditing()
-            textStorage.addAttribute(.attachment, value: newAttachment, range: NSRange(location: location, length: 1))
-            textStorage.setBlockSpec(newSpec, in: lineRange)
-            textStorage.endEditing()
+    func replace(
+        _ range: NSRange,
+        with replacement: NSAttributedString,
+        actionName: String,
+        selection: NSRange?,
+        ignoringEditability: Bool = false
+    ) -> Bool {
+        let target = Normalizer.clamp(range, to: textStorage.length)
+        return performEdit(
+            actionName,
+            ranges: [target],
+            replacements: [replacement.string],
+            ignoringEditability: ignoringEditability,
+            selection: selection
+        ) { storage in
+            storage.replaceCharacters(in: target, with: replacement)
         }
-        return true
-    }
-
-    /// Move the cursor out of the current code block. If the block is empty,
-    /// remove it entirely. If non-empty, insert a fresh paragraph after it
-    /// and place the cursor there. Returns false when the cursor isn't in
-    /// a code block. Wired to `Mod-Enter` (PM convention) by the host.
-    @discardableResult
-    public func exitCodeBlock() -> Bool {
-        drainPendingEnvelopes()
-        let total = textStorage.length
-        guard total > 0 else { return false }
-        let cursor = currentSelection.location
-        let probe = max(0, min(cursor, total - 1))
-        guard textStorage.blockSpec(at: probe)?.isCodeBlock == true else {
-            return false
-        }
-        var blockStart = probe
-        while blockStart > 0,
-              textStorage.blockSpec(at: blockStart - 1)?.isCodeBlock == true {
-            blockStart -= 1
-        }
-        var blockEnd = probe
-        while blockEnd < total,
-              textStorage.blockSpec(at: blockEnd)?.isCodeBlock == true {
-            blockEnd += 1
-        }
-        let blockRange = NSRange(location: blockStart, length: blockEnd - blockStart)
-        let bodyText = (textStorage.string as NSString).substring(with: blockRange)
-        let isEmpty = bodyText
-            .replacingOccurrences(of: "\n", with: "")
-            .trimmingCharacters(in: .whitespaces)
-            .isEmpty
-
-        let plainAttrs = theme.plainParagraphAttributes()
-        let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
-        let mutationRange: NSRange
-        let landing: Int
-        if isEmpty {
-            mutationRange = blockRange
-            landing = blockStart
-        } else {
-            mutationRange = NSRange(location: blockEnd, length: 0)
-            landing = blockEnd
-        }
-        withCharacterMutation(range: mutationRange) {
-            proseStorage.withOrigin(.transaction) {
-                textStorage.beginEditing()
-                textStorage.replaceCharacters(in: mutationRange, with: blank)
-                textStorage.endEditing()
-            }
-            scheduleCodeBlockRehighlight()
-            intrinsicSizeInvalidator?()
-        }
-        let landingRange = NSRange(location: landing, length: 0)
-        installSelection(landingRange)
-        applyTypingAttributes(plainAttrs)
-        return true
     }
 
     @discardableResult
-    public func handleNewline() -> Bool {
-        drainPendingEnvelopes()
-        if handleNewlineAtIsolatingBlock() { return true }
-        let cursor = currentSelection.location
-        let ns = textStorage.string as NSString
-        if textStorage.length > 0 {
-            let probe = max(0, min(cursor, ns.length - 1))
-            let lineRange = ns.paragraphRange(for: NSRange(location: probe, length: 0))
-            let spec = textStorage.blockSpec(at: probe)
-            let isListItem = spec?.isListItem ?? false
-            let isBlockquote = !isListItem && (spec?.blockquoteDepth ?? 0) > 0
-            let orphanEmpty = !isListItem && !isBlockquote && isOrphanedEmptyMarkerLine(lineRange: lineRange)
-
-            if isListItem {
-                var resulting: NSRange?
-                withCharacterMutation(range: lineRange) {
-                    proseStorage.withOrigin(.transaction) {
-                        resulting = InsertNewline.handle(
-                            in: textStorage,
-                            selection: currentSelection,
-                            compiler: compiler,
-                            serializer: serializer,
-                            theme: theme
-                        )
-                    }
-                    scheduleCodeBlockRehighlight()
-                    intrinsicSizeInvalidator?()
-                }
-                if let result = resulting {
-                    setHostSelection(result)
-                    refreshTypingAttributes(at: result.location)
-                    return true
-                }
-            } else if isBlockquote {
-                let result = handleBlockquoteNewline(lineRange: lineRange, depth: spec?.blockquoteDepth ?? 1)
-                setHostSelection(result)
-                refreshTypingAttributes(at: result.location)
-                return true
-            } else if orphanEmpty {
-                let result = demoteOrphanLineToPlain(lineRange: lineRange)
-                setHostSelection(result)
-                refreshTypingAttributes(at: result.location)
-                return true
-            }
-        }
-        if isHeadingAt(location: cursor) {
-            return splitHeadingIntoParagraph(at: cursor)
-        }
-        return false
-    }
-
-    private func handleBlockquoteNewline(lineRange: NSRange, depth: Int) -> NSRange {
-        let ns = textStorage.string as NSString
-        let lineText = lineRange.length > 0 ? ns.substring(with: lineRange) : ""
-        let stripped = lineText
-            .replacingOccurrences(of: "\u{FFFC}", with: "")
-            .replacingOccurrences(of: "\n", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        if stripped.isEmpty {
-            // Empty blockquote line — exit to plain paragraph at this line.
-            let plainAttrs = theme.plainParagraphAttributes()
-            let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
-            withCharacterMutation(range: lineRange) {
-                proseStorage.withOrigin(.transaction) {
-                    textStorage.beginEditing()
-                    textStorage.replaceCharacters(in: lineRange, with: blank)
-                    textStorage.endEditing()
-                }
-                scheduleCodeBlockRehighlight()
-                intrinsicSizeInvalidator?()
-            }
-            applyTypingAttributes(plainAttrs)
-            return NSRange(location: lineRange.location, length: 0)
-        }
-        // Continuation: append a fresh empty blockquote line after this one.
-        // The demotion pass is skipped for it — the line is empty by
-        // construction, and "an empty styled line goes back to plain" would
-        // strip the quote depth this just wrote.
-        let nextLine = compiler.makeBlockquoteLine(depth: depth, theme: theme)
-        let insertLocation = lineRange.location + lineRange.length
-        withCharacterMutation(
-            range: NSRange(location: insertLocation, length: 0),
-            demoteEmptyLines: false
-        ) {
-            proseStorage.withOrigin(.transaction) {
-                textStorage.beginEditing()
-                textStorage.replaceCharacters(in: NSRange(location: insertLocation, length: 0), with: nextLine)
-                textStorage.endEditing()
-            }
-            scheduleCodeBlockRehighlight()
-            intrinsicSizeInvalidator?()
-        }
-        let cursor = insertLocation + nextLine.length - 1
-        return NSRange(location: max(insertLocation, cursor), length: 0)
-    }
-
-    private func isOrphanedEmptyMarkerLine(lineRange: NSRange) -> Bool {
-        let total = textStorage.length
-        guard total > 0,
-              lineRange.location > 0,
-              lineRange.location <= total,
-              lineRange.location + lineRange.length <= total else {
-            return false
-        }
-        let prev = lineRange.location - 1
-        guard prev < total,
-              let prevSpec = textStorage.blockSpec(at: prev),
-              prevSpec.isListItem else {
-            return false
-        }
-        let ns = textStorage.string as NSString
-        let stripped = ns.substring(with: lineRange)
-            .replacingOccurrences(of: "\u{FFFC}", with: "")
-            .replacingOccurrences(of: "\n", with: "")
-        // Require a literal marker character (-, *, +, digit+. , a-z+. , roman+. )
-        // to be present. Otherwise a plain paragraph following a list would be
-        // misclassified as orphaned and consume Returns.
-        let pattern = "^\\s*([-*+]|\\d+[.)]|[a-z]+[.)]|[ivxlcdm]+[.)])\\s*(\\[[ xX]\\]\\s*)?\\s*$"
-        return stripped.range(of: pattern, options: .regularExpression) != nil
-    }
-
-    private func demoteOrphanLineToPlain(lineRange: NSRange) -> NSRange {
-        let plainAttrs = theme.plainParagraphAttributes()
-        let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
-        withCharacterMutation(range: lineRange) {
-            proseStorage.withOrigin(.transaction) {
-                textStorage.beginEditing()
-                textStorage.replaceCharacters(in: lineRange, with: blank)
-                textStorage.endEditing()
-            }
-            scheduleCodeBlockRehighlight()
-            intrinsicSizeInvalidator?()
-        }
-        applyTypingAttributes(plainAttrs)
-        return NSRange(location: lineRange.location, length: 0)
-    }
-
-    @discardableResult
-    public func handleBackspace() -> Bool {
-        drainPendingEnvelopes()
-        // PM convention: Backspace right after an input rule fired undoes
-        // the rule rather than deleting a character.
-        if undoInputRule() { return true }
+    func editAttributes(
+        in range: NSRange,
+        actionName: String,
+        ignoringEditability: Bool = false,
+        _ body: (NSTextStorage) -> Void
+    ) -> Bool {
+        let target = Normalizer.clamp(range, to: textStorage.length)
+        guard target.length > 0 else { return false }
         let selection = currentSelection
-        guard selection.length == 0 else { return false }
-        let cursor = selection.location
+        let applied = performEdit(
+            actionName,
+            ranges: [target],
+            replacements: nil,
+            ignoringEditability: ignoringEditability,
+            selection: selection,
+            body
+        )
+        if applied { refreshTypingAttributes(afterEditing: target, caret: selection) }
+        return applied
+    }
+
+    private func refreshTypingAttributes(afterEditing target: NSRange, caret selection: NSRange) {
+        guard selection.length == 0, !hostHasMarkedText else { return }
+        let info = paragraphInfo(at: selection.location)
+        guard !info.isTrailingEmpty, NSIntersectionRange(info.range, target).length > 0 else { return }
+        let current = hostTypingAttributes
+        guard !info.block.isCode else {
+            applyTypingAttributes(typingAttributes(for: info.block, textLists: info.lists))
+            return
+        }
+        var updated = typingAttributes(
+            for: info.block,
+            textLists: info.lists,
+            intent: current.markdownInlineIntent.intersection(.markdownMarks)
+        )
+        if let link = current[.link], selection.location > info.content.location,
+           let before = textStorage.attribute(.link, at: selection.location - 1, effectiveRange: nil),
+           (before as AnyObject).isEqual(link) {
+            updated[.link] = link
+        }
+        applyTypingAttributes(updated)
+    }
+
+    func deferEdit(_ work: @escaping () -> Void) {
+        deferredEdits.append(work)
+        guard !deferredDrainScheduled else { return }
+        deferredDrainScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.drainDeferredEdits()
+        }
+    }
+
+    package func drainDeferredEdits() {
+        deferredDrainScheduled = false
+        while !deferredEdits.isEmpty {
+            let work = deferredEdits.removeFirst()
+            work()
+        }
+    }
+
+    var hasPendingDocumentChange: Bool { pendingChange != nil }
+
+    package func flushDocumentChanges() {
+        refreshInlineContentIfNeeded()
+        guard let change = pendingChange else { return }
+        pendingChange = nil
+        invalidateDecorations(after: change, isParagraphLocal: pendingChangeIsParagraphLocal)
+        fanoutDocumentChange(change)
+        if change.origin == .user { scheduleInputRules() }
+    }
+
+    func invalidateDecorations(after change: DocumentChange, isParagraphLocal: Bool = false) {
         let total = textStorage.length
-        guard total > 0, cursor >= 0, cursor <= total else { return false }
-        if deleteEmptyCodeBlockAtCursor(cursor: cursor) { return true }
-        // List-item demotion needs the char before the cursor; skip when
-        // the cursor is at the start of the document.
-        guard cursor > 0 else { return false }
+        guard change.origin != .load, total > 0, !isParagraphLocal else { return }
         let ns = textStorage.string as NSString
-        let lineRange = ns.paragraphRange(for: NSRange(location: max(0, cursor - 1), length: 0))
-        guard lineRange.length > 0,
-              lineRange.location + lineRange.length <= total,
-              lineRange.location < total else {
-            return false
+        let edited = Normalizer.clamp(change.editedRange, to: total)
+        if change.origin == .user, change.changeInLength == edited.length,
+           ns.substring(with: edited).rangeOfCharacter(from: .newlines) == nil {
+            return
         }
-        let probe = max(lineRange.location, min(cursor - 1, total - 1))
-        guard probe < total,
-              let probeSpec = textStorage.blockSpec(at: probe),
-              probeSpec.isListItem else {
-            return false
+        var start = ns.paragraphRange(for: NSRange(location: edited.location, length: 0)).location
+        if start > 0 { start = ns.paragraphRange(for: NSRange(location: start - 1, length: 0)).location }
+        var end = NSMaxRange(ns.paragraphRange(for: NSRange(location: min(NSMaxRange(edited), total), length: 0)))
+        if end < total { end = NSMaxRange(ns.paragraphRange(for: NSRange(location: end, length: 0))) }
+        while end < total {
+            let paragraph = ns.paragraphRange(for: NSRange(location: end, length: 0))
+            guard !MarkdownTextList.effectiveTextLists(in: textStorage, at: paragraph.location).isEmpty else { break }
+            end = NSMaxRange(paragraph)
         }
-        var markerRange = NSRange(location: lineRange.location, length: 0)
-        _ = textStorage.safeAttribute(.proseListMarker, at: lineRange.location, longestEffectiveRange: &markerRange, in: lineRange)
-        guard let flag = textStorage.safeAttribute(.proseListMarker, at: lineRange.location) as? Bool, flag else {
-            return false
-        }
-        let bodyStart = markerRange.location + markerRange.length
-        guard cursor == bodyStart else { return false }
-
-        let plainAttrs = theme.plainParagraphAttributes()
-        let bodyRange = NSRange(location: bodyStart, length: lineRange.length - markerRange.length)
-        withCharacterMutation(range: lineRange) {
-            proseStorage.withOrigin(.transaction) {
-                textStorage.beginEditing()
-                textStorage.replaceCharacters(in: markerRange, with: "")
-                let demoteRange = NSRange(location: lineRange.location, length: bodyRange.length)
-                if demoteRange.length > 0 {
-                    textStorage.setAttributes(plainAttrs, range: demoteRange)
-                }
-                textStorage.endEditing()
-            }
-            scheduleCodeBlockRehighlight()
-        }
-        setHostSelection(NSRange(location: lineRange.location, length: 0))
-        applyTypingAttributes(plainAttrs)
-        return true
+        let docStart = textContentStorage.documentRange.location
+        guard let from = textContentStorage.location(docStart, offsetBy: start),
+              let to = textContentStorage.location(docStart, offsetBy: end),
+              let range = NSTextRange(location: from, end: to) else { return }
+        textLayoutManager.invalidateLayout(for: range)
+        requestHostRedisplay()
     }
 
-    /// Forward-delete inside an empty code block: drop the whole block in
-    /// one keystroke instead of leaving a zero-length code-leaf carcass.
-    /// Wired to the host's `deleteForward:` command.
-    @discardableResult
-    public func handleForwardDelete() -> Bool {
-        drainPendingEnvelopes()
-        let selection = currentSelection
-        guard selection.length == 0 else { return false }
-        return deleteEmptyCodeBlockAtCursor(cursor: selection.location)
-    }
-
-    /// Backspace or forward-delete inside an empty code block: drop the
-    /// whole block. Mirrors ProseMirror's `selectNodeBackward` for atomic
-    /// blocks. Returns `true` when handled so the host text view skips its
-    /// default delete.
-    private func deleteEmptyCodeBlockAtCursor(cursor: Int) -> Bool {
-        let total = textStorage.length
-        guard cursor < total,
-              textStorage.blockSpec(at: cursor)?.isCodeBlock == true else {
-            return false
-        }
-        var blockStart = cursor
-        while blockStart > 0,
-              textStorage.blockSpec(at: blockStart - 1)?.isCodeBlock == true {
-            blockStart -= 1
-        }
-        var blockEnd = cursor
-        while blockEnd < total,
-              textStorage.blockSpec(at: blockEnd)?.isCodeBlock == true {
-            blockEnd += 1
-        }
-        guard cursor == blockStart else { return false }
-        let blockRange = NSRange(location: blockStart, length: blockEnd - blockStart)
-        let bodyText = (textStorage.string as NSString).substring(with: blockRange)
-        let isEmpty = bodyText
-            .replacingOccurrences(of: "\n", with: "")
-            .trimmingCharacters(in: .whitespaces)
-            .isEmpty
-        guard isEmpty else { return false }
-        withCharacterMutation(range: blockRange) {
-            proseStorage.withOrigin(.transaction) {
-                textStorage.beginEditing()
-                textStorage.replaceCharacters(in: blockRange, with: "")
-                textStorage.endEditing()
-            }
-            scheduleCodeBlockRehighlight()
-            intrinsicSizeInvalidator?()
-        }
-        setHostSelection(NSRange(location: blockStart, length: 0))
-        applyTypingAttributes(theme.plainParagraphAttributes())
-        return true
-    }
-
-    private func isHeadingAt(location: Int) -> Bool {
-        let total = textStorage.length
-        guard total > 0 else { return false }
-        let probe = max(0, min(location, total - 1))
-        guard let spec = textStorage.blockSpec(at: probe) else { return false }
-        if case .heading = spec.kind { return true }
-        return false
-    }
-
-    private func splitHeadingIntoParagraph(at cursor: Int) -> Bool {
-        let ns = textStorage.string as NSString
-        let lineRange = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
-        let trailingLength = max(0, lineRange.location + lineRange.length - cursor)
-
-        let plainAttrs = theme.plainParagraphAttributes()
-        let inserted = NSAttributedString(string: "\n", attributes: plainAttrs)
-
-        withCharacterMutation(range: lineRange) {
-            textStorage.beginEditing()
-            textStorage.replaceCharacters(in: NSRange(location: cursor, length: 0), with: inserted)
-            if trailingLength > 0 {
-                let trailingRange = NSRange(location: cursor + 1, length: trailingLength)
-                textStorage.addAttributes(plainAttrs, range: trailingRange)
-            }
-            textStorage.endEditing()
-        }
-        setHostSelection(NSRange(location: cursor + 1, length: 0))
-        return true
-    }
-
-    private func setHostSelection(_ range: NSRange) {
-        let safe = range.clamped(to: textStorage.length)
+    func applyThemeToHost() {
+        guard let hostTextView else { return }
+        let inset = theme.textContainerInset
         #if canImport(AppKit) && os(macOS)
-        if let tv = hostTextView as? NSTextView { tv.setSelectedRange(safe) }
+        if hostTextView.textContainerInset != inset {
+            hostTextView.textContainerInset = inset
+        }
+        (hostTextView as? ProseNSTextView)?.updateCodeBlockBgLayerFill()
         #elseif canImport(UIKit)
-        if let tv = hostTextView as? UITextView { tv.selectedRange = safe }
+        let insets = UIEdgeInsets(top: inset.height, left: inset.width, bottom: inset.height, right: inset.width)
+        if hostTextView.textContainerInset != insets {
+            hostTextView.textContainerInset = insets
+        }
+        (hostTextView as? ProseUITextView)?.updateCodeBlockBgLayerFill()
         #endif
     }
 
-    /// Set the host text view's selection to `range`. Use this to restore a
-    /// selection captured before a focus-stealing UI (sheet, popover, picker)
-    /// took over, so a subsequent `insertLink` / `insert(text:)` lands at the
-    /// intended position rather than wherever the resigned-first-responder
-    /// text view ended up reporting.
-    public func setSelection(_ range: NSRange) {
-        setHostSelection(range)
-    }
-
-    // MARK: - private
-
-    private func compileFor(_ markdown: String) -> NSAttributedString {
-        return compiler.compile(markdown, theme: theme)
-    }
-
-    /// Invalidate the storage range hosting a specific table
-    /// attachment so TextKit 2 re-queries its `attachmentBounds` —
-    /// fired by `TableAttachmentViewProvider` whenever the realized
-    /// `TableBlockView` reports a new intrinsic size after a cell edit
-    /// or structural mutation.
-    ///
-    /// In `.fitsContent` mode `intrinsicSizeInvalidator` triggers the
-    /// host's layout pipeline to re-read `usageBoundsForTextContainer`.
-    /// In `.fillContainer` mode no invalidator is wired, so this method
-    /// also calls `ensureLayout` on the document range and nudges the
-    /// host text view directly — without that, the line fragment
-    /// hosting the table keeps its old height and the scroll view's
-    /// content size never widens to fit the taller table.
-    private func propagateIsEditableToTables() {
-        guard textStorage.length > 0 else { return }
-        let fullRange = NSRange(location: 0, length: textStorage.length)
-        textStorage.enumerateAttribute(
-            NSAttributedString.Key("NSAttachment"),
-            in: fullRange
-        ) { value, _, _ in
-            guard let att = value as? ProseNodeAttachment,
-                  let view = att.boundView else { return }
-            view.isEditable = self.isEditable
-        }
-    }
-
-    func invalidateTableAttachmentLayout(_ attachment: ProseNodeAttachment) {
-        guard textStorage.length > 0 else { return }
-        let fullRange = NSRange(location: 0, length: textStorage.length)
-        var hits: [NSRange] = []
-        textStorage.enumerateAttribute(
-            NSAttributedString.Key("NSAttachment"),
-            in: fullRange
-        ) { value, range, _ in
-            guard let att = value as? ProseNodeAttachment, att === attachment else { return }
-            hits.append(range)
-        }
-        guard !hits.isEmpty else { return }
-        let docStart = contentStorage.documentRange.location
-        for range in hits {
-            guard let start = contentStorage.location(docStart, offsetBy: range.location),
-                  let end = contentStorage.location(docStart, offsetBy: range.location + range.length),
-                  let textRange = NSTextRange(location: start, end: end) else { continue }
-            layoutManager.invalidateLayout(for: textRange)
-        }
-        // Force the layout manager to re-run the invalidated fragment
-        // synchronously so `attachmentBounds` is queried with the
-        // attachment's new subtree before any caller reads
-        // `usageBoundsForTextContainer`.
-        layoutManager.ensureLayout(for: contentStorage.documentRange)
-        intrinsicSizeInvalidator?()
-        // `.fillContainer` mode never wires `intrinsicSizeInvalidator`,
-        // and even in `.fitsContent` mode the text view's frame doesn't
-        // re-read the new `usageBoundsForTextContainer` until a layout
-        // pass kicks off. Mark the host as needing layout / display so
-        // the scroll view (or intrinsic-size driven container) reflows
-        // around the taller table on the next runloop tick.
+    func requestHostRedisplay() {
         #if canImport(AppKit) && os(macOS)
-        if let tv = hostTextView as? NSTextView {
-            tv.needsLayout = true
-            tv.needsDisplay = true
-            // In `.fillContainer` (NSScrollView), NSTextView's auto-
-            // resize fires on character edits. Our attribute-only
-            // attachment mutation doesn't trigger it, so the text view
-            // keeps its old frame and the scroll view never widens to
-            // expose the taller table. Push the frame up to the layout
-            // manager's reported usage now.
-            let used = layoutManager.usageBoundsForTextContainer
-            let inset = tv.textContainerInset
-            let neededHeight = used.height + inset.height * 2
-            if tv.frame.height < neededHeight - 0.5 {
-                var newFrame = tv.frame
-                newFrame.size.height = neededHeight
-                tv.frame = newFrame
-            }
-        }
-        #else
-        if let tv = hostTextView as? UITextView {
-            tv.setNeedsLayout()
-            tv.setNeedsDisplay()
-            // UITextView caches contentSize from its layout; nudge it
-            // when the layout grew but no character edit fired.
-            let used = layoutManager.usageBoundsForTextContainer
-            let inset = tv.textContainerInset
-            let neededHeight = used.height + inset.top + inset.bottom
-            if tv.contentSize.height < neededHeight - 0.5 {
-                tv.contentSize = CGSize(
-                    width: tv.contentSize.width,
-                    height: neededHeight
-                )
-            }
-        }
+        hostTextView?.needsLayout = true
+        hostTextView?.needsDisplay = true
+        #elseif canImport(UIKit)
+        hostTextView?.setNeedsLayout()
+        hostTextView?.setNeedsDisplay()
         #endif
     }
 
-    /// Invalidate layout for every range that hosts a table attachment
-    /// so TextKit 2 re-queries `attachmentBounds` against the current
-    /// container width. The host text view calls this from
-    /// `sizeThatFits` on resize.
-    public func scheduleTableHeightStamp(containerWidth: CGFloat) {
-        guard textStorage.length > 0 else { return }
-        var ranges: [NSTextRange] = []
-        textStorage.enumerateNodePaths { runRange, path in
-            guard path.leaf?.type == "table" else { return }
-            let docStart = contentStorage.documentRange.location
-            guard let start = contentStorage.location(docStart, offsetBy: runRange.location),
-                  let end = contentStorage.location(docStart, offsetBy: runRange.location + runRange.length),
-                  let textRange = NSTextRange(location: start, end: end) else { return }
-            ranges.append(textRange)
-        }
-        for range in ranges {
-            layoutManager.invalidateLayout(for: range)
+    public func textContentStorage(
+        _ textContentStorage: NSTextContentStorage,
+        textParagraphWith range: NSRange
+    ) -> NSTextParagraph? {
+        guard range.length > 0, NSMaxRange(range) <= textStorage.length,
+              let style = textStorage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle,
+              !style.textLists.isEmpty,
+              let stripped = style.mutableCopy() as? NSMutableParagraphStyle else { return nil }
+        stripped.textLists = []
+        let element = NSMutableAttributedString(attributedString: textStorage.attributedSubstring(from: range))
+        element.addAttribute(.paragraphStyle, value: stripped, range: NSRange(location: 0, length: element.length))
+        return NSTextParagraph(attributedString: element)
+    }
+
+    private func scheduleFlush() {
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.flushScheduled = false
+            self.flushDocumentChanges()
         }
     }
 
-    private func replaceStorage(with attributed: NSAttributedString) {
-        // Storage mutations and the host text view both require main-thread
-        // access — but headless callers (unit tests, programmatic users
-        // without a host attached) may legitimately drive the controller
-        // from any thread. Only enforce the main-thread invariant when a
-        // host is attached; the async setMarkdown path explicitly marshals
-        // back to main before reaching here.
-        if hostTextView != nil {
-            precondition(Thread.isMainThread,
-                         "replaceStorage must be called on the main thread when a host text view is attached")
-        }
-        let priorSelection = currentSelection
-        proseStorage.withOrigin(.load) {
-            let total = NSRange(location: 0, length: textStorage.length)
-            textStorage.beginEditing()
-            textStorage.replaceCharacters(in: total, with: attributed)
-            textStorage.endEditing()
-        }
-        ensureTrailingParagraph()
-        scheduleCodeBlockRehighlight()
-        // Replacing all characters resets the host text view's caret to the
-        // document end; restore the prior offset (clamped) so an external
-        // setMarkdown / recompile / theme change doesn't move the cursor.
-        setHostSelection(priorSelection)
-        refreshTypingAttributes(at: priorSelection.clamped(to: textStorage.length).location)
-    }
-
-    /// Append an empty paragraph after the last block when that block is
-    /// atomic (code, hr, table, html, link reference), giving tap/click and
-    /// keyboard navigation a paragraph to land in. Empty paragraphs don't
-    /// materialize in markdown serialization, so the invariant has no
-    /// round-trip cost.
-    private func ensureTrailingParagraph() {
-        let total = textStorage.length
-        guard total > 0 else { return }
-        guard let path = textStorage.nodePath(at: total - 1) else { return }
-        let isAtomic: Bool
-        if let leaf = path.leaf,
-           ["code_block", "horizontal_rule", "html_block", "link_reference"].contains(leaf.type) {
-            isAtomic = true
+    private func recordChange(_ editedRange: NSRange, delta: Int, origin: DocumentChange.Origin, isParagraphLocal: Bool) {
+        pendingChangeIsParagraphLocal = isParagraphLocal && (pendingChange == nil || pendingChangeIsParagraphLocal)
+        if let existing = pendingChange {
+            pendingChange = DocumentChange(
+                editedRange: existing.editedRange.merged(withEdit: editedRange, changeInLength: delta),
+                changeInLength: existing.changeInLength + delta,
+                origin: existing.origin == origin ? origin : (origin == .user ? existing.origin : origin)
+            )
         } else {
-            isAtomic = path.nodes.contains { $0.type == "table" }
-        }
-        guard isAtomic else { return }
-        let plainAttrs = theme.plainParagraphAttributes()
-        let blank = NSAttributedString(string: "\n", attributes: plainAttrs)
-        proseStorage.withOrigin(.normalize, capturing: true) {
-            textStorage.beginEditing()
-            textStorage.replaceCharacters(in: NSRange(location: total, length: 0), with: blank)
-            textStorage.endEditing()
+            pendingChange = DocumentChange(editedRange: editedRange, changeInLength: delta, origin: origin)
         }
     }
 
-    /// Union the freshly-edited range into `pendingHighlightRange` so the
-    /// next rehighlight pass knows which code blocks to re-color.
-    private func accumulateHighlightRange(_ range: NSRange) {
-        guard range.location != NSNotFound else { return }
-        if let existing = pendingHighlightRange {
-            let lo = min(existing.location, range.location)
-            let hi = max(existing.location + existing.length, range.location + range.length)
-            pendingHighlightRange = NSRange(location: lo, length: hi - lo)
+    func markedRangeForNormalization(_ editedRange: NSRange) -> NSRange? {
+        var marked = hostMarkedRange
+        if isSettingMarkedText {
+            marked = marked.map { NSUnionRange($0, editedRange) } ?? editedRange
+        }
+        return marked
+    }
+
+    public func textStorage(
+        _ textStorage: NSTextStorage,
+        willProcessEditing editedMask: PlatformTextStorageEditActions,
+        range editedRange: NSRange,
+        changeInLength delta: Int
+    ) {
+        guard !isLoading, !isRestyling, !isProcessingEdit else { return }
+        PasteSanitizer.captureForeignAttributes(in: textStorage, range: editedRange)
+    }
+
+    public func textStorage(
+        _ textStorage: NSTextStorage,
+        didProcessEditing editedMask: PlatformTextStorageEditActions,
+        range editedRange: NSRange,
+        changeInLength delta: Int
+    ) {
+        if !isLoading { bindingDirty = true }
+        guard !isLoading, !isRestyling, !isProcessingEdit else { return }
+        isProcessingEdit = true
+        defer { isProcessingEdit = false }
+        let manager = editSession.undoManager
+        let isUndo = manager.isUndoing || manager.isRedoing
+        let marked = markedRangeForNormalization(editedRange)
+        let characters = editedMask.contains(.editedCharacters)
+        let typed = typedEdit
+        typedEdit = nil
+        var normalizedVocabulary = false
+        var examined = editedRange
+        if isUndo {
+            let affected = Normalizer.affectedRange(for: editedRange, in: textStorage)
+            restyler.restyle(textStorage, in: affected, excluding: marked)
+            examined = affected
         } else {
-            pendingHighlightRange = range
+            let result = normalizer.normalizeRecordingRevert(
+                textStorage,
+                editedRange: editedRange,
+                changeInLength: characters ? delta : 0,
+                markedRange: marked
+            )
+            result.revert?.registerUndo(on: manager, storage: textStorage)
+            normalizedVocabulary = result.revert != nil
+            restyler.restyle(textStorage, in: result.touched, excluding: marked)
+            examined = result.touched
+            if marked == nil, !isWritingToolsActive { scheduleTableRepairIfNeeded(in: result.touched) }
         }
+        let origin: DocumentChange.Origin = isUndo ? .undo : (isApplyingCommand ? .command : .user)
+        let isParagraphLocal = origin == .user && characters && !normalizedVocabulary
+            && typed?.isParagraphLocal == true && typed?.range.location == editedRange.location
+        if codeHighlighting.isActive {
+            codeHighlighting.update(
+                textStorage,
+                editedRange: editedRange,
+                examined: examined,
+                charactersEdited: characters,
+                scansStructure: !isParagraphLocal,
+                excluding: marked,
+                baseColor: codeBaseColor
+            )
+        }
+        recordChange(editedRange, delta: characters ? delta : 0, origin: origin, isParagraphLocal: isParagraphLocal)
+        pushBinding()
+        if characters { intrinsicSizeInvalidator?() }
+        scheduleFlush()
     }
+}
 
-    /// Re-stamp syntax-highlight colors on every code block overlapping
-    /// `range`.
-    ///
-    /// The fence run comes from storage, not from a cached segment list:
-    /// the compiler stamps one `code_block` node across a whole fence, so
-    /// walking `proseNodePath` runs by node identity recovers the full
-    /// fence-body-fence span the highlighter needs. Recompile-free — the
-    /// parser doesn't run, only the colors refresh.
-    private func rehighlightCodeBlocks(intersecting range: NSRange) {
-        let total = textStorage.length
-        guard total > 0 else { return }
-        let safe = range.clamped(to: total)
-        let ns = textStorage.string as NSString
-        let anchor = min(max(0, safe.location), total - 1)
-        let scan = ns.paragraphRange(
-            for: NSRange(location: anchor, length: min(safe.length, total - anchor))
-        )
-        var cursor = scan.location
-        let end = scan.location + scan.length
-        var done: Set<NodeID> = []
-        while cursor < end, cursor < textStorage.length {
-            guard let path = textStorage.nodePath(at: cursor),
-                  let leaf = path.leaf,
-                  leaf.type == "code_block" else {
-                let line = ns.paragraphRange(for: NSRange(location: cursor, length: 0))
-                cursor = line.length > 0 ? line.location + line.length : cursor + 1
-                continue
-            }
-            guard !done.contains(leaf.id) else {
-                cursor += 1
-                continue
-            }
-            done.insert(leaf.id)
-            let block = codeBlockRange(ofNode: leaf.id, containing: cursor)
-            guard block.length > 0 else { cursor += 1; continue }
-            let spec = textStorage.blockSpec(at: block.location)
-            let language: String?
-            let isFenced: Bool
-            if case .fencedCode(let lang) = spec?.kind {
-                language = lang
-                isFenced = true
+struct TypedInput: Equatable {
+    var location: Int
+    var text: String
+
+    var caret: Int { location + (text as NSString).length }
+}
+
+struct ParagraphInfo {
+    var range: NSRange
+    var content: NSRange
+    var block: MarkdownBlock
+    var lists: [NSTextList]
+    var hasSeparator: Bool
+
+    var isEmpty: Bool { content.length == 0 }
+    var isTrailingEmpty: Bool { range.length == 0 }
+}
+
+extension EditorController {
+    func paragraphInfo(at location: Int) -> ParagraphInfo {
+        let storage = textStorage
+        let total = storage.length
+        let ns = storage.string as NSString
+        let clamped = max(0, min(location, total))
+        let endsWithSeparator = total > 0 && ns.character(at: total - 1) == MarkdownParagraph.separator
+        if total == 0 || (clamped == total && endsWithSeparator) {
+            let typing = hostTypingAttributes
+            var fallbackBlock: MarkdownBlock
+            let fallbackLists: [NSTextList]
+            if let block = typing.markdownBlock {
+                fallbackBlock = block
+                fallbackLists = (typing[.paragraphStyle] as? NSParagraphStyle)?.textLists ?? []
+            } else if total > 0 {
+                let previous = storage.markdownBlock(at: total - 1) ?? .paragraph
+                fallbackBlock = previous
+                fallbackLists = Self.textLists(in: storage, at: total - 1)
             } else {
-                language = nil
-                isFenced = false
+                fallbackBlock = .paragraph
+                fallbackLists = []
             }
-            rehighlightProbe?(block)
-            proseStorage.withOrigin(.normalize) {
-                compiler.rehighlightCodeBlock(
-                    in: textStorage,
-                    blockRange: block,
-                    language: language,
-                    isFenced: isFenced,
-                    theme: theme
-                )
-            }
-            cursor = block.location + block.length
+            if fallbackBlock.isTableRow { fallbackBlock = fallbackBlock.with(leaf: .paragraph) }
+            let empty = NSRange(location: total, length: 0)
+            return ParagraphInfo(range: empty, content: empty, block: fallbackBlock, lists: fallbackLists, hasSeparator: false)
         }
-    }
-
-    /// Full storage span of the `code_block` node with `id`, found by
-    /// walking `proseNodePath` runs out from `location` while the leaf
-    /// node id matches.
-    private func codeBlockRange(ofNode id: NodeID, containing location: Int) -> NSRange {
-        let total = textStorage.length
-        var start = location
-        var end = location
-        var probe = NSRange(location: 0, length: 0)
-        _ = textStorage.safeAttribute(
-            .proseNodePath,
-            at: location,
-            longestEffectiveRange: &probe,
-            in: NSRange(location: 0, length: total)
+        let paragraph = ns.paragraphRange(for: NSRange(location: clamped, length: 0))
+        let hasSeparator = paragraph.length > 0 && ns.character(at: NSMaxRange(paragraph) - 1) == MarkdownParagraph.separator
+        let content = NSRange(location: paragraph.location, length: paragraph.length - (hasSeparator ? 1 : 0))
+        return ParagraphInfo(
+            range: paragraph,
+            content: content,
+            block: storage.markdownBlock(at: paragraph.location) ?? .paragraph,
+            lists: Self.textLists(in: storage, at: paragraph.location),
+            hasSeparator: hasSeparator
         )
-        start = probe.location
-        end = probe.location + probe.length
-        while start > 0, textStorage.nodePath(at: start - 1)?.leaf?.id == id {
-            var back = NSRange(location: 0, length: 0)
-            _ = textStorage.safeAttribute(
-                .proseNodePath,
-                at: start - 1,
-                longestEffectiveRange: &back,
-                in: NSRange(location: 0, length: total)
-            )
-            start = back.location
+    }
+
+    func previousParagraphInfo(before info: ParagraphInfo) -> ParagraphInfo? {
+        guard info.range.location > 0 else { return nil }
+        return paragraphInfo(at: info.range.location - 1)
+    }
+
+    func nextParagraphInfo(after info: ParagraphInfo) -> ParagraphInfo? {
+        guard info.hasSeparator else { return nil }
+        let next = NSMaxRange(info.range)
+        guard next < textStorage.length else { return nil }
+        return paragraphInfo(at: next)
+    }
+
+    func selectedParagraphs(in range: NSRange) -> [ParagraphInfo] {
+        let total = textStorage.length
+        let target = Normalizer.clamp(range, to: total)
+        var result: [ParagraphInfo] = []
+        var location = paragraphInfo(at: target.location).range.location
+        while true {
+            let info = paragraphInfo(at: location)
+            result.append(info)
+            let next = NSMaxRange(info.range)
+            guard info.range.length > 0, next < NSMaxRange(target), next < total else { break }
+            location = next
         }
-        while end < total, textStorage.nodePath(at: end)?.leaf?.id == id {
-            var forward = NSRange(location: 0, length: 0)
-            _ = textStorage.safeAttribute(
-                .proseNodePath,
-                at: end,
-                longestEffectiveRange: &forward,
-                in: NSRange(location: 0, length: total)
-            )
-            end = forward.location + forward.length
+        return result
+    }
+
+    static func textLists(in storage: NSAttributedString, at index: Int) -> [NSTextList] {
+        guard index >= 0, index < storage.length,
+              let style = storage.attribute(.paragraphStyle, at: index, effectiveRange: nil) as? NSParagraphStyle
+        else { return [] }
+        return style.textLists
+    }
+
+    func paragraphAttributes(for block: MarkdownBlock, textLists: [NSTextList]) -> [NSAttributedString.Key: Any] {
+        typingAttributes(for: block, textLists: textLists)
+    }
+
+    func reblocked(_ string: NSAttributedString, block: MarkdownBlock, textLists: [NSTextList]) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString(attributedString: string)
+        let full = NSRange(location: 0, length: result.length)
+        guard full.length > 0 else { return result }
+        result.addAttribute(.markdownBlock, value: block, range: full)
+        result.addAttribute(.paragraphStyle, value: restyler.paragraphStyle(for: block, textLists: textLists), range: full)
+        if block.isCode {
+            result.removeAttribute(.markdownInlineIntent, range: full)
+            result.removeAttribute(.link, range: full)
+            result.removeAttribute(.markdownLiteral, range: full)
         }
-        return NSRange(location: start, length: max(0, end - start))
+        return result
     }
 
-    private func tagFor(spec: BlockSpec) -> BlockTag {
-        switch spec.kind {
-        case .paragraph: return .paragraph
-        case .heading: return .heading
-        case .unorderedListItem: return .unorderedListItem
-        case .orderedListItem: return .orderedListItem
-        case .taskListItem: return .taskListItem
-        case .fencedCode: return .fencedCode
-        case .indentedCode: return .indentedCode
-        case .horizontalRule: return .horizontalRule
-        case .htmlBlock: return .htmlBlock
-        case .linkReferenceDefinition: return .linkReferenceDefinition
-        }
+    func separator(block: MarkdownBlock, textLists: [NSTextList]) -> NSAttributedString {
+        NSAttributedString(string: "\n", attributes: paragraphAttributes(for: block, textLists: textLists))
     }
-
-    private func levelFor(spec: BlockSpec) -> Int {
-        if case .heading(let level) = spec.kind { return level }
-        return spec.listLevel
-    }
-
-    private func languageFor(spec: BlockSpec) -> String? {
-        if case .fencedCode(let language) = spec.kind { return language }
-        return nil
-    }
-
-    private func orderedIndexFor(spec: BlockSpec) -> Int? {
-        if case .orderedListItem(let index) = spec.kind { return index }
-        return nil
-    }
-
-    private func isCheckedFor(spec: BlockSpec) -> Bool? {
-        if case .taskListItem(let checked) = spec.kind { return checked }
-        return nil
-    }
-
-    // MARK: - Pipe-table presentation state (retired no-ops)
-
-    /// No-op kept for ABI stability. Tables no longer have an "expanded"
-    /// raw-mode toggle since the rendered chrome was retired.
-    public func isTableExpanded(tableRange: NSRange) -> Bool { false }
-
-    /// No-op kept for ABI stability.
-    public func toggleTableExpansion(tableRange: NSRange) {}
-
-    /// No-op kept for ABI stability.
-    public func compactExpandedTableRanges() {}
 }
