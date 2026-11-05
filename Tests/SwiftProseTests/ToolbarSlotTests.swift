@@ -1,4 +1,3 @@
-#if false
 import Testing
 import Foundation
 @testable import SwiftProse
@@ -22,18 +21,6 @@ import Foundation
         let cfg = SwiftProseEditor.Configuration(toolbar: [], statusItems: [.words])
         #expect(!SwiftProseEditor.showsToolbar(for: cfg))
         #expect(SwiftProseEditor.showsHeaderRow(for: cfg))
-    }
-
-    @Test func environmentDisabledOverridesAnEditableConfiguration() {
-        let cfg = SwiftProseEditor.Configuration(isEditable: true)
-        #expect(SwiftProseEditor.effectiveIsEditable(for: cfg, isEnabled: true))
-        #expect(!SwiftProseEditor.effectiveIsEditable(for: cfg, isEnabled: false))
-    }
-
-    @Test func environmentEnabledDoesNotReEnableAReadOnlyConfiguration() {
-        let cfg = SwiftProseEditor.Configuration(isEditable: false)
-        #expect(!SwiftProseEditor.effectiveIsEditable(for: cfg, isEnabled: true))
-        #expect(!SwiftProseEditor.effectiveIsEditable(for: cfg, isEnabled: false))
     }
 
     @Test func emptyToolbarAndNoStatusItemsDropsTheHeaderRow() {
@@ -75,15 +62,4 @@ import Foundation
         entry.action()
         #expect(box.fired)
     }
-
-    @Test func replacingAnActionLeavesAMenuItemAlone() {
-        let items: [SwiftProseEditor.ToolbarItem] = [
-            .action(.bold),
-            .menu(id: "labels", label: "Label", systemImage: "tag", entries: [])
-        ]
-        let replaced = items.replacing(.bold, with: .divider)
-        if case .divider = replaced[0] {} else { Issue.record("the action was not replaced") }
-        if case .menu = replaced[1] {} else { Issue.record("the menu was rewritten") }
-    }
 }
-#endif

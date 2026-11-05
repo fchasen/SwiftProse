@@ -78,6 +78,15 @@ struct BindingTests {
         #expect(harness.pushes == ["ab"])
     }
 
+    @Test func externalSetAfterTypingWinsWithoutAPush() {
+        let harness = EditorHarness(markdown: "")
+        harness.type("user text")
+        #expect(harness.pushes == ["user text"])
+        harness.controller.applyExternalText("external\n")
+        #expect(harness.string == "external")
+        #expect(harness.pushes == ["user text"])
+    }
+
     @Test func markedTextDefersPushUntilCommit() {
         let harness = EditorHarness(markdown: "a")
         harness.select(1)
