@@ -58,6 +58,10 @@ extension EditorController {
         return nil
     }
 
+    @_spi(Harness) public func harnessSerializationDrift() -> String? {
+        serializationCache.drift(in: textStorage)
+    }
+
     @_spi(Harness) public func harnessTableGeometry(at index: Int) -> (row: Int, rows: Int, columns: Int)? {
         guard index >= 0, index < textStorage.length,
               let geometry = textStorage.attribute(.markdownTableGeometry, at: index, effectiveRange: nil) as? TableRowGeometry

@@ -62,6 +62,8 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
     static let bindingPushDelay: DispatchTimeInterval = .milliseconds(80)
     var originalText: String
     var serializedAtLoad: String
+    let serializationCache = IncrementalSerializer()
+    private(set) var editedSinceLoad = false
     private var stringAtLoad = ""
     private var vocabularyAtLoad: VocabularySnapshot?
     private(set) var historyEpoch = 0
@@ -159,7 +161,8 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
     }
 
     public func markdown() -> String {
-        markdown(serialized: serialize())
+        guard editedSinceLoad else { return originalText }
+        return markdown(serialized: serialize())
     }
 
     private func markdown(serialized: String) -> String {
@@ -171,8 +174,17 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
     }
 
     func serialize() -> String {
-        MarkdownWriter().markdown(from: textStorage)
+        serializationCache.markdown(from: textStorage)
     }
+
+    package var verifiesSerialization: Bool {
+        get { serializationCache.verifies }
+        set { serializationCache.verifies = newValue }
+    }
+
+    package var serializationStats: SerializationStats { serializationCache.stats }
+
+    package var serializationDrifts: [String] { serializationCache.driftLog }
 
     public func setMarkdown(_ markdown: String) {
         load(markdown, resetsHistory: true)
@@ -236,6 +248,8 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
         codeHighlighting.resetAll(in: textStorage, baseColor: codeBaseColor)
         textStorage.endEditing()
         isLoading = false
+        serializationCache.rebuild(textStorage)
+        editedSinceLoad = true
         pendingInput = nil
         pendingChange = nil
         originalText = snapshot.originalText
@@ -282,7 +296,8 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
         lastPushed = markdown
         bindingDirty = false
         cancelBindingPush()
-        serializedAtLoad = serialize()
+        serializedAtLoad = serializationCache.rebuild(textStorage)
+        editedSinceLoad = false
         stringAtLoad = textStorage.string
         vocabularyAtLoad = VocabularySnapshot(
             capturing: textStorage,
@@ -442,8 +457,7 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
     func pushBinding() {
         guard let textSink, !isLoading, !hostHasMarkedText, !isSettingMarkedText, bindingDirty else { return }
         bindingDirty = false
-        let serialized = serialize()
-        let value = markdown(serialized: serialized)
+        let value = markdown()
         guard value != lastPushed else { return }
         lastPushed = value
         textSink(value)
@@ -961,7 +975,11 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
         range editedRange: NSRange,
         changeInLength delta: Int
     ) {
-        if !isLoading { bindingDirty = true }
+        if !isLoading {
+            bindingDirty = true
+            editedSinceLoad = true
+            serializationCache.recordEdit(editedRange, changeInLength: editedMask.contains(.editedCharacters) ? delta : 0)
+        }
         guard !isLoading, !isRestyling, !isProcessingEdit else { return }
         isProcessingEdit = true
         defer { isProcessingEdit = false }
@@ -990,6 +1008,7 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
             examined = result.touched
             if marked == nil, !isWritingToolsActive { scheduleTableRepairIfNeeded(in: result.touched) }
         }
+        serializationCache.recordEdit(examined, changeInLength: 0)
         let origin: DocumentChange.Origin = isUndo ? .undo : (isApplyingCommand ? .command : .user)
         let isParagraphLocal = origin == .user && characters && !normalizedVocabulary
             && typed?.isParagraphLocal == true && typed?.range.location == editedRange.location
