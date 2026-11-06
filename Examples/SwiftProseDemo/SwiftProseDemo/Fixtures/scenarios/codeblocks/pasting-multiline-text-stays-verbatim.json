@@ -14,12 +14,7 @@
   ],
   "expect": {
     "doc": "```\none\ntwo\n<|>last\n```\n",
-    "blockKind": "fencedCode(language: nil)"
+    "blockKind": "code"
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "pmJSON"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

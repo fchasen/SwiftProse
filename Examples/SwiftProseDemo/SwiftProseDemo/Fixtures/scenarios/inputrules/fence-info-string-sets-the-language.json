@@ -22,12 +22,7 @@
   ],
   "expect": {
     "doc": "```swift\nlet x = 1<|>\n```",
-    "blockKind": "fencedCode(language: Optional(\"swift\"))"
+    "blockKind": "code(swift)"
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "schema"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "groups"]
 }

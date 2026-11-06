@@ -10,5 +10,5 @@
     "doc" : "Intro.\n\nOne.\n\nTwo.<|>",
     "blockKind" : "paragraph"
   },
-  "finally" : ["tier0", "projection", "markdownFixpoint"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint"]
 }

@@ -7,5 +7,5 @@
     { "op": "key", "key": "Enter" }
   ],
   "expect": { "doc": "one two\nthree \n\n<|>four\nfive six", "blockKind": "paragraph" },
-  "finally": ["tier0", "projection", "markdownFixpoint"]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

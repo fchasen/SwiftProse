@@ -15,13 +15,7 @@
   "expect": {
     "doc": "~~gone~~<|>",
     "blockKind": "paragraph",
-    "marks": [
-      "strike"
-    ]
+    "marks": ["strikethrough"]
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

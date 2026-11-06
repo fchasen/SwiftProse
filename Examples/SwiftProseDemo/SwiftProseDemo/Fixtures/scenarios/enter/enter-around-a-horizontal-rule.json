@@ -11,5 +11,5 @@
     { "op": "type", "text": "tail" }
   ],
   "expect": { "doc": "above\n\nmid\n\n---\n\nbelow\n\ntail<|>", "blockKind": "paragraph" },
-  "finally": ["tier0", "projection", "markdownFixpoint"]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

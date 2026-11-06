@@ -1,29 +1,14 @@
 {
   "name": "tables/delete-a-column",
-  "tags": [
-    "tables"
-  ],
-  "intent": "After deleting a column the incrementally spliced tree matches a full re-projection.",
+  "tags": ["tables"],
+  "intent": "Deleting the caret's column removes that cell from every row and the table stays one group.",
   "doc": "| fruit | qty | price |\n| --- | --- | --- |\n| pear | 2 | 3 |\n",
   "ops": [
-    {
-      "op": "caret",
-      "block": 0,
-      "edge": "start"
-    },
-    {
-      "op": "action",
-      "id": "deleteTableColumn"
-    }
+    { "op": "caret", "block": 0, "edge": "start" },
+    { "op": "action", "id": "deleteTableColumn" },
+    { "op": "expect", "doc": "| qty | price |\n| --- | --- |\n| 2 | 3 |\n", "canUndo": true },
+    { "op": "undo", "n": 1 }
   ],
-  "expect": {
-    "doc": "| fruit | qty |\n| --- | --- |\n| pear | 2 |\n",
-    "canUndo": true,
-    "undoDepth": 1
-  },
-  "finally": [
-    "tier0",
-    "markdownFixpoint",
-    "projection"
-  ]
+  "expect": { "doc": "| fruit | qty | price |\n| --- | --- | --- |\n| pear | 2 | 3 |\n", "canUndo": false, "canRedo": true },
+  "finally": ["tier0", "markdownFixpoint", "normalizer"]
 }

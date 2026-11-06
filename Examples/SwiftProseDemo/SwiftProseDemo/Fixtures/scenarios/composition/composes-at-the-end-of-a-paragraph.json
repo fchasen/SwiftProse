@@ -21,9 +21,5 @@
     "doc": "Hello中<|>\n\nWorld\n",
     "blockKind": "paragraph"
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

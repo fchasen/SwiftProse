@@ -18,10 +18,5 @@
   "expect": {
     "doc": "1. one\n2. middle<|>\n3. two\n4. three\n"
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "schema"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "groups"]
 }

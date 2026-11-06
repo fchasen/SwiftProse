@@ -50,12 +50,7 @@
   ],
   "expect": {
     "doc": "## two\n\n### three\n\n#### four\n\n##### five\n\n###### six<|>",
-    "blockKind": "heading(level: 6)"
+    "blockKind": "heading(6)"
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "schema"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "groups"]
 }

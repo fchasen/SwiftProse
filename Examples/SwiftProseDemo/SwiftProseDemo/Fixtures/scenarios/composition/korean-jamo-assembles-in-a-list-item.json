@@ -6,6 +6,6 @@
   "ops" : [
     { "op" : "compose", "interims" : ["ㅎ", "하", "한"], "commit" : "한" }
   ],
-  "expect" : { "doc" : "- 인사한\n- 다음\n", "blockKind" : "unorderedListItem" },
-  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+  "expect" : { "doc" : "- 인사한\n- 다음\n", "blockKind" : "paragraph list:bullet@1" },
+  "finally" : ["tier0", "normalizer", "markdownFixpoint", "groups"]
 }

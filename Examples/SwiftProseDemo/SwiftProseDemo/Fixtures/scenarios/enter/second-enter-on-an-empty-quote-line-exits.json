@@ -9,5 +9,5 @@
     { "op": "type", "text": "plain" }
   ],
   "expect": { "doc": "> quoted\n\nplain<|>", "blockKind": "paragraph" },
-  "finally": ["tier0", "projection", "markdownFixpoint", "schema"]
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "groups"]
 }

@@ -1,11 +1,13 @@
 {
-  "name" : "composition/dictation-burst-lands-as-one-insert",
-  "tags" : ["composition", "history"],
-  "intent" : "A whitespace-bearing multi-character insert is dictation-shaped: it routes through the paste pipeline, lands verbatim at the caret, and is one undo unit rather than a per-character burst.",
-  "doc" : "<|>",
-  "ops" : [
-    { "op" : "typeBurst", "text" : "call the dentist tomorrow" }
+  "name": "composition/dictation-burst-lands-as-one-insert",
+  "tags": ["composition", "history"],
+  "intent": "A whitespace-bearing multi-character insert is dictation-shaped: it routes through the paste pipeline, lands verbatim at the caret, and is one undo unit rather than a per-character burst.",
+  "doc": "<|>",
+  "ops": [
+    { "op": "typeBurst", "text": "call the dentist tomorrow" },
+    { "op": "expect", "doc": "call the dentist tomorrow<|>", "canUndo": true, "blockKind": "paragraph" },
+    { "op": "undo", "n": 1 }
   ],
-  "expect" : { "doc" : "call the dentist tomorrow<|>", "canUndo" : true, "undoDepth" : 1, "blockKind" : "paragraph" },
-  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+  "expect": { "doc": "", "canUndo": false, "canRedo": true },
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "history"]
 }

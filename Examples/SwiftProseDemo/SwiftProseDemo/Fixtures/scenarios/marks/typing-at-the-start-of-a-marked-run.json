@@ -15,9 +15,5 @@
     "doc": "turn it way <|>**up** now\n",
     "marks": []
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

@@ -19,13 +19,7 @@
       0
     ],
     "blockKind": "paragraph",
-    "marks": [
-      "code"
-    ]
+    "marks": ["code"]
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

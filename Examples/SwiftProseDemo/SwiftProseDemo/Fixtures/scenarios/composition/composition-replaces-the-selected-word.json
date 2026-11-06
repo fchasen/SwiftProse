@@ -7,5 +7,5 @@
     { "op" : "compose", "interims" : ["k", "ko"], "commit" : "こんにちは" }
   ],
   "expect" : { "doc" : "say こんにちは<|> there\n", "canUndo" : true },
-  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint", "history"]
 }

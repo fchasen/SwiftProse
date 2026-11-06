@@ -1,17 +1,12 @@
 {
-  "name" : "selection/shift-arrow-right-extends-across-a-block-boundary",
-  "tags" : ["selection", "ui"],
-  "intent" : "Shift-ArrowRight from the end of a paragraph keeps extending over the blank line into the next block, so typing over that selection joins the two paragraphs.",
-  "doc" : "alpha<|>\n\nbeta\n",
-  "ops" : [
-    { "op" : "key", "key" : "Shift-ArrowRight" },
-    { "op" : "key", "key" : "Shift-ArrowRight" },
-    { "op" : "type", "text" : "X" }
+  "name": "selection/shift-arrow-right-extends-across-a-block-boundary",
+  "tags": ["selection", "ui"],
+  "intent": "Shift-ArrowRight from the end of a paragraph selects the paragraph break, so typing over that selection joins the two paragraphs.",
+  "doc": "alpha<|>\n\nbeta\n",
+  "ops": [
+    { "op": "key", "key": "Shift-ArrowRight" },
+    { "op": "type", "text": "X" }
   ],
-  "expect" : {
-    "doc" : "alphaX<|>beta",
-    "selection" : [6, 0],
-    "blockKind" : "paragraph"
-  },
-  "finally" : ["tier0", "projection", "markdownFixpoint"]
+  "expect": { "doc": "alphaX<|>beta", "selection": [6, 0], "blockKind": "paragraph" },
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

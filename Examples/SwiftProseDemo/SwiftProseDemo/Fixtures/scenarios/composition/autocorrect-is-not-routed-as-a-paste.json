@@ -7,5 +7,5 @@
     { "op" : "correct", "find" : "teh ", "replace" : "the " }
   ],
   "expect" : { "doc" : "the cat sat", "blockKind" : "paragraph", "canUndo" : true },
-  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint", "history"]
 }

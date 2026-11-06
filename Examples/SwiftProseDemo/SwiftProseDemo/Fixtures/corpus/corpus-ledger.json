@@ -1,64 +1,85 @@
 {
   "airbnb-javascript-readme" : [
-    "markdownFixpoint",
-    "pmJSON",
-    "schema"
+    "markdownFixpoint"
   ],
   "alamofire-usage" : [
-    "pmJSON"
+    "markdownFixpoint"
   ],
-  "blockquotes-nested" : [
-    "pmJSON"
+  "alice-in-wonderland" : [
+    "markdownFixpoint"
+  ],
+  "awesome-readme" : [
+    "markdownFixpoint"
   ],
   "brew-formula-cookbook" : [
-    "pmJSON"
+    "markdownFixpoint"
+  ],
+  "code-fences" : [
+    "markdownFixpoint"
   ],
   "coding-interview-university-readme" : [
-    "markdownFixpoint",
-    "pmJSON",
-    "schema"
+    "markdownFixpoint"
   ],
   "commonmark-examples" : [
     "markdownFixpoint",
-    "pmJSON",
-    "schema"
+    "normalizer",
+    "vocabularyFull"
   ],
   "edge" : [
     "markdownFixpoint"
   ],
   "electron-browser-window" : [
-    "markdownFixpoint",
-    "pmJSON"
+    "markdownFixpoint"
+  ],
+  "links-images" : [
+    "markdownFixpoint"
   ],
   "lists-deep" : [
-    "pmJSON"
+    "markdownFixpoint"
+  ],
+  "marked-readme" : [
+    "markdownFixpoint"
+  ],
+  "mixed-marks" : [
+    "markdownFixpoint"
+  ],
+  "node-fs-api" : [
+    "markdownFixpoint"
   ],
   "nodebestpractices-readme" : [
-    "pmJSON"
+    "markdownFixpoint"
   ],
   "prettier-options" : [
+    "markdownFixpoint"
+  ],
+  "prosemirror-view-readme" : [
     "markdownFixpoint"
   ],
   "public-apis-readme" : [
     "markdownFixpoint"
   ],
+  "rust-book-ownership" : [
+    "markdownFixpoint"
+  ],
+  "swift-evolution-0447" : [
+    "markdownFixpoint"
+  ],
+  "swift-nio-readme" : [
+    "markdownFixpoint"
+  ],
   "swiftlint-readme" : [
-    "markdownFixpoint",
-    "pmJSON"
+    "markdownFixpoint"
   ],
   "swiftprose-readme" : [
     "markdownFixpoint"
   ],
   "system-design-primer-readme" : [
-    "pmJSON",
-    "schema"
+    "markdownFixpoint"
   ],
   "task-lists" : [
-    "pmJSON"
+    "markdownFixpoint"
   ],
   "tca-readme" : [
-    "markdownFixpoint",
-    "pmJSON",
-    "schema"
+    "markdownFixpoint"
   ]
 }

@@ -9,9 +9,6 @@
     { "op": "key", "key": "Alt-ArrowRight" },
     { "op": "undo", "n": 3 }
   ],
-  "expect": {
-    "doc": "One paragraph with **bold**, *em*, `code` and a [link](https://example.com).\n",
-    "undoDepth": 0
-  },
-  "finally": ["tier0", "projection", "markdownFixpoint", "history"]
+  "expect": { "doc": "One paragraph with **bold**, *em*, `code` and a [link](https://example.com).\n", "canUndo": false },
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "history"]
 }

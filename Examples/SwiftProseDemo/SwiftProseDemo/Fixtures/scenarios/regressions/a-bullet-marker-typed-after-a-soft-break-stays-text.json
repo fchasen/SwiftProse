@@ -1,0 +1,12 @@
+{
+  "name": "regressions/a-bullet-marker-typed-after-a-soft-break-stays-text",
+  "tags": ["regression", "softbreak", "writer"],
+  "intent": "`* ` typed at the start of a soft-broken line is text inside the paragraph, so the written markdown must escape it or reloading turns the line into a list. Known failure: the writer emits it bare.",
+  "doc": "one\n<|>two\n",
+  "ops": [
+    { "op": "type", "text": "* " }
+  ],
+  "expect": { "doc": "one\n\\* two", "blockKind": "paragraph" },
+  "finally": ["tier0", "normalizer", "markdownFixpoint"],
+  "xfail": "markdown mismatch"
+}
