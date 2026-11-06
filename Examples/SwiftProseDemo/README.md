@@ -122,7 +122,7 @@ says so on stderr the first time a fence times out.
 
 ### Seams
 
-The harness uses `@_spi(Harness) import SwiftProse` for seven seams
+The harness uses `@_spi(Harness) import SwiftProse` for eight seams
 on `EditorController` (`Sources/SwiftProseView/HarnessSPI.swift`):
 
 | seam | use |
@@ -133,6 +133,7 @@ on `EditorController` (`Sources/SwiftProseView/HarnessSPI.swift`):
 | `breakUndoCoalescingForHarness()` | an AppKit typing-coalescing boundary; the `closeHistoryGroup` op |
 | `harnessEditRouteProbe` | reports the route each edit took: `typing`, `bulk`, `deletion`, `composition`, `command`, `inputRule`, `tableEdit`, `atomRedirect`, `paste`, `undo`, `redo`, `load` |
 | `harnessNormalizationDrift()` | `nil` when normalizing and restyling a copy of storage changes nothing |
+| `harnessSerializationDrift()` | `nil` when the incremental serialization cache matches a full read and write; otherwise the first differing unit and the last dirty range |
 | `harnessTableGeometry(at:)` | row index, row count and column count of the table row at an offset |
 
 `DriverCanaryTests` checks the route probe: `type` reports `typing`,
@@ -231,6 +232,7 @@ editor is — never resolved by overwriting the file.
 | `normalizer` | `harnessNormalizationDrift()` is `nil` | every 25 |
 | `vocabularyFull` | `vocabulary` over the whole document | every 50 |
 | `reader` | `StorageReader().document(from:)` twice is equal; writing that document equals `MarkdownWriter().markdown(from: storage)` | every 100 |
+| `serialization` | `harnessSerializationDrift()` is `nil`: the controller's spliced output, unit by unit, equals a fresh full read and write | every 100 |
 | `markdownFixpoint` | `MarkdownWriter().markdown(from: MarkdownLoader().load(markdown()))` equals `markdown()`, ignoring one trailing newline and whitespace at the edges of a paragraph, which the writer keeps and loading drops | end |
 | `history` | undo through `activeUndoManagerForHarness` until `canUndo` is false (cap 64) restores the baseline markdown; redoing restores the `StorageDump` rows | end |
 | `layout` | `ensureLayout` over the document range on `textLayoutManager` | end |

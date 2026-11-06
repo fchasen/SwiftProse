@@ -41,11 +41,12 @@ permission-gated `SwiftProseDemoUITests`. See
 `Examples/SwiftProseDemo/README.md` for the op vocabulary, the oracles, the
 fuzz / replay / shrink CLI, and how to add a scenario.
 
-The harness reaches seven `@_spi(Harness)` seams on `EditorController`
+The harness reaches eight `@_spi(Harness)` seams on `EditorController`
 (`Sources/SwiftProseView/HarnessSPI.swift`): `settleForHarness()`,
 `hasPendingWorkForHarness`, `activeUndoManagerForHarness`,
 `breakUndoCoalescingForHarness()`, `harnessEditRouteProbe`,
-`harnessNormalizationDrift()` and `harnessTableGeometry(at:)`. They keep the
+`harnessNormalizationDrift()`, `harnessSerializationDrift()` and
+`harnessTableGeometry(at:)`. They keep the
 demo off `@testable import` and the public API clean; add to that file when
 the harness needs more.
 
@@ -103,7 +104,11 @@ NSMutableAttributedString (MarkdownLoader.load)
 storage → StorageReader → EditorDocument → MarkdownWriter → markdown
 ```
 
-`MarkdownLoader.loadWithReport` stays internal; its `LoaderReport` feeds tests. `EditorDocument` exists only on the write side, built by `StorageReader` for `MarkdownWriter`. The writer's output is canonical. `EditorController.markdown()` returns the original load bytes while `VocabularySnapshot` (the vocabulary attributes captured at load) still matches storage and the serialization equals the one taken at load; otherwise it returns the writer's output.
+`MarkdownLoader.loadWithReport` stays internal; its `LoaderReport` feeds tests. `EditorDocument` exists only on the write side, built by `StorageReader` for `MarkdownWriter`. The writer's output is canonical. `EditorController.markdown()` returns the original load bytes until the first storage edit after a load; after that it returns them while `VocabularySnapshot` (the vocabulary attributes captured at load) still matches storage and the serialization equals the one taken at load, and the writer's output otherwise.
+
+**Top-level units.** `StorageReader.units(in:from:previous:stoppingAt:)` (`package`) reads storage as `TopLevelUnit`s, one per top-level block of the document. Unit spans tile the storage: blank paragraphs after a block belong to it, leading blanks to the first unit. A read can start at any unit boundary with a fresh tree builder; `previous` (the prior unit's `TopLevelList`) only sets `separatesFromPrevious`. `MarkdownWriter.writeTopLevel(_:after:)` writes one unit given a `TopLevelContext` (`.other` or `.list(isOrdered:alternate:)`) and returns its text and the context after it; a block that renders nothing returns `nil` and leaves the context unchanged. The full writer joins unit texts with a blank line, so full and incremental serialization share one code path. `MarkdownWriter.markdown(from:range:)` (clipboard copy) keeps its clipped, context-free read.
+
+**Incremental serialization.** `IncrementalSerializer` (`SwiftProseView/Editing`), owned by the controller, caches each unit's block, span, entry and exit context and text, plus the joined output. `didProcessEditing` records every storage edit into one dirty range (`NSRange.merged(withEdit:changeInLength:)`) ahead of its loading / restyling guard, so `withoutBinding` passes count, and then adds the normalizer's touched range. `serialize()` re-reads from the unit holding the dirty start (one unit earlier when that unit is a list, quote, code block or table, which can absorb what follows) and stops at the first new boundary past the dirty end that lands on a shifted old boundary. It then re-writes following units while their entry context or list separation changed, and splices the new texts into the output. Any inconsistency (length drift, spans that miss the storage length, an unprocessed edit batch) falls back to a full rebuild. `load()` and the load-snapshot restore rebuild the cache; load takes `serializedAtLoad` from that rebuild.
 
 ### Edit flow
 
@@ -118,8 +123,8 @@ Restyler     (fonts, colours, paragraph styles from block + intent)
   ↓
 CodeHighlighting.update (session didEdit / reset per code block)
   ↓
-recordChange → pending DocumentChange
-  ↓  scheduleBindingPush (80 ms trailing debounce)
+recordChange → pending DocumentChange (the serializer's dirty range is recorded at the top of didProcessEditing)
+  ↓  scheduleBindingPush (80 ms trailing debounce; the push splices only the dirty units)
 flushDocumentChanges (next main-queue turn, or at the end of performEdit)
   ↓  plugins' documentDidChange, addOnDocumentChange observers
 input rules (deferEdit, origin .user only)
@@ -127,7 +132,7 @@ input rules (deferEdit, origin .user only)
 
 Commands go through `performEdit(_:ranges:replacements:...)` → `EditSession.perform`, which makes each command one undo step and flushes on return. Key handling (Return, Backspace, Tab, fence and thematic-break rules) lives in `Editing/KeyRules.swift`; block and inline-closer input rules in `Editing/InputRules.swift`; format commands in `Editing/FormatCommands.swift`; table editing in `Editing/TableEditing.swift` and `TableCommands.swift`; paste in `Editing/ClipboardEditing.swift` and `PasteSanitizer.swift`.
 
-`DocumentChange.origin` is `.user`, `.command`, `.undo` or `.load`. Every change except `.load` marks the `text` binding dirty and re-arms an 80 ms trailing timer; the push serializes the document once when it fires. `flushPendingBinding()` pushes immediately and runs on end of editing, before `onSubmit`, on representable teardown, on a switch to source mode, on load-snapshot restore, in `settleForHarness()`, and when the app terminates (macOS) or enters the background (iOS). With no `textSink` attached the push is skipped and the binding stays dirty. A load cancels any pending push, so external text wins.
+`DocumentChange.origin` is `.user`, `.command`, `.undo` or `.load`. Every change except `.load` marks the `text` binding dirty and re-arms an 80 ms trailing timer; the push serializes once when it fires, through the incremental cache. `flushPendingBinding()` pushes immediately and runs on end of editing, before `onSubmit`, on representable teardown, on a switch to source mode, on load-snapshot restore, in `settleForHarness()`, and when the app terminates (macOS) or enters the background (iOS). With no `textSink` attached the push is skipped and the binding stays dirty. A load cancels any pending push, so external text wins.
 
 ### Undo
 

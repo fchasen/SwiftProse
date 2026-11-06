@@ -1,5 +1,67 @@
 # Keystroke benchmark baseline
 
+## 2026-11-06 — incremental serialization
+
+`EditorController` keeps each top-level block's markdown in an
+`IncrementalSerializer`. `didProcessEditing` records every storage edit into
+one dirty range, and `serialize()` re-reads and re-writes only the units that
+range reaches, plus following lists whose marker alternation it flips, and
+splices them into the cached output. `markdown()` returns the load bytes
+without serializing until the first storage edit after a load.
+Reproduce and machine as below (debug build, Apple Silicon, macOS 27).
+"Before" is the deferred-binding-push core, re-run the same day.
+
+New rows: `markdown() — edited` and `serialize() — spliced after keystroke`
+time one call after a mid-document keystroke; `markdown() — unedited` uses a
+freshly loaded controller. `markdown() — edited back to load` is the old
+`markdown()` row (measured after the keystroke rows undo themselves), where
+the splice output equals the load serialization and `storageMatchesLoad`
+runs.
+
+### Mixed document (~1200 blocks)
+
+| case | before median µs | median µs | p90 µs | live blocks/op |
+|---|---:|---:|---:|---:|
+| keystroke — doc start | 143.0 | 141.6 | 151.4 | 73.6 |
+| keystroke — mid paragraph | 191.1 | 194.0 | 201.2 | 106.6 |
+| keystroke — nested list item | 191.4 | 192.5 | 200.9 | 98.6 |
+| keystroke — inside fence | 120.0 | 121.2 | 127.6 | 55.3 |
+| keystroke — tail | 129.0 | 130.6 | 135.4 | 63.6 |
+| keystroke — change subscriber | 191.9 | 210.8 | 221.8 | 104.8 |
+| keystroke — bound sink, push deferred | 198.0 | 201.5 | 208.1 | 108.8 |
+| keystroke + flushPendingBinding | 17669.5 | 494.3 | 569.1 | 3200.4 |
+| insertMarkdown | 254.5 | 271.1 | 278.4 | 122.8 |
+| markdown() — edited back to load | 33835.6 | 15140.3 | 15259.9 | 3080.8 |
+| markdown() — edited | — | 252.6 | 257.6 | 94.9 |
+| serialize() — spliced after keystroke | — | 249.0 | 256.5 | 89.9 |
+| markdown() — unedited | — | 0.0 | 0.0 | 0.0 |
+| MarkdownLoader.load | 64067.0 | 65937.8 | 67589.3 | 17725.7 |
+| MarkdownWriter.markdown(from:) | 17092.4 | 17949.9 | 18117.6 | 71.3 |
+
+### Long fence (one 3000-line fenced block)
+
+| case | before median µs | median µs | p90 µs | live blocks/op |
+|---|---:|---:|---:|---:|
+| keystroke — inside 3000-line fence | 51.5 | 52.4 | 55.2 | 0.1 |
+| markdown() | 26922.8 | 5812.4 | 5830.5 | 0.0 |
+| MarkdownLoader.load | 23209.4 | 23914.4 | 24257.0 | 7.6 |
+| MarkdownWriter.markdown(from:) | 19093.5 | 20598.1 | 20921.5 | 0.0 |
+
+### Reading
+
+A re-serialize after a local edit costs ~0.12–0.35 ms on the mixed fixture,
+depending on the units the edit and its ±1-paragraph restyle reach: ~0.12 ms
+in a heading or plain paragraph, ~0.3 ms when a neighbour is a nested list,
+which costs ~75 µs to read and ~110 µs to write in a debug build. The
+debounced push (`keystroke + flushPendingBinding`) drops from ~17.7 ms to
+~0.5 ms. `markdown()` on an unedited document returns the load bytes without
+work. Once edited, a document that serializes back to its load output still
+pays `storageMatchesLoad` (~15 ms mixed, ~5.8 ms long fence): the string
+compare and `VocabularySnapshot.matches`. The full writer stays within noise
+of before (best-of-15 probe: 18.1 ms before, 18.5 ms after; reader 9.5 →
+10.0 ms). An edit inside the long fence still re-reads and re-writes the
+whole fence unit.
+
 ## 2026-11-06 — deferred binding push
 
 `didProcessEditing` marks the binding dirty and restarts an 80 ms trailing

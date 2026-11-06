@@ -194,9 +194,37 @@ struct KeystrokeBenchmarkTests {
             _ = controller.insertMarkdown("a")
         })
 
-        samples.append(Self.measure("markdown()", iterations: 20) { _ in
+        samples.append(Self.measure("markdown() — edited back to load", iterations: 20) { _ in
             _ = controller.markdown()
         })
+
+        do {
+            let offset = controller.textStorage.length / 2
+            samples.append(Self.measure(
+                "markdown() — edited",
+                setup: { Self.keystroke(controller, at: offset) },
+                teardown: { Self.undoKeystroke(controller, at: offset) }
+            ) { _ in
+                _ = controller.markdown()
+            })
+            samples.append(Self.measure(
+                "serialize() — spliced after keystroke",
+                setup: { Self.keystroke(controller, at: offset) },
+                teardown: {
+                    Self.undoKeystroke(controller, at: offset)
+                    _ = controller.serialize()
+                }
+            ) { _ in
+                _ = controller.serialize()
+            })
+        }
+
+        do {
+            let fresh = Self.controller(markdown)
+            samples.append(Self.measure("markdown() — unedited", iterations: 20) { _ in
+                _ = fresh.markdown()
+            })
+        }
 
         samples.append(Self.measure("MarkdownLoader.load", iterations: 10) { _ in
             _ = MarkdownLoader().load(markdown)

@@ -42,6 +42,7 @@ final class Oracles {
         var normalizer = 25
         var vocabularyFull = 50
         var reader = 100
+        var serialization = 100
         var markdownFixpoint = 250
         var history = 500
         var layout = 500
@@ -49,7 +50,7 @@ final class Oracles {
         /// Everything on every op — what a scenario over a tiny document
         /// wants.
         static let everyOp = Cadence(
-            groups: 1, normalizer: 1, vocabularyFull: 1, reader: 1,
+            groups: 1, normalizer: 1, vocabularyFull: 1, reader: 1, serialization: 1,
             markdownFixpoint: 0, history: 0, layout: 0
         )
 
@@ -63,6 +64,7 @@ final class Oracles {
             c.normalizer *= factor
             c.vocabularyFull *= factor
             c.reader *= factor
+            c.serialization *= factor
             return c
         }
     }
@@ -81,7 +83,7 @@ final class Oracles {
 
     static let allIDs = [
         "length", "vocabulary", "scalars", "groups", "normalizer",
-        "vocabularyFull", "reader", "markdownFixpoint", "history", "layout", "latency"
+        "vocabularyFull", "reader", "serialization", "markdownFixpoint", "history", "layout", "latency"
     ]
 
     /// The always-on set: cheap enough for every op on any document.
@@ -116,6 +118,7 @@ final class Oracles {
         if due(cadence.normalizer) { ids.append("normalizer") }
         if due(cadence.vocabularyFull) { ids.append("vocabularyFull") }
         if due(cadence.reader) { ids.append("reader") }
+        if due(cadence.serialization) { ids.append("serialization") }
         if due(cadence.markdownFixpoint) { ids.append("markdownFixpoint") }
         if due(cadence.history) { ids.append("history") }
         if due(cadence.layout) { ids.append("layout") }
@@ -148,7 +151,9 @@ final class Oracles {
     }
 
     /// The end-of-run tier the fuzzer and replay run once.
-    static let endOfRun = ["markdownFixpoint", "history", "layout", "reader", "vocabularyFull", "groups", "normalizer"]
+    static let endOfRun = [
+        "markdownFixpoint", "history", "layout", "reader", "serialization", "vocabularyFull", "groups", "normalizer"
+    ]
 
     func check(_ id: String, at index: Int) -> [OracleFailure] {
         HarnessLaunch.trace("oracle \(id) @\(index)")
@@ -165,6 +170,7 @@ final class Oracles {
         case "vocabularyFull":
             detail = checkVocabulary(in: NSRange(location: 0, length: controller.textStorage.length))
         case "reader": detail = checkReader()
+        case "serialization": detail = controller.harnessSerializationDrift()
         case "markdownFixpoint": detail = checkMarkdownFixpoint()
         case "history": detail = checkHistory()
         case "layout": detail = checkLayout()

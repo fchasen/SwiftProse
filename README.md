@@ -186,7 +186,7 @@ SwiftProseEditor(text: $markdown)
     .inlineContentProvider { content in ChipAttachment.make(for: content) }
 ```
 
-`ProseInlineContent` cases are `.url(_:label:)`, `.userMention(handle:displayName:)` and `.custom(kind:label:systemImage:)`. `ChipAttachment` draws a rounded label chip; any `NSTextAttachment` conforming to `ProseSourceAttachment` works as a provider result. `controller.inlineContentKind(at:)` reports the kind of the atom at an offset.
+`ProseInlineContent` cases are `.url(_:label:)`, `.userMention(handle:displayName:)` and `.custom(kind:label:systemImage:)`. `ChipAttachment` draws a rounded label chip; any `NSTextAttachment` conforming to `ProseSourceAttachment` works as a provider result. `controller.inlineContentKind(at:)` reports the kind of the atom at an offset. `markdown()` reads an atom's `markdownSource` when the atom enters storage, so a changed atom goes in through a storage edit such as `insertInlineContent(_:markdownSource:replacing:trailingText:label:)`.
 
 ## Handle
 
@@ -400,6 +400,7 @@ Behaviour changes without an API change:
 - **macOS undo is the text view's.** The hosted `NSTextView` registers typing undo with AppKit's own coalescing, and commands register on the same manager. Headless editors and iOS register snapshot closures on `controller.undoManager` (on iOS, the text view's manager).
 - **Tables are inline.** A table is a run of tab-separated paragraphs in storage, and its cells are ordinary editable text.
 - **`markdown()` returns the load bytes until the document changes.** It compares storage with what was loaded and returns the original string while they match, so an edit followed by its undo returns the original bytes too.
+- **Serialization is incremental.** The controller keeps each top-level block's markdown and, after an edit, re-reads and re-writes only the blocks the edit reaches, plus any following lists whose alternate marker it flips.
 - **Edited content is written in canonical form.** Setext headings are written as ATX, a closing `#` run is dropped, `~~~` fences become backticks, loose lists are tightened, link titles are dropped, reference-style links are written inline, and footnotes are written as text.
 
 ## Roadmap
