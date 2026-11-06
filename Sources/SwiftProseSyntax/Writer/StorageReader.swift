@@ -10,12 +10,12 @@ public struct StorageReader {
     public init() {}
 
     public func document(from storage: NSAttributedString) -> EditorDocument {
-        document(from: storage, range: NSRange(location: 0, length: storage.length))
+        EditorDocument(blocks: units(in: storage, from: 0, previous: nil).units.map(\.block))
     }
 
     public func document(from storage: NSAttributedString, range: NSRange) -> EditorDocument {
-        let text = UTF16Text(storage.string as NSString)
-        var builder = TreeBuilder(storage: storage, text: text)
+        let text = Self.backing(storage)
+        var builder = TreeBuilder(storage: storage)
         let paragraphs = scanParagraphs(storage, text: text, range: range)
         let last = paragraphs.lastIndex { !$0.isBlank } ?? -1
         for paragraph in paragraphs.prefix(last + 1) {
@@ -24,25 +24,95 @@ public struct StorageReader {
         return builder.finish()
     }
 
-    private func scanParagraphs(_ storage: NSAttributedString, text: UTF16Text, range: NSRange) -> [ScannedParagraph] {
-        let total = text.count
+    package func units(
+        in storage: NSAttributedString,
+        from location: Int,
+        previous: TopLevelList?,
+        stoppingAt shouldStop: ((Int) -> Bool)? = nil
+    ) -> TopLevelScan {
+        let text = Self.backing(storage)
+        let total = text.length
+        let start = max(0, min(location, total))
+        let shared = shouldStop == nil ? UTF16Text(text, range: NSRange(location: start, length: total - start)) : nil
+        var builder = TreeBuilder(storage: storage)
+        var heads: [Int] = []
+        var pending: [ScannedParagraph] = []
+        var stop: Int?
+        var cursor = start
+        func feed(_ candidate: ScannedParagraph) -> Bool {
+            let count = builder.rootCount
+            builder.add(candidate)
+            guard builder.rootCount > count else { return true }
+            if let shouldStop, shouldStop(candidate.range.location) {
+                builder.dropLastRoot()
+                stop = candidate.range.location
+                return false
+            }
+            heads.append(candidate.range.location)
+            return true
+        }
+        reading: while true {
+            let paragraph = text.paragraphRange(for: NSRange(location: cursor, length: 0))
+            let scanned = scan(storage, text: text, paragraph: paragraph, clip: NSRange(location: 0, length: total), shared: shared)
+            if scanned.isBlank {
+                pending.append(scanned)
+            } else {
+                for candidate in pending where !feed(candidate) {
+                    break reading
+                }
+                pending.removeAll(keepingCapacity: true)
+                if !feed(scanned) { break reading }
+            }
+            let next = NSMaxRange(paragraph)
+            guard paragraph.length > 0, next < total || (next == total && text.character(at: total - 1) == MarkdownParagraph.separator)
+            else { break }
+            cursor = next
+        }
+        let end = stop ?? total
+        let blocks = builder.finishUnits(previous: previous)
+        var units: [TopLevelUnit] = []
+        units.reserveCapacity(blocks.count)
+        for (index, unit) in blocks.enumerated() {
+            let from = index == 0 ? start : heads[index]
+            let to = index + 1 < heads.count ? heads[index + 1] : end
+            units.append(TopLevelUnit(block: unit.block, list: unit.list, length: to - from, leading: heads[index] - from))
+        }
+        return TopLevelScan(units: units, start: start, end: end, stopped: stop != nil)
+    }
+
+    private static func backing(_ storage: NSAttributedString) -> NSString {
+        (storage as? NSMutableAttributedString)?.mutableString ?? (storage.string as NSString)
+    }
+
+    private func scanParagraphs(_ storage: NSAttributedString, text: NSString, range: NSRange) -> [ScannedParagraph] {
+        let total = text.length
         let start = max(0, min(range.location, total))
         let end = max(start, min(NSMaxRange(range), total))
         let clip = NSRange(location: start, length: end - start)
-        var result: [ScannedParagraph] = []
-        for paragraph in storage.markdownParagraphRanges(in: clip) {
-            var content = paragraph
-            while content.length > 0, Self.isParagraphSeparator(text[NSMaxRange(content) - 1]) {
-                content.length -= 1
-            }
-            content = Self.clamp(content, to: clip)
-            let anchor = paragraph.location < total ? paragraph.location : nil
-            let block = anchor.flatMap { storage.markdownBlock(at: $0) } ?? .paragraph
-            let lists = anchor.map { Self.textLists(in: storage, at: $0) } ?? []
-            let blank = !block.isCode && !block.isTableRow && Self.isBlank(text, content)
-            result.append(ScannedParagraph(block: block, lists: lists, content: content, isBlank: blank))
+        return storage.markdownParagraphRanges(in: clip).map { paragraph in
+            scan(storage, text: text, paragraph: paragraph, clip: clip)
         }
-        return result
+    }
+
+    private func scan(
+        _ storage: NSAttributedString,
+        text: NSString,
+        paragraph: NSRange,
+        clip: NSRange,
+        shared: UTF16Text? = nil
+    ) -> ScannedParagraph {
+        let total = text.length
+        var content = paragraph
+        while content.length > 0, Self.isParagraphSeparator(text.character(at: NSMaxRange(content) - 1)) {
+            content.length -= 1
+        }
+        content = Self.clamp(content, to: clip)
+        let window = shared ?? UTF16Text(text, range: content)
+        let anchor = paragraph.location < total ? paragraph.location : nil
+        let block = anchor.flatMap { storage.markdownBlock(at: $0) } ?? .paragraph
+        let lists = anchor.map { Self.textLists(in: storage, at: $0) } ?? []
+        let blank = !block.isCode && !block.isTableRow && Self.isBlank(window, content)
+        return ScannedParagraph(block: block, lists: lists, range: paragraph, content: content, text: window, isBlank: blank)
     }
 
     private static func clamp(_ range: NSRange, to clip: NSRange) -> NSRange {
@@ -77,10 +147,53 @@ public struct StorageReader {
     }
 }
 
+package struct TopLevelList: Equatable, Sendable {
+    package var isOrdered: Bool
+    package var sourceMarker: UInt8?
+
+    package func separates(from previous: TopLevelList?) -> Bool {
+        guard let previous else { return false }
+        return previous.isOrdered == isOrdered && MarkdownTextList.areDistinct(previous.sourceMarker, sourceMarker)
+    }
+}
+
+package struct TopLevelUnit: Equatable, Sendable {
+    package var block: EditorDocument.Block
+    package var list: TopLevelList?
+    package var length: Int
+    package var leading: Int
+
+    package var canAbsorbFollowingParagraphs: Bool {
+        switch block {
+        case .list, .quote, .code, .table: return true
+        case .paragraph, .heading, .thematicBreak, .atom: return false
+        }
+    }
+
+    @discardableResult
+    package mutating func separate(from previous: TopLevelList?) -> Bool {
+        guard let list, case .list(var node) = block else { return false }
+        let separates = list.separates(from: previous)
+        guard separates != node.separatesFromPrevious else { return false }
+        node.separatesFromPrevious = separates
+        block = .list(node)
+        return true
+    }
+}
+
+package struct TopLevelScan: Sendable {
+    package var units: [TopLevelUnit]
+    package var start: Int
+    package var end: Int
+    package var stopped: Bool
+}
+
 private struct ScannedParagraph {
     let block: MarkdownBlock
     let lists: [NSTextList]
+    let range: NSRange
     let content: NSRange
+    let text: UTF16Text
     let isBlank: Bool
 }
 
@@ -196,12 +309,16 @@ private struct TreeBuilder {
         didSet { if openCode == nil { openTable = nil } }
     }
     var openTable: TableNode?
-    var inline: InlineExtractor
     var listKinds: [ObjectIdentifier: EditorDocument.ListKind] = [:]
 
-    init(storage: NSAttributedString, text: UTF16Text) {
+    init(storage: NSAttributedString) {
         self.storage = storage
-        self.inline = InlineExtractor(storage: storage, text: text)
+    }
+
+    var rootCount: Int { root.blocks.count }
+
+    func dropLastRoot() {
+        root.blocks.removeLast()
     }
 
     mutating func add(_ paragraph: ScannedParagraph) {
@@ -226,6 +343,16 @@ private struct TreeBuilder {
 
     func finish() -> EditorDocument {
         EditorDocument(blocks: Self.materialize(root.blocks))
+    }
+
+    func finishUnits(previous: TopLevelList?) -> [(block: EditorDocument.Block, list: TopLevelList?)] {
+        var previous = previous
+        return root.blocks.map { pending in
+            let block = Self.materialize(pending, previous: previous)
+            let list = Self.signature(of: pending)
+            previous = list
+            return (block, list)
+        }
     }
 
     private static func path(for block: MarkdownBlock, lists: [NSTextList]) -> [PathEntry] {
@@ -333,6 +460,7 @@ private struct TreeBuilder {
     }
 
     private mutating func append(_ paragraph: ScannedParagraph, block: MarkdownBlock, to host: BlockHost) {
+        let inline = InlineExtractor(storage: storage, text: paragraph.text)
         switch block.leaf {
         case .code(let language, let group, let style):
             let lines = inline.codeLines(in: paragraph.content)
@@ -377,36 +505,40 @@ private struct TreeBuilder {
         openCode = nil
     }
 
+    private static func signature(of pending: PendingBlock) -> TopLevelList? {
+        guard case .list(let node) = pending else { return nil }
+        return TopLevelList(isOrdered: node.kind.isOrdered, sourceMarker: node.sourceMarker)
+    }
+
     private static func materialize(_ pending: [PendingBlock]) -> [EditorDocument.Block] {
-        var previousList: ListNode?
+        var previous: TopLevelList?
         return pending.map { block in
-            defer {
-                if case .list(let node) = block { previousList = node } else { previousList = nil }
-            }
-            switch block {
-            case .leaf(let leaf):
-                return leaf
-            case .code(let node):
-                return .code(EditorDocument.CodeBlock(language: node.language, lines: node.lines, isIndented: node.isIndented))
-            case .table(let node):
-                return .table(EditorDocument.TableBlock(
-                    alignments: node.alignments,
-                    header: node.rows.first ?? [],
-                    body: Array(node.rows.dropFirst())
-                ))
-            case .quote(let node):
-                return .quote(materialize(node.blocks))
-            case .list(let node):
-                let separates = previousList.map {
-                    $0.kind.isOrdered == node.kind.isOrdered
-                        && MarkdownTextList.areDistinct($0.sourceMarker, node.sourceMarker)
-                } ?? false
-                return .list(EditorDocument.ListBlock(
-                    kind: node.kind,
-                    items: node.items.map { EditorDocument.ListItem(task: $0.task, blocks: materialize($0.blocks)) },
-                    separatesFromPrevious: separates
-                ))
-            }
+            defer { previous = signature(of: block) }
+            return materialize(block, previous: previous)
+        }
+    }
+
+    private static func materialize(_ block: PendingBlock, previous: TopLevelList?) -> EditorDocument.Block {
+        switch block {
+        case .leaf(let leaf):
+            return leaf
+        case .code(let node):
+            return .code(EditorDocument.CodeBlock(language: node.language, lines: node.lines, isIndented: node.isIndented))
+        case .table(let node):
+            return .table(EditorDocument.TableBlock(
+                alignments: node.alignments,
+                header: node.rows.first ?? [],
+                body: Array(node.rows.dropFirst())
+            ))
+        case .quote(let node):
+            return .quote(materialize(node.blocks))
+        case .list(let node):
+            let list = TopLevelList(isOrdered: node.kind.isOrdered, sourceMarker: node.sourceMarker)
+            return .list(EditorDocument.ListBlock(
+                kind: node.kind,
+                items: node.items.map { EditorDocument.ListItem(task: $0.task, blocks: materialize($0.blocks)) },
+                separatesFromPrevious: list.separates(from: previous)
+            ))
         }
     }
 }
@@ -417,7 +549,7 @@ private struct InlineExtractor {
 
     private func codeText(_ range: NSRange) -> String {
         guard range.length > 0 else { return "" }
-        guard text.units[range.location..<NSMaxRange(range)].contains(0x00A0) else { return text.substring(range) }
+        guard text.contains(0x00A0, in: range) else { return text.substring(range) }
         var output = ""
         storage.enumerateAttribute(.markdownLiteral, in: range) { value, run, _ in
             let piece = text.substring(run)
@@ -612,25 +744,29 @@ private struct InlineExtractor {
 }
 
 struct UTF16Text {
+    let base: Int
     let units: [UInt16]
 
-    init(_ string: NSString) {
-        let length = string.length
+    init(_ string: NSString, range: NSRange) {
+        base = range.location
+        let length = range.length
         units = [UInt16](unsafeUninitializedCapacity: length) { buffer, count in
             if let base = buffer.baseAddress, length > 0 {
-                string.getCharacters(base, range: NSRange(location: 0, length: length))
+                string.getCharacters(base, range: range)
             }
             count = length
         }
     }
 
-    var count: Int { units.count }
+    subscript(index: Int) -> UInt16 { units[index - base] }
 
-    subscript(index: Int) -> UInt16 { units[index] }
+    func contains(_ unit: UInt16, in range: NSRange) -> Bool {
+        units[(range.location - base)..<(NSMaxRange(range) - base)].contains(unit)
+    }
 
     func substring(_ range: NSRange) -> String {
         units.withUnsafeBufferPointer { buffer in
-            let slice = UnsafeBufferPointer(rebasing: buffer[range.location..<NSMaxRange(range)])
+            let slice = UnsafeBufferPointer(rebasing: buffer[(range.location - base)..<(NSMaxRange(range) - base)])
             guard slice.allSatisfy({ $0 < 0x80 }) else {
                 return String(decoding: slice, as: UTF16.self)
             }
@@ -644,8 +780,9 @@ struct UTF16Text {
     }
 
     func matches(_ other: [UInt16], at index: Int) -> Bool {
-        guard index + other.count <= units.count else { return false }
-        for offset in 0..<other.count where units[index + offset] != other[offset] {
+        let offset = index - base
+        guard offset >= 0, offset + other.count <= units.count else { return false }
+        for position in 0..<other.count where units[offset + position] != other[position] {
             return false
         }
         return true

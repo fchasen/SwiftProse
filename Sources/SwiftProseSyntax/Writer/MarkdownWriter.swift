@@ -1,12 +1,51 @@
 import Foundation
 
+package enum TopLevelContext: Equatable, Sendable {
+    case other
+    case list(isOrdered: Bool, alternate: Bool)
+
+    package static let start = TopLevelContext.other
+}
+
 public struct MarkdownWriter: DocumentWriter {
     public init() {}
 
     public func write(_ document: EditorDocument) -> String {
+        var output = ""
+        var context = TopLevelContext.start
+        var wroteBlock = false
+        for block in document.blocks {
+            let written = Self.writeTopLevel(block, after: context)
+            context = written.context
+            guard let text = written.text else { continue }
+            if wroteBlock { output += "\n\n" }
+            output += text
+            wroteBlock = true
+        }
+        return output
+    }
+
+    package static func writeTopLevel(
+        _ block: EditorDocument.Block,
+        after context: TopLevelContext
+    ) -> (text: String?, context: TopLevelContext) {
         var output = LineOutput()
-        output.write(document.blocks, context: .top)
-        return output.text
+        var usesAlternateMarker = false
+        let prior: LineOutput.Prior
+        switch context {
+        case .other:
+            prior = .other
+        case .list(let isOrdered, let alternate):
+            prior = .list(isOrdered: isOrdered)
+            usesAlternateMarker = alternate
+        }
+        guard output.write(block, after: nil, prior: prior, context: .top, usesAlternateMarker: &usesAlternateMarker) else {
+            return (nil, context)
+        }
+        if case .list(let list) = block {
+            return (output.text, .list(isOrdered: list.kind.isOrdered, alternate: usesAlternateMarker))
+        }
+        return (output.text, .other)
     }
 
     public func markdown(from storage: NSAttributedString) -> String {
@@ -68,61 +107,87 @@ private struct LineOutput {
     private var itemBullet: Character = "-"
     private var lineCount = 0
 
+    enum Prior: Equatable {
+        case none
+        case list(isOrdered: Bool)
+        case other
+
+        init(_ block: EditorDocument.Block?) {
+            switch block {
+            case nil: self = .none
+            case .list(let list)?: self = .list(isOrdered: list.kind.isOrdered)
+            default: self = .other
+            }
+        }
+    }
+
     mutating func write(_ blocks: [EditorDocument.Block], context: Context) {
         var previous: EditorDocument.Block?
         var usesAlternateMarker = false
         for block in blocks {
-            let firstBullet: Character? = context == .item && previous == nil ? itemBullet : nil
-            switch block {
-            case .paragraph(let runs):
-                let rendered = InlineSerializer.serialize(runs, inHeading: false)
-                guard !rendered.isEmpty else { continue }
-                separate(block, after: previous, context: context)
-                lines(Self.protectingLeadingIndent(rendered))
-            case .list(let list):
-                guard !list.items.isEmpty else { continue }
-                separate(block, after: previous, context: context)
-                if case .list(let prior)? = previous, prior.kind.isOrdered == list.kind.isOrdered {
-                    if list.separatesFromPrevious { usesAlternateMarker.toggle() }
-                } else {
-                    usesAlternateMarker = false
-                }
-                write(list, alternateMarker: usesAlternateMarker)
-            case .heading(let level, let runs):
-                separate(block, after: previous, context: context)
-                let marker = String(repeating: "#", count: max(1, min(6, level)))
-                let rendered = InlineSerializer.serialize(runs, inHeading: true)
-                line(rendered.isEmpty ? marker : marker + " " + rendered)
-            case .code(let code):
-                separate(block, after: previous, context: context)
-                if Self.writesIndented(code, after: previous, context: context) {
-                    for body in code.lines { line(body.isEmpty ? body : "    " + body) }
-                } else {
-                    write(code)
-                }
-            case .thematicBreak:
-                separate(block, after: previous, context: context)
-                line(MarkdownWriter.thematicBreak(source: "---", itemBullet: firstBullet))
-            case .atom(let atom):
-                separate(block, after: previous, context: context)
-                if atom.kind == AtomKind.thematicBreak {
-                    line(MarkdownWriter.thematicBreak(source: atom.source, itemBullet: firstBullet))
-                } else {
-                    lines(atom.source)
-                }
-            case .table(let table):
-                separate(block, after: previous, context: context)
-                for row in TableSerializer.lines(table) { line(row) }
-            case .quote(let inner):
-                separate(block, after: previous, context: context)
-                let start = lineCount
-                prefixes.append(.quote)
-                write(inner, context: .quote)
-                prefixes.removeLast()
-                if lineCount == start { line(">") }
+            if write(block, after: previous, prior: Prior(previous), context: context, usesAlternateMarker: &usesAlternateMarker) {
+                previous = block
             }
-            previous = block
         }
+    }
+
+    mutating func write(
+        _ block: EditorDocument.Block,
+        after previous: EditorDocument.Block?,
+        prior: Prior,
+        context: Context,
+        usesAlternateMarker: inout Bool
+    ) -> Bool {
+        let firstBullet: Character? = context == .item && prior == .none ? itemBullet : nil
+        switch block {
+        case .paragraph(let runs):
+            let rendered = InlineSerializer.serialize(runs, inHeading: false)
+            guard !rendered.isEmpty else { return false }
+            separate(block, after: previous, context: context)
+            lines(Self.protectingLeadingIndent(rendered))
+        case .list(let list):
+            guard !list.items.isEmpty else { return false }
+            separate(block, after: previous, context: context)
+            if case .list(let isOrdered) = prior, isOrdered == list.kind.isOrdered {
+                if list.separatesFromPrevious { usesAlternateMarker.toggle() }
+            } else {
+                usesAlternateMarker = false
+            }
+            write(list, alternateMarker: usesAlternateMarker)
+        case .heading(let level, let runs):
+            separate(block, after: previous, context: context)
+            let marker = String(repeating: "#", count: max(1, min(6, level)))
+            let rendered = InlineSerializer.serialize(runs, inHeading: true)
+            line(rendered.isEmpty ? marker : marker + " " + rendered)
+        case .code(let code):
+            separate(block, after: previous, context: context)
+            if Self.writesIndented(code, after: prior, context: context) {
+                for body in code.lines { line(body.isEmpty ? body : "    " + body) }
+            } else {
+                write(code)
+            }
+        case .thematicBreak:
+            separate(block, after: previous, context: context)
+            line(MarkdownWriter.thematicBreak(source: "---", itemBullet: firstBullet))
+        case .atom(let atom):
+            separate(block, after: previous, context: context)
+            if atom.kind == AtomKind.thematicBreak {
+                line(MarkdownWriter.thematicBreak(source: atom.source, itemBullet: firstBullet))
+            } else {
+                lines(atom.source)
+            }
+        case .table(let table):
+            separate(block, after: previous, context: context)
+            for row in TableSerializer.lines(table) { line(row) }
+        case .quote(let inner):
+            separate(block, after: previous, context: context)
+            let start = lineCount
+            prefixes.append(.quote)
+            write(inner, context: .quote)
+            prefixes.removeLast()
+            if lineCount == start { line(">") }
+        }
+        return true
     }
 
     private mutating func separate(_ block: EditorDocument.Block, after previous: EditorDocument.Block?, context: Context) {
@@ -138,7 +203,7 @@ private struct LineOutput {
             if case .ordered(let start) = list.kind { startsAtOne = start == 1 }
             needsBlankLine = !startsAtOne || Self.rendersNothing(list.items[0].blocks)
         case .code(let code):
-            needsBlankLine = Self.writesIndented(code, after: previous, context: context)
+            needsBlankLine = Self.writesIndented(code, after: Prior(previous), context: context)
         case .heading, .quote:
             needsBlankLine = false
         case .paragraph, .thematicBreak, .atom, .table:
@@ -160,17 +225,17 @@ private struct LineOutput {
 
     private static func writesIndented(
         _ code: EditorDocument.CodeBlock,
-        after previous: EditorDocument.Block?,
+        after prior: Prior,
         context: Context
     ) -> Bool {
         guard code.isIndented, code.language == nil,
               let first = code.lines.first, let last = code.lines.last,
               !isBlankLine(first), !isBlankLine(last)
         else { return false }
-        switch previous {
-        case .list?: return false
-        case nil: return context != .item
-        default: return true
+        switch prior {
+        case .list: return false
+        case .none: return context != .item
+        case .other: return true
         }
     }
 
