@@ -8,13 +8,12 @@ import Foundation
 ///   "doc": "- one\n- tw<|>o\n",
 ///   "ops": [ { "op": "key", "key": "Tab" } ],
 ///   "expect": { "doc": "- one\n  - tw<|>o\n" },
-///   "finally": ["tier0", "projection"] }
+///   "finally": ["tier0", "normalizer"] }
 /// ```
 struct Scenario: Codable, Equatable {
     /// Path-like id: `category/slug`. Drives the generated XCTest name.
     var name: String
     var tags: [String] = []
-    var config: Config?
     /// Initial markdown, with selection markers.
     var doc: String
     var ops: [EditOp] = []
@@ -36,17 +35,6 @@ struct Scenario: Codable, Equatable {
     var crashes: String?
     /// Per-file marker override, for docs whose content contains `<|>`.
     var markers: Markers?
-
-    struct Config: Codable, Equatable {
-        /// Seconds. Default `1e9` — grouping then depends only on explicit
-        /// `closeHistoryGroup` ops and range adjacency.
-        var newGroupDelay: Double?
-        var depth: Int?
-        /// Turn the DEBUG spec assertion off for a scenario that expects
-        /// diagnostics.
-        var assertsOnDiagnostics: Bool?
-        var useStructuredBulkInsert: Bool?
-    }
 
     struct Markers: Codable, Equatable {
         var caret: String
@@ -79,8 +67,8 @@ struct Scenario: Codable, Equatable {
 /// A markdown string with selection markers stripped, plus where they were.
 ///
 /// Marker offsets are **not** storage offsets: `<|>` sits in the source
-/// text, and compiling that source moves everything after it by however
-/// many characters the presentation markers add. `ScenarioRunner` recovers
+/// text, and loading that source removes delimiters and list markers,
+/// renders escapes and collapses atoms to U+FFFC. `ScenarioRunner` recovers
 /// the real offsets with a sentinel compile; this type only does the
 /// string-level bookkeeping the UITests bundle can also do.
 struct MarkedText: Equatable {

@@ -7,9 +7,8 @@ import Foundation
 ///
 /// Every op goes through AppKit's own input path — `insertText`,
 /// `doCommand(by:)`, a synthesized `keyDown`, the menu `undo:` action —
-/// so the delegate stamps an `EditHint`, `ProseTextStorage` captures a
-/// pre-image, and `didChangeText()` drains the envelope, exactly as when a
-/// person types.
+/// so the controller sees `shouldChangeText`, storage processing and
+/// `didChangeText()` exactly as when a person types.
 @MainActor
 final class EditDriver {
 
@@ -62,11 +61,12 @@ final class EditDriver {
     func perform(_ op: EditOp, at index: Int = 0) throws {
         switch op {
         case .type(let text):
-            // Per character. A multi-character insert containing whitespace
-            // is re-routed to the paste pipeline by the delegate's bulk
-            // veto, which is `typeBurst`'s job, not this one's.
+            // One key event per character: deferred input rules and the
+            // event's undo group settle between keystrokes, as they do
+            // when a person types.
             for ch in text {
                 textView.insertText(String(ch), replacementRange: NSRange(location: NSNotFound, length: 0))
+                settle()
             }
 
         case .typeBurst(let text):
@@ -120,19 +120,15 @@ final class EditDriver {
             _ = controller.toggleCheckbox(at: pos)
 
         case .load(let markdown, let keepHistory):
-            controller.setMarkdown(markdown, async: false)
-            // `replaceStorage` clears neither the undo stack nor the open
-            // typing burst. A scenario's `load` means "start here", so both
-            // go — unless the scenario is deliberately probing what happens
-            // when they don't.
+            controller.setMarkdown(markdown)
             if !keepHistory {
-                controller.undoManager.removeAllActions()
-                controller.closeHistoryGroup()
+                controller.activeUndoManagerForHarness.removeAllActions()
+                controller.breakUndoCoalescingForHarness()
             }
             textView.setSelectedRange(NSRange(location: 0, length: 0))
 
         case .closeHistoryGroup:
-            controller.closeHistoryGroup()
+            controller.breakUndoCoalescingForHarness()
 
         case .wait(let ms):
             guard ms > 0 else { return }
@@ -147,11 +143,10 @@ final class EditDriver {
         }
     }
 
-    /// Leave the text view's input state as a fresh editor's. A run that
-    /// ends mid-composition would otherwise make every later edit classify
-    /// as `.compositionInterim`: no normalization, no publish, no input
-    /// rules, no undo entry. `unmarkText()` alone *accepts* the marked
-    /// text; cancelling is an empty marked range first.
+    /// Leave the text view's input state as a fresh editor's: a run that
+    /// ends mid-composition would leave every later edit inside marked
+    /// text. `unmarkText()` alone *accepts* the marked text; cancelling is
+    /// an empty marked range first.
     func clearInputState() {
         guard textView.hasMarkedText() else { return }
         textView.setMarkedText(
@@ -165,18 +160,31 @@ final class EditDriver {
 
     // MARK: - Settling
     //
-    // Hosted drains are synchronous: `didChangeText()` closes the envelope
-    // before returning. What is deferred is `main.async` work — typing
-    // attributes, the code-block rehighlight, the background layer, the
-    // binding push. Two main-queue fences put all of it behind us; the
-    // explicit drain then covers the paths that queue an envelope without
-    // going through `didChangeText`.
+    // Deferred work — input rules, the pending `DocumentChange` flush, the
+    // binding push, inline-content refresh — runs on `main.async`. Two
+    // main-queue fences put it behind us; `settleForHarness()` then runs
+    // whatever is still queued.
 
     func settle() {
         fence()
         fence()
-        controller.drainPendingEnvelopesForHarness()
+        controller.settleForHarness()
+        endEvent()
     }
+
+    /// `groupsByEvent` closes every manager's automatic undo group when
+    /// `NSApplication` finishes an event, which never happens while a test
+    /// method runs. Each op is one event, so the harness closes the groups
+    /// the way AppKit's event loop does.
+    private func endEvent() {
+        let manager = controller.activeUndoManagerForHarness
+        guard manager.groupsByEvent, manager.groupingLevel > 0 else { return }
+        let undoManagerClass = UndoManager.self as AnyObject
+        guard undoManagerClass.responds(to: Self.endTopLevelGroupings) else { return }
+        _ = undoManagerClass.perform(Self.endTopLevelGroupings)
+    }
+
+    private static let endTopLevelGroupings = NSSelectorFromString("_endTopLevelGroupings")
 
     private final class Flag { var value = false }
 
@@ -321,7 +329,8 @@ final class EditDriver {
             // No override on this class — fall back to the controller so a
             // scenario still exercises history rather than silently doing
             // nothing. The canary reports the discrepancy.
-            name == "undo:" ? controller.undoManager.undo() : controller.undoManager.redo()
+            let manager = controller.activeUndoManagerForHarness
+            name == "undo:" ? manager.undo() : manager.redo()
         }
     }
 
@@ -441,7 +450,7 @@ final class EditDriver {
         var problems: [String] = []
         if let doc = expectation.doc {
             let marked = try MarkedText.parse(doc, markers: Scenario.defaultMarkers)
-            let actual = controller.markdown()
+            let actual = Self.trimOneTrailingNewline(controller.markdown())
             let expected = Self.trimOneTrailingNewline(marked.clean)
             if actual != expected {
                 problems.append("""
@@ -457,21 +466,17 @@ final class EditDriver {
             }
         }
         if let kind = expectation.blockKind {
-            let probe = min(controller.currentSelection.location, max(0, controller.textStorage.length - 1))
-            let spec = probe >= 0 ? controller.textStorage.blockSpec(at: probe) : nil
-            let actual = spec.map { "\($0.kind)" } ?? "‹none›"
+            let actual = Self.blockKindAtCaret(controller, textView: textView)
             if actual != kind {
                 problems.append("blockKind expected \(kind) got \(actual)")
             }
         }
-        if let canUndo = expectation.canUndo, controller.undoManager.canUndo != canUndo {
-            problems.append("canUndo expected \(canUndo) got \(controller.undoManager.canUndo)")
+        let manager = controller.activeUndoManagerForHarness
+        if let canUndo = expectation.canUndo, manager.canUndo != canUndo {
+            problems.append("canUndo expected \(canUndo) got \(manager.canUndo)")
         }
-        if let canRedo = expectation.canRedo, controller.undoManager.canRedo != canRedo {
-            problems.append("canRedo expected \(canRedo) got \(controller.undoManager.canRedo)")
-        }
-        if let depth = expectation.undoDepth, controller.undoDepth != depth {
-            problems.append("undoDepth expected \(depth) got \(controller.undoDepth)")
+        if let canRedo = expectation.canRedo, manager.canRedo != canRedo {
+            problems.append("canRedo expected \(canRedo) got \(manager.canRedo)")
         }
         if let marks = expectation.marks {
             let actual = Self.marksAtCaret(controller).sorted()
@@ -484,18 +489,37 @@ final class EditDriver {
         }
     }
 
+    /// A collapsed caret reads the character before it, which is what
+    /// typing there would carry; a selection reads its first character.
     static func marksAtCaret(_ controller: EditorController) -> [String] {
         let storage = controller.textStorage
         let selection = controller.currentSelection
-        // A collapsed caret inherits the character before it, which is what
-        // typing there would carry.
-        let probe = selection.length > 0
-            ? selection.location
-            : max(0, selection.location - 1)
-        guard probe < storage.length, storage.length > 0 else { return [] }
-        guard let box = storage.attribute(.proseMarks, at: probe, effectiveRange: nil) as? MarkSetBox
+        let probe = selection.length > 0 ? selection.location : selection.location - 1
+        guard probe >= 0, probe < storage.length,
+              (storage.string as NSString).character(at: probe) != MarkdownParagraph.separator
         else { return [] }
-        return box.marks.marks.map(\.type)
+        return StorageDump.markNames(storage, at: probe)
+    }
+
+    /// `StorageDump.describe(block:lists:)` for the caret's paragraph. The
+    /// empty paragraph after a trailing newline has no characters, so its
+    /// block is the one typing there would get.
+    static func blockKindAtCaret(_ controller: EditorController, textView: NSTextView) -> String {
+        let storage = controller.textStorage
+        let location = min(controller.currentSelection.location, storage.length)
+        let ns = storage.string as NSString
+        let atTrailingEmpty = location == storage.length
+            && (location == 0 || ns.character(at: location - 1) == MarkdownParagraph.separator)
+        if atTrailingEmpty {
+            let attributes = textView.typingAttributes
+            let block = attributes[.markdownBlock] as? MarkdownBlock ?? .paragraph
+            let lists = StorageDump.textLists(of: attributes[.paragraphStyle] as? NSParagraphStyle)
+            return StorageDump.describe(block: block, lists: lists)
+        }
+        let probe = location == storage.length ? location - 1 : location
+        let paragraph = storage.markdownParagraphRange(at: probe)
+        guard let block = storage.markdownBlock(at: paragraph.location) else { return "‹none›" }
+        return StorageDump.describe(block: block, lists: StorageDump.textLists(in: storage, at: paragraph.location))
     }
 
     static func trimOneTrailingNewline(_ s: String) -> String {
@@ -533,6 +557,7 @@ final class EditDriver {
         case "insertTableColumnAfter": return .insertTableColumnAfter
         case "deleteTableRow": return .deleteTableRow
         case "deleteTableColumn": return .deleteTableColumn
+        case "deleteTable": return .deleteTable
         default: return nil
         }
     }

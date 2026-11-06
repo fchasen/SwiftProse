@@ -44,7 +44,7 @@ extension EditorController {
         pendingInput = nil
         guard !isWritingToolsActive else { return }
         deferEdit { [weak self] in
-            self?.applyInputRules(after: input)
+            if self?.applyInputRules(after: input) == true { self?.harnessRouteProbe?("inputRule") }
         }
     }
 

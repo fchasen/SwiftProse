@@ -139,6 +139,7 @@ extension EditorController {
     @discardableResult
     func paste(_ payload: PastePayload, replacing range: NSRange) -> Bool {
         guard isEditable, !payload.isEmpty else { return false }
+        harnessRouteProbe?("paste")
         let target = Normalizer.clamp(range, to: textStorage.length)
         if payload.forcePlain || isLocationInCode(target.location) {
             guard let text = payload.plainText ?? payload.anyText else { return false }

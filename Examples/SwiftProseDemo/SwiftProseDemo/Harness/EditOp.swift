@@ -15,7 +15,7 @@ struct Anchor: Codable, Equatable {
     var after: String?
     /// Occurrence index for `before` / `after`. 0-based.
     var n: Int = 0
-    /// 0-based index of a top-level block, paired with `edge`.
+    /// 0-based index of a storage paragraph, paired with `edge`.
     var block: Int?
     var edge: Edge?
 
@@ -68,7 +68,7 @@ struct Anchor: Codable, Equatable {
             return before != nil ? found.location : found.location + found.length
         }
         if let block, let edge {
-            let lines = Self.topLevelBlockRanges(in: string)
+            let lines = Self.paragraphRanges(in: string)
             guard block >= 0, block < lines.count else { return nil }
             let r = lines[block]
             return edge == .start ? r.location : r.location + r.length
@@ -92,25 +92,18 @@ struct Anchor: Codable, Equatable {
         return nil
     }
 
-    /// Blank-line-separated blocks, as the fuzzer and the doc shrinker see
-    /// them. Cheap and string-local — deliberately not the projected tree.
-    static func topLevelBlockRanges(in string: NSString) -> [NSRange] {
+    /// Storage paragraphs — one per block line — with their terminating
+    /// newline excluded, so `.end` is the caret position at the end of the
+    /// line.
+    static func paragraphRanges(in string: NSString) -> [NSRange] {
         var out: [NSRange] = []
         var start = 0
-        var i = 0
-        while i < string.length {
-            let lineRange = string.lineRange(for: NSRange(location: i, length: 0))
-            let line = string.substring(with: lineRange)
-            if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                if lineRange.location > start {
-                    out.append(NSRange(location: start, length: lineRange.location - start))
-                }
-                start = lineRange.location + lineRange.length
-            }
-            i = lineRange.location + max(1, lineRange.length)
-        }
-        if start < string.length {
-            out.append(NSRange(location: start, length: string.length - start))
+        while start < string.length {
+            let line = string.lineRange(for: NSRange(location: start, length: 0))
+            var content = line
+            if content.length > 0, string.character(at: NSMaxRange(content) - 1) == 0x0A { content.length -= 1 }
+            out.append(content)
+            start = NSMaxRange(line)
         }
         return out
     }
@@ -122,14 +115,13 @@ struct Expectation: Codable, Equatable {
     var doc: String?
     /// Raw selection, when the doc string can't carry a marker.
     var selection: [Int]?
-    /// `BlockSpec.kind` description at the caret.
+    /// `StorageDump.describe(block:lists:)` of the caret's paragraph.
     var blockKind: String?
     var canUndo: Bool?
     var canRedo: Bool?
-    /// Mark names active at the caret, sorted.
+    /// Mark names at the caret, sorted: `code`, `emphasis`, `link`,
+    /// `strikethrough`, `strong`.
     var marks: [String]?
-    /// Undo depth after the ops.
-    var undoDepth: Int?
 }
 
 /// The op vocabulary a scenario file or fuzz log is written in.
@@ -171,7 +163,7 @@ extension EditOp: Codable {
         case op, text, html, plain, key, n, at, before, after, block, edge
         case from, to, id, url, label, rows, columns, interims, commit
         case find, replace, markdown, keepHistory, ms, oracles, length
-        case doc, selection, blockKind, canUndo, canRedo, marks, undoDepth
+        case doc, selection, blockKind, canUndo, canRedo, marks
     }
 
     /// Anchors are written inline on the op object (`{"op":"caret","at":5}`)
@@ -270,8 +262,7 @@ extension EditOp: Codable {
                 blockKind: try c.decodeIfPresent(String.self, forKey: .blockKind),
                 canUndo: try c.decodeIfPresent(Bool.self, forKey: .canUndo),
                 canRedo: try c.decodeIfPresent(Bool.self, forKey: .canRedo),
-                marks: try c.decodeIfPresent([String].self, forKey: .marks),
-                undoDepth: try c.decodeIfPresent(Int.self, forKey: .undoDepth)
+                marks: try c.decodeIfPresent([String].self, forKey: .marks)
             ))
         case "check":
             self = .check(oracles: try c.decode([String].self, forKey: .oracles))
@@ -345,7 +336,6 @@ extension EditOp: Codable {
             try c.encodeIfPresent(e.canUndo, forKey: .canUndo)
             try c.encodeIfPresent(e.canRedo, forKey: .canRedo)
             try c.encodeIfPresent(e.marks, forKey: .marks)
-            try c.encodeIfPresent(e.undoDepth, forKey: .undoDepth)
         case .check(let oracles):
             try c.encode("check", forKey: .op); try c.encode(oracles, forKey: .oracles)
         }

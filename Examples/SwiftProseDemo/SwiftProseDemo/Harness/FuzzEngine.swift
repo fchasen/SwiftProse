@@ -141,10 +141,6 @@ final class FuzzEngine {
         defer { try? log?.close() }
 
         HarnessRegistry.shared.clearCollected()
-        controller.historyConfig = HistoryConfig(newGroupDelay: 1e9)
-        // One run should report many failures, not trap on the first.
-        controller.harnessAssertsOnDiagnostics = false
-        defer { controller.harnessAssertsOnDiagnostics = true }
 
         let driver = EditDriver(controller: controller, textView: textView)
         driver.clearInputState()
@@ -188,10 +184,7 @@ final class FuzzEngine {
                 progress?(index, op)
             }
             // End-of-run tier: the expensive oracles, once.
-            try oracles.run(
-                ["markdownFixpoint", "pmJSON", "history", "layout", "offsets", "specFull", "schema", "projection"],
-                at: ops.count
-            )
+            try oracles.run(Oracles.endOfRun, at: ops.count)
         } catch let failure as EditDriver.Failure {
             if case .oracle = failure {
                 // Already recorded on `oracles.failures`.
@@ -276,10 +269,6 @@ final class FuzzEngine {
                 ops: [EditOp],
                 stopAt: Int? = nil,
                 collectAll: Bool = true) -> [OracleFailure] {
-        controller.historyConfig = HistoryConfig(newGroupDelay: 1e9)
-        controller.harnessAssertsOnDiagnostics = false
-        defer { controller.harnessAssertsOnDiagnostics = true }
-
         let driver = EditDriver(controller: controller, textView: textView)
         driver.clearInputState()
         let oracles = Oracles(
@@ -300,10 +289,7 @@ final class FuzzEngine {
                 driver.settle()
                 try oracles.checkCadenced(at: index, op: op)
             }
-            try oracles.run(
-                ["markdownFixpoint", "pmJSON", "history", "layout", "offsets", "specFull", "schema", "projection"],
-                at: ops.count
-            )
+            try oracles.run(Oracles.endOfRun, at: ops.count)
         } catch let failure as EditDriver.Failure {
             if case .oracle = failure {} else {
                 oracles.note(OracleFailure(
@@ -321,10 +307,10 @@ final class FuzzEngine {
 
 // MARK: - Generator
 
-/// Draws ops from the live document: block boundaries, mark-run edges,
-/// list-marker prefixes and attachment neighbours are where the
-/// interesting bugs are, so they get drawn far more often than a uniform
-/// offset would give.
+/// Draws ops from the live document: paragraph edges, intent-run edges,
+/// literals, table separators, line breaks and attachment neighbours are
+/// where the interesting bugs are, so they get drawn far more often than a
+/// uniform offset would give.
 @MainActor
 struct OpGenerator {
     var rng: Seeded
@@ -406,7 +392,8 @@ struct OpGenerator {
             occurrence += 1
             searchFrom = found.location + max(1, found.length)
         }
-        return Anchor(at: clamped, after: needle, n: occurrence)
+        let anchor = Anchor(at: clamped, after: needle, n: occurrence)
+        return anchor.resolve(in: string) == clamped ? anchor : Anchor(at: clamped)
     }
 
     /// Whether `offset` falls between composed character sequences rather
@@ -442,40 +429,36 @@ struct OpGenerator {
         let string = storage.string as NSString
         guard string.length > 0 else { return [0] }
         var out: Set<Int> = [0, string.length, max(0, string.length - 1)]
-        var i = 0
-        var lines = 0
-        while i < string.length, lines < 400 {
-            let line = string.lineRange(for: NSRange(location: i, length: 0))
-            out.insert(line.location)
-            out.insert(max(line.location, line.location + line.length - 1))
-            // Just past a list marker / checkbox prefix, where a spec
-            // carries but the text doesn't.
-            var probe = line.location
-            while probe < line.location + line.length,
-                  storage.safeAttribute(.proseListMarker, at: probe) as? Bool == true {
-                probe += 1
-            }
-            if probe != line.location { out.insert(probe) }
-            i = line.location + max(1, line.length)
-            lines += 1
+        for (count, paragraph) in storage.markdownParagraphRanges().enumerated() where count < 400 {
+            out.insert(paragraph.location)
+            out.insert(max(paragraph.location, NSMaxRange(paragraph) - 1))
         }
-        // Mark-run boundaries and attachment neighbours.
+        let full = NSRange(location: 0, length: string.length)
         var runs = 0
-        storage.enumerateAttribute(
-            .proseMarks, in: NSRange(location: 0, length: string.length), options: []
-        ) { _, range, stop in
+        storage.enumerateAttribute(.markdownInlineIntent, in: full, options: []) { _, range, stop in
             out.insert(range.location)
-            out.insert(range.location + range.length)
+            out.insert(NSMaxRange(range))
             runs += 1
             if runs > 400 { stop.pointee = true }
         }
-        storage.enumerateAttribute(
-            .attachment, in: NSRange(location: 0, length: string.length), options: []
-        ) { value, range, _ in
+        storage.enumerateAttribute(.markdownLiteral, in: full, options: []) { value, range, _ in
+            guard value != nil else { return }
+            out.insert(range.location)
+            out.insert(NSMaxRange(range))
+        }
+        storage.enumerateAttribute(.attachment, in: full, options: []) { value, range, _ in
             guard value != nil else { return }
             out.insert(max(0, range.location - 1))
             out.insert(range.location)
-            out.insert(range.location + range.length)
+            out.insert(NSMaxRange(range))
+        }
+        var breaks = 0
+        for index in 0..<string.length where breaks < 400 {
+            let unit = string.character(at: index)
+            guard unit == MarkdownTableSeparator.utf16 || unit == MarkdownBreak.utf16 else { continue }
+            out.insert(index)
+            out.insert(index + 1)
+            breaks += 1
         }
         return Array(out).filter { $0 >= 0 && $0 <= string.length }
     }
@@ -510,8 +493,11 @@ struct OpGenerator {
         return parts.joined(separator: joiner)
     }
 
+    /// Words as a person could type them: atom placeholders and line
+    /// separators are storage vocabulary, not text.
     private mutating func documentWord() -> String? {
-        let words = textView.string.split(whereSeparator: { $0 == " " || $0 == "\n" })
+        let words = textView.string
+            .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\u{FFFC}" || $0 == "\u{2028}" || $0 == "\t" })
         guard let picked = words.randomElement(using: &rng) else { return nil }
         return String(picked)
     }

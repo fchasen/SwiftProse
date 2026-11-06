@@ -25,22 +25,15 @@ final class HarnessRegistry: ObservableObject {
     /// window stays up.
     @Published var paused: Bool = false
 
-    /// Diagnostics collected since the last `reset` — the `diagnostics`
-    /// oracle drains this.
-    var collectedDiagnostics: [String] = []
-    /// `EditClass` names seen since the last reset, as coverage feedback.
+    /// Edit routes seen since the last reset, as coverage feedback.
     var classCoverage: [String: Int] = [:]
 
-    private var diagnosticToken: EditorController.ObserverToken?
     private var documentToken: EditorController.ObserverToken?
 
     func attach(_ controller: EditorController) {
         self.controller = controller
-        controller.harnessClassificationProbe = { [weak self] name in
-            self?.classCoverage[name, default: 0] += 1
-        }
-        diagnosticToken = controller.addOnDiagnostic { [weak self] diagnostic in
-            self?.collectedDiagnostics.append(String(describing: diagnostic))
+        controller.harnessEditRouteProbe = { [weak self] route in
+            self?.classCoverage[route, default: 0] += 1
         }
         documentToken = controller.addOnDocumentChange { [weak self] _ in
             guard let self, let controller = self.controller else { return }
@@ -51,14 +44,12 @@ final class HarnessRegistry: ObservableObject {
 
     func detach() {
         guard let controller else { return }
-        if let diagnosticToken { controller.removeObserver(diagnosticToken) }
         if let documentToken { controller.removeObserver(documentToken) }
-        controller.harnessClassificationProbe = nil
+        controller.harnessEditRouteProbe = nil
         self.controller = nil
     }
 
     func clearCollected() {
-        collectedDiagnostics.removeAll()
         classCoverage.removeAll()
     }
 }
