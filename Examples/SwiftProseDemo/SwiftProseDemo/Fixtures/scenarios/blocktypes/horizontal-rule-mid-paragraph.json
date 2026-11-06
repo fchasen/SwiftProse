@@ -1,13 +1,11 @@
 {
-  "name" : "blocktypes/horizontal-rule-mid-paragraph",
-  "tags" : ["blocktypes"],
-  "intent" : "The horizontalRule action retypes the caret's whole line as a rule — the paragraph it was in is replaced, not split, and the next block is untouched.",
-  "doc" : "before <|>after\n\nkeep me\n",
-  "ops" : [
-    { "op" : "action", "id" : "horizontalRule" }
+  "name": "blocktypes/horizontal-rule-mid-paragraph",
+  "tags": ["blocktypes"],
+  "intent": "The horizontalRule action inserts a rule after the caret's paragraph; that paragraph and the next block are untouched.",
+  "doc": "before <|>after\n\nkeep me\n",
+  "ops": [
+    { "op": "action", "id": "horizontalRule" }
   ],
-  "expect" : {
-    "doc" : "---\n\nkeep me\n"
-  },
-  "finally" : ["tier0", "projection", "markdownFixpoint"]
+  "expect": { "doc": "before after\n\n---\n\nkeep me\n" },
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

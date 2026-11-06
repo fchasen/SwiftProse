@@ -21,9 +21,5 @@
     "blockKind": "paragraph",
     "canUndo": true
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

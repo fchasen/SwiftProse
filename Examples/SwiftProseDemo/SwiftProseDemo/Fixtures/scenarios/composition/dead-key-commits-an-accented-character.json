@@ -7,5 +7,5 @@
     { "op" : "compose", "interims" : ["´"], "commit" : "é" }
   ],
   "expect" : { "doc" : "Meet at the café<|>\n", "canUndo" : true },
-  "finally" : ["tier0", "projection", "markdownFixpoint"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint"]
 }

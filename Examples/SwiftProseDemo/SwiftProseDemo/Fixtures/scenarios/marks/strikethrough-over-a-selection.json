@@ -13,9 +13,7 @@
     {
       "op": "expect",
       "doc": "~~done~~ deal\n",
-      "marks": [
-        "strike"
-      ]
+      "marks": ["strikethrough"]
     },
     {
       "op": "action",
@@ -26,9 +24,5 @@
     "doc": "<{done}> deal\n",
     "marks": []
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

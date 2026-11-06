@@ -247,11 +247,10 @@ final class Shrinker {
         return Scenario(
             name: "regressions/\(slug)-\(seed)",
             tags: ["regression", "fuzz", profile],
-            config: Scenario.Config(newGroupDelay: 1e9),
             doc: output.initialMarkdown,
             ops: output.ops,
             expect: nil,
-            finally: ["tier0", "projection", "markdownFixpoint"],
+            finally: ["tier0", "normalizer", "markdownFixpoint"],
             xfail: output.signature
         )
     }

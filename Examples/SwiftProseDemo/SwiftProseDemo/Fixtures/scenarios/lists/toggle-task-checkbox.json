@@ -13,12 +13,7 @@
   ],
   "expect": {
     "doc": "- [x] milk\n- [ ] eggs\n",
-    "blockKind": "taskListItem(checked: true)"
+    "blockKind": "paragraph list:bullet@1 task:checked"
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "pmJSON"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

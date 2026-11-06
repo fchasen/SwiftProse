@@ -16,8 +16,6 @@ struct OracleFailure: Error, CustomStringConvertible, Equatable {
     /// document content that shrinking is trying to remove.
     var signature: String {
         var normalized = detail
-        // Numbers and quoted strings vary with the document; the shape of
-        // the complaint does not.
         normalized = normalized.replacingOccurrences(
             of: "[0-9]+", with: "#", options: .regularExpression
         )
@@ -40,34 +38,31 @@ struct OracleFailure: Error, CustomStringConvertible, Equatable {
 final class Oracles {
 
     struct Cadence {
-        var coverage = 10
-        var schema = 25
-        var projection = 25
-        var specFull = 50
-        var offsets = 100
+        var groups = 25
+        var normalizer = 25
+        var vocabularyFull = 50
+        var reader = 100
         var markdownFixpoint = 250
-        var pmJSON = 250
         var history = 500
         var layout = 500
 
         /// Everything on every op — what a scenario over a tiny document
         /// wants.
         static let everyOp = Cadence(
-            coverage: 1, schema: 1, projection: 1, specFull: 1, offsets: 1,
-            markdownFixpoint: 0, pmJSON: 0, history: 0, layout: 0
+            groups: 1, normalizer: 1, vocabularyFull: 1, reader: 1,
+            markdownFixpoint: 0, history: 0, layout: 0
         )
 
-        /// Scaled for an ~85 KB document, where a full projection is the
+        /// Scaled for a large document, where a whole-document pass is the
         /// dominant cost.
         static func scaled(forLength length: Int) -> Cadence {
             guard length > 4_000 else { return Cadence() }
             let factor = max(1, length / 4_000)
             var c = Cadence()
-            c.coverage *= factor
-            c.schema *= factor
-            c.projection *= factor
-            c.specFull *= factor
-            c.offsets *= factor
+            c.groups *= factor
+            c.normalizer *= factor
+            c.vocabularyFull *= factor
+            c.reader *= factor
             return c
         }
     }
@@ -75,52 +70,34 @@ final class Oracles {
     let controller: EditorController
     let textView: NSTextView
     var cadence: Cadence
-    /// Oracles disabled for this run (a scenario that deliberately makes
-    /// one of them fail turns it off by id).
+    /// Oracles disabled for this run.
     var disabled: Set<String> = []
     /// Every failure seen, so one fuzz run reports many.
     private(set) var failures: [OracleFailure] = []
-    /// Collected by an `addOnDiagnostic` subscription.
-    private var diagnostics: [SpecDiagnostic] = []
-    private var diagnosticToken: EditorController.ObserverToken?
     /// The last `load`ed markdown — the `history` oracle undoes back to it.
     var baselineMarkdown: String?
     /// Per-op durations in seconds, for the `latency` report.
     private(set) var opDurations: [Double] = []
 
     static let allIDs = [
-        "diagnostics", "length", "specLocal", "scalars", "coverage", "schema",
-        "projection", "specFull", "offsets", "markdownFixpoint", "pmJSON",
-        "history", "layout", "latency"
+        "length", "vocabulary", "scalars", "groups", "normalizer",
+        "vocabularyFull", "reader", "markdownFixpoint", "history", "layout", "latency"
     ]
 
     /// The always-on set: cheap enough for every op on any document.
-    static let tier0 = ["diagnostics", "length", "specLocal", "scalars"]
+    static let tier0 = ["length", "vocabulary", "scalars"]
 
     init(controller: EditorController, textView: NSTextView, cadence: Cadence = Cadence()) {
         self.controller = controller
         self.textView = textView
         self.cadence = cadence
-        diagnosticToken = controller.addOnDiagnostic { [weak self] diagnostic in
-            self?.diagnostics.append(diagnostic)
-        }
     }
 
-    deinit {
-        // Observer tokens are cheap and the controller outlives us; drop
-        // the subscription so a finished run stops collecting.
-        if let diagnosticToken {
-            MainActor.assumeIsolated { controller.removeObserver(diagnosticToken) }
-        }
-    }
-
-    /// Record a failure the driver produced rather than an oracle — a
-    /// thrown driver error is still something the run has to report.
+    /// Record a failure the driver produced rather than an oracle.
     func note(_ failure: OracleFailure) { failures.append(failure) }
 
     func reset() {
         failures.removeAll()
-        diagnostics.removeAll()
         opDurations.removeAll()
     }
 
@@ -128,21 +105,18 @@ final class Oracles {
 
     // MARK: - Dispatch
 
-    /// Run tier 0 every op, plus whichever tiered oracles this index is due
-    /// for. Throws on the first failure when `collectAll` is false.
+    /// Throw on the first failure unless set.
     var collectAll = false
 
     func checkCadenced(at index: Int, op: EditOp) throws {
         var ids = Self.tier0
         if case .check(let requested) = op { ids += requested }
         func due(_ every: Int) -> Bool { every > 0 && (index + 1) % every == 0 }
-        if due(cadence.coverage) { ids.append("coverage") }
-        if due(cadence.schema) { ids.append("schema") }
-        if due(cadence.projection) { ids.append("projection") }
-        if due(cadence.specFull) { ids.append("specFull") }
-        if due(cadence.offsets) { ids.append("offsets") }
+        if due(cadence.groups) { ids.append("groups") }
+        if due(cadence.normalizer) { ids.append("normalizer") }
+        if due(cadence.vocabularyFull) { ids.append("vocabularyFull") }
+        if due(cadence.reader) { ids.append("reader") }
         if due(cadence.markdownFixpoint) { ids.append("markdownFixpoint") }
-        if due(cadence.pmJSON) { ids.append("pmJSON") }
         if due(cadence.history) { ids.append("history") }
         if due(cadence.layout) { ids.append("layout") }
         try run(ids, at: index)
@@ -173,385 +147,322 @@ final class Oracles {
         return out
     }
 
+    /// The end-of-run tier the fuzzer and replay run once.
+    static let endOfRun = ["markdownFixpoint", "history", "layout", "reader", "vocabularyFull", "groups", "normalizer"]
+
     func check(_ id: String, at index: Int) -> [OracleFailure] {
         HarnessLaunch.trace("oracle \(id) @\(index)")
         func fail(_ detail: String) -> [OracleFailure] {
             [OracleFailure(oracle: id, detail: detail, opIndex: index)]
         }
+        let detail: String?
         switch id {
-        case "diagnostics": return checkDiagnostics(index)
-        case "length": return checkLength(index)
-        case "specLocal": return checkSpec(range: localRange(), index: index, id: id)
-        case "scalars": return checkScalars(index)
-        case "coverage": return checkCoverage(index)
-        case "schema": return checkSchema(index)
-        case "projection": return checkProjection(index)
-        case "specFull":
-            return checkSpec(range: NSRange(location: 0, length: controller.textStorage.length),
-                             index: index, id: id)
-        case "offsets": return checkOffsets(index, sampled: true)
-        case "offsetsFull": return checkOffsets(index, sampled: false)
-        case "markdownFixpoint": return checkMarkdownFixpoint(index)
-        case "pmJSON": return checkProseMirrorJSON(index)
-        case "history": return checkHistory(index)
-        case "layout": return checkLayout(index)
-        case "latency": return []
-        default: return fail("unknown oracle id")
+        case "length": detail = checkLength()
+        case "vocabulary": detail = checkVocabulary(in: localRange())
+        case "scalars": detail = checkScalars()
+        case "groups": detail = checkGroups()
+        case "normalizer": detail = controller.harnessNormalizationDrift()
+        case "vocabularyFull":
+            detail = checkVocabulary(in: NSRange(location: 0, length: controller.textStorage.length))
+        case "reader": detail = checkReader()
+        case "markdownFixpoint": detail = checkMarkdownFixpoint()
+        case "history": detail = checkHistory()
+        case "layout": detail = checkLayout()
+        case "latency": detail = nil
+        default: detail = "unknown oracle id"
         }
+        return detail.map(fail) ?? []
     }
 
     // MARK: - Tier 0
 
-    private func checkDiagnostics(_ index: Int) -> [OracleFailure] {
-        guard !diagnostics.isEmpty else { return [] }
-        let collected = diagnostics
-        diagnostics.removeAll()
-        // One line per distinct issue shape; a missing spec on a 10-char
-        // line reports 10 identical diagnostics otherwise.
-        var shapes: [String] = []
-        for d in collected {
-            let shape = shapeOf(d.issue)
-            if !shapes.contains(shape) { shapes.append(shape) }
-        }
-        return [OracleFailure(
-            oracle: "diagnostics",
-            detail: "\(collected.count) spec diagnostic(s): \(shapes.joined(separator: ", "))",
-            opIndex: index
-        )]
-    }
-
-    private func shapeOf(_ issue: SpecDiagnostic.Issue) -> String {
-        switch issue {
-        case .missingSpec: return "missingSpec"
-        case .inconsistentSpec(_, let found):
-            return "inconsistentSpec(\(found.map { StorageDump.describe($0) }.joined(separator: " vs ")))"
-        case .markerWithoutListItem: return "markerWithoutListItem"
-        case .listItemWithoutMarker: return "listItemWithoutMarker"
-        }
-    }
-
-    /// No edit may cut a surrogate pair in half. A lone surrogate is not a
-    /// character: it survives in storage but every string that carries it
-    /// out — the markdown, the pasteboard, a recorded anchor — turns it
-    /// into U+FFFD, so the damage surfaces far from the edit that did it.
-    private func checkScalars(_ index: Int) -> [OracleFailure] {
+    /// No edit may cut a surrogate pair in half.
+    private func checkScalars() -> String? {
         let string = controller.textStorage.string as NSString
         var i = 0
         while i < string.length {
             let unit = string.character(at: i)
-            let isHigh = (0xD800...0xDBFF).contains(unit)
-            let isLow = (0xDC00...0xDFFF).contains(unit)
-            if isHigh {
+            if (0xD800...0xDBFF).contains(unit) {
                 let next: unichar = i + 1 < string.length ? string.character(at: i + 1) : 0
-                guard (0xDC00...0xDFFF).contains(next) else {
-                    return [OracleFailure(
-                        oracle: "scalars",
-                        detail: "unpaired high surrogate at \(i)",
-                        opIndex: index
-                    )]
-                }
+                guard (0xDC00...0xDFFF).contains(next) else { return "unpaired high surrogate at \(i)" }
                 i += 2
                 continue
             }
-            if isLow {
-                return [OracleFailure(
-                    oracle: "scalars",
-                    detail: "unpaired low surrogate at \(i)",
-                    opIndex: index
-                )]
-            }
+            if (0xDC00...0xDFFF).contains(unit) { return "unpaired low surrogate at \(i)" }
             i += 1
         }
-        return []
+        return nil
     }
 
-    private func checkLength(_ index: Int) -> [OracleFailure] {
-        var out: [OracleFailure] = []
+    private func checkLength() -> String? {
         let storageLength = controller.textStorage.length
         let viewLength = (textView.string as NSString).length
         if viewLength != storageLength {
-            out.append(OracleFailure(
-                oracle: "length",
-                detail: "text view string \(viewLength) != storage \(storageLength)",
-                opIndex: index
-            ))
+            return "text view string \(viewLength) != storage \(storageLength)"
         }
-        let documentLength = controller.document.contentLength
+        let content = controller.textContentStorage
+        let documentLength = content.offset(
+            from: content.documentRange.location, to: content.documentRange.endLocation
+        )
         if documentLength != storageLength {
-            out.append(OracleFailure(
-                oracle: "length",
-                detail: "document.contentLength \(documentLength) != storage \(storageLength)",
-                opIndex: index
-            ))
+            return "textContentStorage.documentRange \(documentLength) != storage \(storageLength)"
         }
         let selection = textView.selectedRange()
-        if selection.location < 0 || selection.location + selection.length > storageLength {
-            out.append(OracleFailure(
-                oracle: "length",
-                detail: "selection \(selection) outside 0…\(storageLength)",
-                opIndex: index
-            ))
+        if selection.location < 0 || NSMaxRange(selection) > storageLength {
+            return "selection \(selection) outside 0…\(storageLength)"
         }
-        return out
+        return nil
     }
 
-    /// The edited paragraph, plus one on each side — an edit at a boundary
-    /// can merge or split blocks.
+    /// The edited paragraph, plus one on each side.
     private func localRange() -> NSRange {
         let storage = controller.textStorage
         guard storage.length > 0 else { return NSRange(location: 0, length: 0) }
-        let string = storage.string as NSString
-        let selection = controller.currentSelection
-        let probe = max(0, min(selection.location, string.length - 1))
-        var range = string.paragraphRange(for: NSRange(location: probe, length: 0))
+        let probe = max(0, min(controller.currentSelection.location, storage.length - 1))
+        var range = storage.markdownParagraphRange(at: probe)
         if range.location > 0 {
-            let prev = string.paragraphRange(for: NSRange(location: range.location - 1, length: 0))
-            range = NSUnionRange(prev, range)
+            range = NSUnionRange(storage.markdownParagraphRange(at: range.location - 1), range)
         }
-        let end = range.location + range.length
-        if end < string.length {
-            let next = string.paragraphRange(for: NSRange(location: end, length: 0))
-            range = NSUnionRange(range, next)
+        if NSMaxRange(range) < storage.length {
+            range = NSUnionRange(range, storage.markdownParagraphRange(at: NSMaxRange(range)))
         }
         return range
     }
 
-    private func checkSpec(range: NSRange, index: Int, id: String) -> [OracleFailure] {
-        guard range.length > 0 else { return [] }
-        let found = SpecValidator.validate(in: controller.textStorage, range: range)
-        guard !found.isEmpty else { return [] }
-        var shapes: [String] = []
-        for d in found where !shapes.contains(shapeOf(d.issue)) { shapes.append(shapeOf(d.issue)) }
-        let first = found[0]
-        return [OracleFailure(
-            oracle: id,
-            detail: "\(found.count) violation(s) \(shapes.joined(separator: ", ")) "
-                + "in line \(first.lineRange): "
-                + StorageDump.escape((controller.textStorage.string as NSString).substring(with: first.lineRange)),
-            opIndex: index
-        )]
+    /// The storage vocabulary, paragraph by paragraph: a uniform block,
+    /// one-character literals, source-backed atoms, separators only in
+    /// table rows, no line breaks in code, and one text list per list
+    /// container.
+    private func checkVocabulary(in range: NSRange) -> String? {
+        let storage = controller.textStorage
+        guard storage.length > 0, range.length > 0 else { return nil }
+        let ns = storage.string as NSString
+        for paragraph in storage.markdownParagraphRanges(in: range) where paragraph.length > 0 {
+            let context = "in paragraph \(paragraph) \(StorageDump.escape(ns.substring(with: paragraph)))"
+            guard let block = storage.markdownBlock(at: paragraph.location) else {
+                return "no markdownBlock at \(paragraph.location) \(context)"
+            }
+            var blockRange = NSRange()
+            _ = storage.attribute(.markdownBlock, at: paragraph.location, longestEffectiveRange: &blockRange, in: paragraph)
+            if blockRange != paragraph {
+                return "markdownBlock is not uniform: \(blockRange) \(context)"
+            }
+            var literalProblem: String?
+            storage.enumerateAttribute(.markdownLiteral, in: paragraph) { value, run, stop in
+                guard value != nil else { return }
+                var index = run.location
+                while index < NSMaxRange(run) {
+                    let character = ns.rangeOfComposedCharacterSequence(at: index)
+                    let unit = ns.character(at: index)
+                    if unit == MarkdownParagraph.separator {
+                        literalProblem = "literal on a paragraph separator at \(index) \(context)"
+                    } else if character.length > 2 {
+                        literalProblem = "literal over \(character.length) units at \(index) \(context)"
+                    }
+                    if literalProblem != nil {
+                        stop.pointee = true
+                        return
+                    }
+                    index = NSMaxRange(character)
+                }
+            }
+            if let literalProblem { return literalProblem }
+            for index in paragraph.location..<NSMaxRange(paragraph) {
+                let unit = ns.character(at: index)
+                let isSeparatorAttribute = storage.attribute(.markdownTableSeparator, at: index, effectiveRange: nil) != nil
+                if unit == MarkdownParagraph.objectReplacement, storage.proseSourceAttachment(at: index) == nil {
+                    return "U+FFFC without a ProseSourceAttachment at \(index) \(context)"
+                }
+                if unit == MarkdownTableSeparator.utf16, block.isTableRow, !isSeparatorAttribute {
+                    return "table tab without markdownTableSeparator at \(index) \(context)"
+                }
+                if isSeparatorAttribute, !(block.isTableRow && unit == MarkdownTableSeparator.utf16) {
+                    return "markdownTableSeparator outside a table tab at \(index) \(context)"
+                }
+                if unit == MarkdownBreak.utf16, block.isCode {
+                    return "U+2028 inside a code paragraph at \(index) \(context)"
+                }
+            }
+            let lists = StorageDump.textLists(in: storage, at: paragraph.location)
+            if lists.count != block.listDepth {
+                return "\(lists.count) text list(s) for listDepth \(block.listDepth) \(context)"
+            }
+        }
+        return nil
     }
 
     // MARK: - Tiered
 
-    /// Every attribute run must carry both canonical attributes. Table
-    /// lines are exempt, as they are for `SpecValidator`.
-    private func checkCoverage(_ index: Int) -> [OracleFailure] {
+    private struct Paragraph {
+        var range: NSRange
+        var block: MarkdownBlock
+    }
+
+    private func paragraphs() -> [Paragraph] {
         let storage = controller.textStorage
         guard storage.length > 0 else { return [] }
-        let full = NSRange(location: 0, length: storage.length)
-        var gaps: [NSRange] = []
-        var cursor = 0
-        storage.enumerateAttribute(.proseNodePath, in: full, options: []) { value, range, _ in
-            if value == nil || range.location > cursor {
-                let gap = NSRange(location: cursor, length: max(0, range.location - cursor))
-                if gap.length > 0 { gaps.append(gap) }
-            }
-            if value != nil { cursor = range.location + range.length }
+        return storage.markdownParagraphRanges().compactMap { range in
+            guard range.length > 0, let block = storage.markdownBlock(at: range.location) else { return nil }
+            return Paragraph(range: range, block: block)
         }
-        if cursor < storage.length {
-            gaps.append(NSRange(location: cursor, length: storage.length - cursor))
-        }
-        guard let first = gaps.first else { return [] }
-        return [OracleFailure(
-            oracle: "coverage",
-            detail: "\(gaps.count) run(s) without proseNodePath, first \(first): "
-                + StorageDump.escape((storage.string as NSString).substring(with: first)),
-            opIndex: index
-        )]
     }
 
-    /// Never installed as `onSchemaDiagnostic` — that projects the whole
-    /// document on every transaction. Run against the tree we already have.
-    private func checkSchema(_ index: Int) -> [OracleFailure] {
-        let found = SchemaValidator.validate(controller.document)
-        guard !found.isEmpty else { return [] }
-        return [OracleFailure(
-            oracle: "schema",
-            detail: "\(found.count) schema diagnostic(s): "
-                + found.prefix(3).map { String(describing: $0) }.joined(separator: "; "),
-            opIndex: index
-        )]
-    }
-
-    /// The spliced tree must describe the same document a fresh projection
-    /// would. Node ids are excluded — a splice keeps the doc root's id
-    /// while a full projection mints a new one.
-    private func checkProjection(_ index: Int) -> [OracleFailure] {
-        let spliced = StorageDump.describeChildren(controller.document)
-        let fresh = StorageDump.describeChildren(
-            ProseDocument.from(storage: controller.textStorage, schema: .defaultMarkdown)
-        )
-        guard spliced != fresh else { return [] }
-        return [OracleFailure(
-            oracle: "projection",
-            detail: "spliced tree differs from a full projection\n"
-                + StorageDump.diff(fresh, spliced),
-            opIndex: index
-        )]
-    }
-
-    /// Every block boundary resolves, plus a sample of interior offsets.
-    private func checkOffsets(_ index: Int, sampled: Bool) -> [OracleFailure] {
-        let document = controller.document
-        let length = controller.textStorage.length
-        guard length > 0 else { return [] }
-        var probes: [Int] = [0, length]
-        let string = controller.textStorage.string as NSString
-        var i = 0
-        while i < length {
-            let line = string.lineRange(for: NSRange(location: i, length: 0))
-            probes.append(line.location)
-            probes.append(line.location + line.length)
-            i = line.location + max(1, line.length)
-        }
-        if sampled {
-            let step = max(1, length / 256)
-            probes += stride(from: 0, through: length, by: step).map { $0 }
-        } else {
-            probes += Array(0...length)
-        }
-        for pos in Set(probes).sorted() where pos >= 0 && pos <= length {
-            guard let resolved = document.resolve(pos) else {
-                return [OracleFailure(
-                    oracle: "offsets", detail: "resolve(\(pos)) returned nil (length \(length))",
-                    opIndex: index
-                )]
-            }
-            if resolved.pos != pos {
-                return [OracleFailure(
-                    oracle: "offsets",
-                    detail: "resolve(\(pos)).pos == \(resolved.pos)",
-                    opIndex: index
-                )]
+    /// Code, table and quote groups are contiguous; a table's rows agree
+    /// on column count and alignments, only the first is a header, and the
+    /// row geometry, where stamped, counts the same rows.
+    private func checkGroups() -> String? {
+        let storage = controller.textStorage
+        let ns = storage.string as NSString
+        let all = paragraphs()
+        var lastSeen: [String: Int] = [:]
+        for (index, paragraph) in all.enumerated() {
+            var tokens: [String] = []
+            if let group = paragraph.block.codeGroup { tokens.append("code \(group)") }
+            if let group = paragraph.block.tableGroup { tokens.append("table \(group)") }
+            tokens += paragraph.block.quoteTokens.map { "quote \($0)" }
+            for token in tokens {
+                if let previous = lastSeen[token], previous != index - 1 {
+                    return "\(token) resumes at paragraph \(index) after a gap from \(previous)"
+                }
+                lastSeen[token] = index
             }
         }
-        return []
+        var start = 0
+        while start < all.count {
+            guard let group = all[start].block.tableGroup else {
+                start += 1
+                continue
+            }
+            var end = start
+            while end + 1 < all.count, all[end + 1].block.tableGroup == group { end += 1 }
+            let rows = Array(all[start...end])
+            let first = rows[0]
+            let separators = { (range: NSRange) in
+                (range.location..<NSMaxRange(range)).filter { ns.character(at: $0) == MarkdownTableSeparator.utf16 }.count
+            }
+            let columns = separators(first.range)
+            for (offset, row) in rows.enumerated() {
+                let label = "table \(group) row \(offset) \(StorageDump.escape(ns.substring(with: row.range)))"
+                if separators(row.range) != columns {
+                    return "\(label) has \(separators(row.range) + 1) cells, the first row \(columns + 1)"
+                }
+                if row.block.tableAlignments != first.block.tableAlignments {
+                    return "\(label) alignments \(row.block.tableAlignments) differ from the first row"
+                }
+                if row.block.isTableHeader != (offset == 0) {
+                    return "\(label) isHeader \(row.block.isTableHeader)"
+                }
+                if let geometry = controller.harnessTableGeometry(at: row.range.location),
+                   geometry.row != offset || geometry.rows != rows.count {
+                    return "\(label) geometry says row \(geometry.row) of \(geometry.rows), storage \(offset) of \(rows.count)"
+                }
+            }
+            start = end + 1
+        }
+        return nil
     }
 
-    /// Serializing and re-parsing must be a fixpoint. A miss is an
-    /// escaping or round-trip bug, so it is strict and reported under its
-    /// own id.
-    private func checkMarkdownFixpoint(_ index: Int) -> [OracleFailure] {
+    /// The writer-side tree is a pure function of storage, and writing it
+    /// is what `markdown(from:)` does.
+    private func checkReader() -> String? {
+        let storage = controller.textStorage
+        let reader = StorageReader()
+        let once = reader.document(from: storage)
+        let twice = reader.document(from: storage)
+        if once != twice {
+            return "StorageReader is not deterministic\n"
+                + StorageDump.diff(StorageDump.describeTree(once), StorageDump.describeTree(twice))
+        }
+        let written = MarkdownWriter().write(once)
+        let direct = MarkdownWriter().markdown(from: storage)
+        if written != direct {
+            return "write(document) differs from markdown(from: storage)\n" + StorageDump.diff(written, direct)
+        }
+        return nil
+    }
+
+    /// Writing and re-loading must be a fixpoint. `markdown()` returns the
+    /// load bytes until the first edit, so the comparison goes through a
+    /// fresh loader and writer.
+    private func checkMarkdownFixpoint() -> String? {
         let markdown = controller.markdown()
-        guard let fresh = try? EditorController(initialMarkdown: markdown) else {
-            return [OracleFailure(oracle: "markdownFixpoint",
-                                  detail: "could not build a comparison controller",
-                                  opIndex: index)]
+        let again = Self.roundTrip(markdown)
+        guard !Self.sameMarkdown(markdown, again) else { return nil }
+        return "markdown is not a fixpoint\n" + StorageDump.diff(markdown, again)
+    }
+
+    static func roundTrip(_ markdown: String) -> String {
+        MarkdownWriter().markdown(from: MarkdownLoader().load(markdown))
+    }
+
+    /// Equal up to what loading discards by design: one trailing newline,
+    /// and spaces at the edges of a paragraph, which the writer keeps so
+    /// the bound text matches what was typed.
+    static func sameMarkdown(_ lhs: String, _ rhs: String) -> Bool {
+        trimmingParagraphEdges(lhs) == trimmingParagraphEdges(rhs)
+    }
+
+    private static func trimmingParagraphEdges(_ markdown: String) -> [String] {
+        var lines = EditDriver.trimOneTrailingNewline(markdown).components(separatedBy: "\n")
+        func isBlank(_ index: Int) -> Bool {
+            index < 0 || index >= lines.count || lines[index].allSatisfy { $0 == " " || $0 == "\t" || $0 == ">" }
         }
-        let again = fresh.markdown()
-        guard again != markdown else { return [] }
-        return [OracleFailure(
-            oracle: "markdownFixpoint",
-            detail: "markdown is not a fixpoint\n" + StorageDump.diff(markdown, again),
-            opIndex: index
-        )]
-    }
-
-    /// Export → load into a separate headless controller → export. The
-    /// encoder is a bare `JSONEncoder`, so key order is not stable;
-    /// compare re-serialized with sorted keys.
-    private func checkProseMirrorJSON(_ index: Int) -> [OracleFailure] {
-        do {
-            let exported = try controller.exportProseMirrorJSON()
-            let mirror = try EditorController()
-            try mirror.loadProseMirrorJSON(exported)
-            let again = try mirror.exportProseMirrorJSON()
-            let a = try Self.canonicalJSON(exported)
-            let b = try Self.canonicalJSON(again)
-            guard a != b else { return [] }
-            return [OracleFailure(
-                oracle: "pmJSON",
-                detail: "PM JSON is not a round-trip fixpoint\n" + StorageDump.diff(a, b),
-                opIndex: index
-            )]
-        } catch {
-            return [OracleFailure(oracle: "pmJSON", detail: "\(error)", opIndex: index)]
+        let blanks = lines.indices.map(isBlank)
+        for index in lines.indices where !blanks[index] {
+            let endsParagraph = index + 1 >= lines.count || blanks[index + 1]
+            if endsParagraph {
+                while let last = lines[index].last, last == " " || last == "\t" { lines[index].removeLast() }
+            }
+            let startsParagraph = index == 0 || blanks[index - 1]
+            let leading = lines[index].prefix { $0 == " " }.count
+            if startsParagraph, leading > 0, leading < 4 { lines[index].removeFirst(leading) }
+        }
+        return lines.map { line in
+            line.allSatisfy { $0 == " " || $0 == "\t" || $0 == ">" } ? line.filter { $0 == ">" } : line
         }
     }
 
-    static func canonicalJSON(_ data: Data) throws -> String {
-        let object = try JSONSerialization.jsonObject(with: data)
-        let normalized = try JSONSerialization.data(
-            withJSONObject: object, options: [.sortedKeys, .prettyPrinted]
-        )
-        return String(decoding: normalized, as: UTF8.self)
-    }
-
-    /// Undo N then redo N must restore the string, the per-line block
-    /// specs and the per-run marks. Node ids re-mint on undo, so they are
-    /// deliberately not compared.
-    private func checkHistory(_ index: Int) -> [OracleFailure] {
-        let before = snapshotForHistory()
+    /// Undo to the bottom must restore the loaded document, and redoing
+    /// everything must restore the storage it started from.
+    private func checkHistory() -> String? {
+        let manager = controller.activeUndoManagerForHarness
+        controller.breakUndoCoalescingForHarness()
+        let before = StorageDump.rows(controller.textStorage).joined(separator: "\n")
         var undone = 0
-        while controller.undoManager.canUndo, undone < 64 {
-            controller.undoManager.undo()
+        while manager.canUndo, undone < 64 {
+            manager.undo()
+            controller.settleForHarness()
             undone += 1
         }
-        if let baseline = baselineMarkdown, undone > 0 {
+        var problem: String?
+        if let baseline = baselineMarkdown, undone > 0, !manager.canUndo {
             let bottom = controller.markdown()
-            if bottom != EditDriver.trimOneTrailingNewline(baseline) {
-                // Redo back up before reporting so the run can continue.
-                for _ in 0..<undone where controller.undoManager.canRedo {
-                    controller.undoManager.redo()
-                }
-                return [OracleFailure(
-                    oracle: "history",
-                    detail: "undo to the bottom did not restore the loaded document\n"
-                        + StorageDump.diff(EditDriver.trimOneTrailingNewline(baseline), bottom),
-                    opIndex: index
-                )]
+            let expected = EditDriver.trimOneTrailingNewline(baseline)
+            if bottom != expected, bottom != baseline {
+                problem = "undo to the bottom did not restore the loaded document\n"
+                    + StorageDump.diff(expected, bottom)
             }
         }
-        for _ in 0..<undone where controller.undoManager.canRedo {
-            controller.undoManager.redo()
+        var redone = 0
+        while manager.canRedo, redone < undone {
+            manager.redo()
+            controller.settleForHarness()
+            redone += 1
         }
-        let after = snapshotForHistory()
-        guard before != after else { return [] }
-        return [OracleFailure(
-            oracle: "history",
-            detail: "undo \(undone) + redo \(undone) did not restore the document\n"
-                + StorageDump.diff(before, after),
-            opIndex: index
-        )]
-    }
-
-    /// String + per-line block spec + per-run marks. Ids excluded.
-    private func snapshotForHistory() -> String {
-        let storage = controller.textStorage
-        var lines: [String] = [storage.string]
-        let string = storage.string as NSString
-        var i = 0
-        while i < string.length {
-            let line = string.lineRange(for: NSRange(location: i, length: 0))
-            let spec = storage.blockSpec(at: line.location).map { StorageDump.describe($0) } ?? "-"
-            lines.append("\(line.location): \(spec)")
-            i = line.location + max(1, line.length)
-        }
-        storage.enumerateAttribute(
-            .proseMarks, in: NSRange(location: 0, length: storage.length), options: []
-        ) { value, range, _ in
-            let names = (value as? MarkSetBox)?.marks.marks.map(\.type).sorted() ?? []
-            if !names.isEmpty { lines.append("\(range): \(names.joined(separator: "+"))") }
-        }
-        return lines.joined(separator: "\n")
+        if let problem { return problem }
+        let after = StorageDump.rows(controller.textStorage).joined(separator: "\n")
+        guard before != after else { return nil }
+        return "undo \(undone) + redo \(redone) did not restore the document\n"
+            + StorageDump.diff(before, after)
     }
 
     /// Laying the document out is the check: TextKit 2 traps rather than
     /// returning an error when a fragment's character range is impossible.
-    private func checkLayout(_ index: Int) -> [OracleFailure] {
-        let layoutManager = controller.layoutManager
+    private func checkLayout() -> String? {
+        let layoutManager = controller.textLayoutManager
         layoutManager.ensureLayout(for: layoutManager.documentRange)
-        var laidOut = 0
-        layoutManager.enumerateTextLayoutFragments(
-            from: layoutManager.documentRange.location, options: []
-        ) { fragment in
-            for line in fragment.textLineFragments where line.typographicBounds.width > 0 {
-                laidOut += line.characterRange.length
-            }
-            return true
-        }
-        return []
+        layoutManager.enumerateTextLayoutFragments(from: layoutManager.documentRange.location, options: []) { _ in true }
+        return nil
     }
 
     // MARK: - Latency

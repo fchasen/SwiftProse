@@ -1,0 +1,14 @@
+{
+  "name": "enter/enter-at-the-start-of-an-ordered-item-renumbers",
+  "tags": ["enter", "lists", "structure"],
+  "intent": "Enter before the first character of an ordered item opens an empty item above it, the items below renumber, and the caret stays on the moved text. The empty item is then filled so the source round-trips.",
+  "doc": "1. apple\n2. <|>pear\n3. plum\n",
+  "ops": [
+    { "op": "key", "key": "Enter" },
+    { "op": "type", "text": "X" },
+    { "op": "caret", "at": 6 },
+    { "op": "type", "text": "peach" }
+  ],
+  "expect": { "doc": "1. apple\n2. peach<|>\n3. Xpear\n4. plum", "blockKind": "paragraph list:ordered@1" },
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "groups"]
+}

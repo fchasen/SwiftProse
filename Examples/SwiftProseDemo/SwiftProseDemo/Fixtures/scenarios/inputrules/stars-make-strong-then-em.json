@@ -15,13 +15,7 @@
   "expect": {
     "doc": "**bold** and *soft*<|>",
     "blockKind": "paragraph",
-    "marks": [
-      "em"
-    ]
+    "marks": ["emphasis"]
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

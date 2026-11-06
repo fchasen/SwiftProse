@@ -7,5 +7,5 @@
     { "op" : "typeBurst", "text" : "🎉" }
   ],
   "expect" : { "doc" : "party🎉<|>\n", "canUndo" : true, "blockKind" : "paragraph" },
-  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint", "history"]
 }

@@ -4,7 +4,7 @@
     "inputrules",
     "lists"
   ],
-  "intent": "Typing a dash, brackets and a space makes a task item, and it survives a ProseMirror JSON round trip at the nesting level it was written.",
+  "intent": "Typing a dash, brackets and a space makes a task item, and it writes back at the nesting level it was written.",
   "doc": "",
   "ops": [
     {
@@ -14,13 +14,7 @@
   ],
   "expect": {
     "doc": "- [ ] milk<|>",
-    "blockKind": "taskListItem(checked: false)"
+    "blockKind": "paragraph list:bullet@1 task:unchecked"
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "schema",
-    "pmJSON"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "groups"]
 }

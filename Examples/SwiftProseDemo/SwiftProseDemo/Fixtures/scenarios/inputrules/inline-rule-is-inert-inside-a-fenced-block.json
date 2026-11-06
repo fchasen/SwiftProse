@@ -8,8 +8,8 @@
   ],
   "expect" : {
     "doc" : "```\nlet x = 1 **b**<|>\n```",
-    "blockKind" : "fencedCode(language: nil)",
+    "blockKind" : "code",
     "marks" : []
   },
-  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint", "groups"]
 }

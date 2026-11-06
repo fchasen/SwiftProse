@@ -133,13 +133,10 @@ final class ScenarioTests: HarnessTestCase {
             reset(doc: "")
             let runner = ScenarioRunner(controller: controller, textView: textView)
             let result = runner.run(scenario)
-            let observed = MarkedText.render(
-                controller.markdown(),
-                selection: textView.selectedRange(),
-                markers: scenario.effectiveMarkers
-            )
+            let observed = EditDriver.trimOneTrailingNewline(controller.markdown())
             var recorded = scenario
-            recorded.expect = Expectation(doc: observed)
+            let blockKind = EditDriver.blockKindAtCaret(controller, textView: textView)
+            recorded.expect = Expectation(doc: observed, blockKind: blockKind)
             recorded.xfail = nil
             let path = out.appendingPathComponent(scenario.name + ".json")
             try? FileManager.default.createDirectory(
@@ -153,7 +150,7 @@ final class ScenarioTests: HarnessTestCase {
                 \(scenario.name)
                   intent:   \(scenario.intent ?? "‹none›")
                   expected: \(EditOp.quote(scenario.expect?.doc ?? "‹none›"))
-                  observed: \(EditOp.quote(observed))
+                  observed: \(EditOp.quote(observed)) selection \(textView.selectedRange()) blockKind \(blockKind)
                   \(failure.split(separator: "\n").first.map(String.init) ?? "")
                 """)
             } else if !result.failures.isEmpty {
@@ -225,11 +222,8 @@ final class ScenarioTests: HarnessTestCase {
         for failure in result.failures {
             body += "\n\n" + failure.description
         }
-        body += "\n\nactual: " + EditOp.quote(
-            MarkedText.render(result.finalMarkdown,
-                              selection: textView.selectedRange(),
-                              markers: scenario.effectiveMarkers)
-        )
+        body += "\n\nactual: " + EditOp.quote(result.finalMarkdown)
+            + " selection \(textView.selectedRange())"
         report(body, ops: scenario.ops, repro: Self.repro(scenario))
     }
 

@@ -86,13 +86,13 @@ struct HarnessView: View {
             LabeledContent("op", value: "\(registry.progress)")
             if let controller = registry.controller {
                 LabeledContent("length", value: "\(controller.textStorage.length)")
-                LabeledContent("blocks", value: "\(controller.document.root.children.count)")
+                LabeledContent("paragraphs", value: "\(controller.textStorage.markdownParagraphRanges().count)")
                 LabeledContent("selection", value: "\(controller.currentSelection)")
-                LabeledContent("undo / redo",
-                               value: "\(controller.undoDepth) / \(controller.redoDepth)")
+                LabeledContent("can undo / redo",
+                               value: "\(controller.activeUndoManagerForHarness.canUndo) / \(controller.activeUndoManagerForHarness.canRedo)")
             }
             if !registry.classCoverage.isEmpty {
-                Text("edit classes")
+                Text("edit routes")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(registry.classCoverage.keys.sorted(), id: \.self) { key in
                     LabeledContent(key, value: "\(registry.classCoverage[key] ?? 0)")

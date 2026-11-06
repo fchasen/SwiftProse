@@ -36,11 +36,5 @@
     "blockKind": "paragraph",
     "canUndo": true
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "pmJSON",
-    "schema"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "groups"]
 }

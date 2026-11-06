@@ -1,27 +1,12 @@
 {
   "name": "lists/ordered-list-becomes-task-list",
-  "tags": [
-    "lists"
-  ],
-  "intent": "Converting a whole ordered list to a task list writes the right markdown, and the result survives a ProseMirror JSON round trip.",
+  "tags": ["lists"],
+  "intent": "Converting a whole ordered list to a task list keeps the numbering and adds a checkbox to every item.",
   "doc": "1. one\n2. two\n",
   "ops": [
-    {
-      "op": "selectAll"
-    },
-    {
-      "op": "action",
-      "id": "taskList"
-    }
+    { "op": "selectAll" },
+    { "op": "action", "id": "taskList" }
   ],
-  "expect": {
-    "doc": "- [ ] one\n- [ ] two\n",
-    "blockKind": "taskListItem(checked: false)"
-  },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "pmJSON"
-  ]
+  "expect": { "doc": "1. [ ] one\n2. [ ] two\n", "blockKind": "paragraph list:ordered@1 task:unchecked" },
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

@@ -11,5 +11,5 @@
     "doc": "```\nlet x = 1\n```\n\nafter<|>",
     "blockKind": "paragraph"
   },
-  "finally": ["tier0", "projection", "markdownFixpoint", "pmJSON"]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

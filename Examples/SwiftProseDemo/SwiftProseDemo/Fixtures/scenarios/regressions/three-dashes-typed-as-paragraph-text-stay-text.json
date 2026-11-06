@@ -1,0 +1,13 @@
+{
+  "name": "regressions/three-dashes-typed-as-paragraph-text-stay-text",
+  "tags": ["regression", "writer"],
+  "intent": "A paragraph whose text is `---` must write escaped, or reloading turns it into a thematic break. Known failure: the writer emits it bare.",
+  "doc": "above<|>\n",
+  "ops": [
+    { "op": "key", "key": "Enter" },
+    { "op": "type", "text": "---" }
+  ],
+  "expect": { "doc": "above\n\n\\---", "blockKind": "paragraph" },
+  "finally": ["tier0", "normalizer"],
+  "xfail": "markdown mismatch"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "enter/enter-at-the-start-of-a-list-item-opens-an-item-above",
+  "tags": ["enter", "lists", "structure"],
+  "intent": "Enter with the caret before the first character of a list item opens an empty item above it; the item's text moves down as one item in the same list and the caret stays on it, so typing lands in front of the moved text. The empty item is then filled so the source round-trips.",
+  "doc": "- one\n- <|>two\n- three\n",
+  "ops": [
+    { "op": "key", "key": "Enter" },
+    { "op": "type", "text": "X" },
+    { "op": "caret", "at": 4 },
+    { "op": "type", "text": "new" }
+  ],
+  "expect": { "doc": "- one\n- new<|>\n- Xtwo\n- three", "blockKind": "paragraph list:bullet@1" },
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "groups"]
+}

@@ -1,15 +1,11 @@
 {
   "doc": "",
-  "finally": [
-    "schema"
-  ],
+  "finally": ["groups"],
   "name": "regressions/empty-document-satisfies-the-schema-content-rule",
   "ops": [
     {
       "op": "check",
-      "oracles": [
-        "schema"
-      ]
+      "oracles": ["groups"]
     }
   ],
   "tags": [

@@ -11,5 +11,5 @@
     "blockKind" : "paragraph",
     "marks" : []
   },
-  "finally" : ["tier0", "projection", "markdownFixpoint", "schema"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint", "groups"]
 }

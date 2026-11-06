@@ -6,6 +6,6 @@
   "ops": [
     { "op": "key", "key": "Enter" }
   ],
-  "expect": { "doc": "intro\n\n<|>hello", "selection": [8, 0], "blockKind": "paragraph" },
-  "finally": ["tier0", "projection", "markdownFixpoint"]
+  "expect": { "doc": "intro\n\n<|>hello", "selection": [7, 0], "blockKind": "paragraph" },
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

@@ -22,8 +22,5 @@
     "canUndo": false,
     "canRedo": true
   },
-  "finally": [
-    "tier0",
-    "history"
-  ]
+  "finally": ["tier0", "history"]
 }

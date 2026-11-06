@@ -7,5 +7,5 @@
     { "op": "key", "key": "Shift-Enter" }
   ],
   "expect": { "doc": "alpha\n\n<|>beta", "blockKind": "paragraph" },
-  "finally": ["tier0", "projection", "markdownFixpoint"]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

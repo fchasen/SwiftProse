@@ -1,0 +1,11 @@
+{
+  "name": "enter/enter-splits-a-list-item-at-the-caret",
+  "tags": ["enter", "lists", "structure"],
+  "intent": "Enter in the middle of a list item moves the text after the caret into a new item below, in the same list, with the caret at the start of the moved text.",
+  "doc": "- one<|>two\n- three\n",
+  "ops": [
+    { "op": "key", "key": "Enter" }
+  ],
+  "expect": { "doc": "- one\n- <|>two\n- three", "blockKind": "paragraph list:bullet@1" },
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "groups"]
+}

@@ -7,5 +7,5 @@
     { "op": "type", "text": "x" }
   ],
   "expect": { "doc": "> one two\n> three x<|>four\n> five six" },
-  "finally": ["tier0", "projection", "markdownFixpoint"]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

@@ -14,11 +14,7 @@
   ],
   "expect": {
     "doc": "```swift\nlet a = 1\nlet b = 2\n# not a heading<|>\n```",
-    "blockKind": "fencedCode(language: Optional(\"swift\"))"
+    "blockKind": "code(swift)"
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

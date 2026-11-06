@@ -177,7 +177,7 @@ extension EditorController {
 
     func toggleHeading(_ level: Int) {
         let paragraphs = selectedParagraphs(in: currentSelection).filter { !$0.block.excludesBlockFormatting }
-        let removing = paragraphs.allSatisfy { $0.block.headingLevel == level }
+        let removing = level < 1 || paragraphs.allSatisfy { $0.block.headingLevel == level }
         _ = rewriteParagraphs(paragraphs, actionName: "Heading") { info in
             let leaf: MarkdownBlock.Leaf = removing ? .paragraph : .heading(level: level)
             return (info.block.with(leaf: leaf).with(task: removing ? info.block.task : nil), info.lists)

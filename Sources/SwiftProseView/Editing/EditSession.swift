@@ -135,6 +135,7 @@ final class EditSession {
         actionName: String,
         manager: UndoManager
     ) {
+        controller.emitHistoryRoute()
         let storage = controller.textStorage
         let target = Normalizer.clamp(range, to: storage.length)
         unmarkHostText()

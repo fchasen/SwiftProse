@@ -14,9 +14,5 @@
   "expect": {
     "doc": "**loud** and clear\n"
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

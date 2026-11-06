@@ -10,5 +10,5 @@
     { "op": "type", "text": "gamma" }
   ],
   "expect": { "doc": "alpha\n\nbeta\n\ngamma<|>", "blockKind": "paragraph" },
-  "finally": ["tier0", "projection", "markdownFixpoint"]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

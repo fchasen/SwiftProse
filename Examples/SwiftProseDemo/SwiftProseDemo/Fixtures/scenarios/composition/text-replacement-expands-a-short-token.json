@@ -7,5 +7,5 @@
     { "op" : "correct", "find" : "omw", "replace" : "on my way" }
   ],
   "expect" : { "doc" : "on my way home", "blockKind" : "paragraph", "canUndo" : true },
-  "finally" : ["tier0", "projection", "markdownFixpoint", "history"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint", "history"]
 }

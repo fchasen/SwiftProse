@@ -13,14 +13,7 @@
   ],
   "expect": {
     "doc": "**one**\n\n**two**\n",
-    "marks": [
-      "strong"
-    ]
+    "marks": ["strong"]
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "pmJSON"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

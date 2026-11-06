@@ -18,12 +18,7 @@
   ],
   "expect": {
     "doc": "- [x] done\n- [ ] next<|>",
-    "blockKind": "taskListItem(checked: false)"
+    "blockKind": "paragraph list:bullet@1 task:unchecked"
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "schema"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint", "groups"]
 }

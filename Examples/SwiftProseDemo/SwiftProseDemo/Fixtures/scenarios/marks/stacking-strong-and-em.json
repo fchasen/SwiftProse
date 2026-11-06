@@ -17,15 +17,7 @@
   ],
   "expect": {
     "doc": "<{***alpha***}> beta\n",
-    "marks": [
-      "em",
-      "strong"
-    ]
+    "marks": ["emphasis", "strong"]
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "pmJSON"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }

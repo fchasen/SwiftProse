@@ -6,5 +6,5 @@
     { "op" : "key", "key" : "Tab" }
   ],
   "expect" : { "doc" : "- one\n  - two\n" },
-  "finally" : ["tier0", "projection", "markdownFixpoint"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint"]
 }

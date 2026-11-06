@@ -8,7 +8,7 @@
   ],
   "expect" : {
     "doc" : "# Section title\n\nBody stays put\n",
-    "blockKind" : "heading(level: 1)"
+    "blockKind" : "heading(1)"
   },
-  "finally" : ["tier0", "projection", "markdownFixpoint"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint"]
 }

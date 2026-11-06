@@ -8,5 +8,5 @@
     { "op" : "action", "id" : "bold" }
   ],
   "expect" : { "doc" : "**loud**" },
-  "finally" : ["tier0", "projection", "markdownFixpoint"]
+  "finally" : ["tier0", "normalizer", "markdownFixpoint"]
 }

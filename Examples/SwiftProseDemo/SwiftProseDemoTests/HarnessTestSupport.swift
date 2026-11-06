@@ -10,8 +10,8 @@ import ObjectiveC
 ///
 /// Synchronous `XCTestCase` methods on the main thread, deliberately: the
 /// editor is driven through AppKit, and `settle()` is causally complete
-/// (two main-queue fences plus an explicit drain), so there is nothing an
-/// `async` test would buy beyond flakiness.
+/// (two main-queue fences plus `settleForHarness()`), so there is nothing
+/// an `async` test would buy beyond flakiness.
 @MainActor
 class HarnessTestCase: XCTestCase {
 
@@ -32,11 +32,6 @@ class HarnessTestCase: XCTestCase {
     }
 
     override func tearDown() {
-        // Leave the editor as the next test expects to find it, and stop
-        // the run's diagnostics from leaking into the next one.
-        controller?.harnessAssertsOnDiagnostics = true
-        controller?.historyConfig = .default
-        controller?.useStructuredBulkInsert = true
         HarnessRegistry.shared.clearCollected()
         super.tearDown()
     }
@@ -80,8 +75,8 @@ class HarnessTestCase: XCTestCase {
     /// silently do nothing — the driver downgrades arrows to
     /// `doCommand(by:)` rather than reporting green on no-ops.
     static func keyEventCanary(driver: EditDriver, textView: NSTextView) -> Bool {
-        let saved = textView.string
-        driver.controller.setMarkdown("canary", async: false)
+        let saved = driver.controller.markdown()
+        driver.controller.setMarkdown("canary")
         textView.setSelectedRange(NSRange(location: 3, length: 0))
         let event = EditDriver.KeySpec(
             keyCode: 123, characters: "\u{F702}"
@@ -89,8 +84,8 @@ class HarnessTestCase: XCTestCase {
         textView.keyDown(with: event)
         driver.settle()
         let moved = textView.selectedRange().location == 2
-        driver.controller.setMarkdown(saved, async: false)
-        driver.controller.undoManager.removeAllActions()
+        driver.controller.setMarkdown(saved)
+        driver.controller.activeUndoManagerForHarness.removeAllActions()
         return moved
     }
 
@@ -124,17 +119,14 @@ class HarnessTestCase: XCTestCase {
 
     // MARK: - Per-test state
 
-    /// Between scenarios. `replaceStorage` clears neither the undo stack
-    /// nor the open typing burst; without `closeHistoryGroup` the next
-    /// keystroke coalesces into a record that was just thrown away, and
-    /// nothing new registers.
+    /// Between scenarios: a fresh document, an empty undo stack and a
+    /// typing-coalescing boundary, so the next keystroke opens its own
+    /// undo group.
     func reset(doc: String) {
         Self.clearInputState(textView)
-        controller.setMarkdown(doc, async: false)
-        controller.undoManager.removeAllActions()
-        controller.closeHistoryGroup()
-        controller.historyConfig = HistoryConfig(newGroupDelay: 1e9)
-        controller.harnessAssertsOnDiagnostics = true
+        controller.setMarkdown(doc)
+        controller.activeUndoManagerForHarness.removeAllActions()
+        controller.breakUndoCoalescingForHarness()
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         HarnessRegistry.shared.clearCollected()
         driver.settle()
@@ -143,11 +135,9 @@ class HarnessTestCase: XCTestCase {
     /// Leave the text view's input state as a fresh editor's.
     ///
     /// Marked text is the one that matters: a scenario that ends mid-IME
-    /// leaves `hasMarkedText()` true, every later edit classifies as
-    /// `.compositionInterim`, and the envelope closes with no
-    /// normalization, no publish, no input rules and no undo entry — so
-    /// unrelated scenarios quietly stop working. `unmarkText()` alone
-    /// *accepts* the marked text; cancelling is an empty marked range first.
+    /// leaves `hasMarkedText()` true and every later edit lands inside the
+    /// composition. `unmarkText()` alone *accepts* the marked text;
+    /// cancelling is an empty marked range first.
     static func clearInputState(_ textView: NSTextView) {
         guard textView.hasMarkedText() else { return }
         textView.setMarkedText(

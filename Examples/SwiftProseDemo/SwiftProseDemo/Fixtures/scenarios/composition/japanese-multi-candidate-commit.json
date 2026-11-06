@@ -6,6 +6,6 @@
   "ops" : [
     { "op" : "compose", "interims" : ["k", "ka", "かk", "かき"], "commit" : "書き" }
   ],
-  "expect" : { "doc" : "# メモ書き<|>\n", "blockKind" : "heading(level: 1)", "canUndo" : true },
-  "finally" : ["tier0", "projection", "markdownFixpoint"]
+  "expect" : { "doc" : "# メモ書き<|>\n", "blockKind" : "heading(1)", "canUndo" : true },
+  "finally" : ["tier0", "normalizer", "markdownFixpoint"]
 }

@@ -55,8 +55,7 @@ final class DriverCanaryTests: HarnessTestCase {
         XCTAssertEqual(controller.markdown(), "abc")
     }
 
-    /// A burst goes in as one `insertText`, which the delegate's veto
-    /// reroutes to the paste pipeline. That is a different code path from
+    /// A burst goes in as one `insertText`, a different edit route from
     /// `type`, and the point of having both.
     func testTypeBurstIsNotTheSamePathAsType() throws {
         reset(doc: "")
@@ -64,13 +63,14 @@ final class DriverCanaryTests: HarnessTestCase {
         try driver.perform(.type(text: "ab"))
         driver.settle()
         let afterTyping = HarnessRegistry.shared.classCoverage
-        XCTAssertEqual(afterTyping["typing"], 2, "per-character insert should classify as typing")
+        XCTAssertEqual(afterTyping["typing"], 2, "per-character insert should route as typing")
 
         HarnessRegistry.shared.clearCollected()
         try driver.perform(.typeBurst(text: "one two"))
         driver.settle()
         XCTAssertNil(HarnessRegistry.shared.classCoverage["typing"],
-                     "a whitespace-bearing burst should not arrive as typing")
+                     "a burst should not arrive as typing")
+        XCTAssertEqual(HarnessRegistry.shared.classCoverage["bulk"], 1, "a burst should route as bulk")
         XCTAssertEqual(controller.markdown(), "abone two")
     }
 
@@ -106,11 +106,11 @@ final class DriverCanaryTests: HarnessTestCase {
 
     func testMarkerMappingSurvivesPresentationPrefixes() throws {
         let runner = ScenarioRunner(controller: controller, textView: textView)
-        // "1. " is a presentation prefix: the marker's source offset and
-        // its storage offset differ by exactly its width.
+        // "1. " is not in storage: the marker's source offset and its
+        // storage offset differ by exactly its width.
         let selection = try runner.load(markedSource: "1. it<|>em\n",
                                         markers: Scenario.defaultMarkers)
-        XCTAssertEqual(controller.markdown(), "1. item")
+        XCTAssertEqual(EditDriver.trimOneTrailingNewline(controller.markdown()), "1. item")
         let string = controller.textStorage.string as NSString
         XCTAssertEqual(string.substring(with: NSRange(location: selection.location, length: 2)), "em")
     }
@@ -124,11 +124,8 @@ final class DriverCanaryTests: HarnessTestCase {
                                              markers: Scenario.defaultMarkers))
     }
 
-    /// `currentSelection` prefers the internal `testSelection` seam over
-    /// the host text view. Writing that seam while a host is attached pins
-    /// the selection permanently — every later command then reads a stale
-    /// range, which is how a whole category of scenarios silently stopped
-    /// applying marks.
+    /// `currentSelection` must keep tracking the text view after an undo;
+    /// a pinned selection makes every later command read a stale range.
     func testSelectionFollowsTheTextViewAfterAnUndo() throws {
         reset(doc: "alpha beta")
         try driver.perform(.caret(Anchor(at: 10)))
@@ -158,8 +155,7 @@ final class DriverCanaryTests: HarnessTestCase {
     /// Regenerate with `TEST_RUNNER_SWIFTPROSE_UPDATE_LEDGER=1`; the ledger
     /// is written to the source tree, not to the copy in the app bundle.
     private static let corpusOracles = [
-        "diagnostics", "length", "coverage", "specFull", "schema",
-        "projection", "offsets", "markdownFixpoint", "pmJSON"
+        "length", "vocabularyFull", "groups", "normalizer", "reader", "markdownFixpoint"
     ]
 
     func testCorpusLedgerIsAccurate() throws {

@@ -7,5 +7,5 @@
     { "op" : "undo", "n" : 1 }
   ],
   "expect" : { "doc" : "<|>", "canRedo" : true },
-  "finally" : ["tier0", "projection"]
+  "finally" : ["tier0", "normalizer"]
 }

@@ -207,6 +207,7 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
     }
 
     private func restore(_ snapshot: LoadSnapshot) {
+        emitHistoryRoute()
         unmarkHostText()
         let previousLength = textStorage.length
         isLoading = true
@@ -234,6 +235,7 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
     }
 
     private func load(_ markdown: String, resetsHistory: Bool) {
+        harnessRouteProbe?("load")
         isLoading = true
         unmarkHostText()
         let loaded = MarkdownLoader(
@@ -634,6 +636,7 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
     var isApplyingCommand: Bool { commandDepth > 0 || editSession.isPerforming }
 
     func hostShouldChangeText(in range: NSRange, replacement: String?) -> Bool {
+        emitHostEditRoute(replacement: replacement)
         if !isApplyingCommand, let replacement {
             for plugin in plugins {
                 if plugin.props.handleTextInput?(self, range, replacement) == true { return false }
@@ -651,11 +654,13 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
             return true
         }
         if !hostHasMarkedText, !isSettingMarkedText, applyTableEdit(range: range, replacement: replacement) {
+            harnessRouteProbe?("tableEdit")
             pendingInput = nil
             return false
         }
         if let replacement, !replacement.isEmpty, !hostHasMarkedText, !isSettingMarkedText,
            redirectTypingIntoAtom(range: range, text: replacement) {
+            harnessRouteProbe?("atomRedirect")
             pendingInput = nil
             return false
         }
@@ -686,6 +691,7 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
         _ body: (NSTextStorage) -> Void
     ) -> Bool {
         let manager = editSession.undoManager
+        if commandDepth == 0, !editSession.isPerforming { harnessRouteProbe?("command") }
         let opensGroup = !manager.groupsByEvent && manager.groupingLevel == 0 && manager.isUndoRegistrationEnabled
         if opensGroup { manager.beginUndoGrouping() }
         commandDepth += 1

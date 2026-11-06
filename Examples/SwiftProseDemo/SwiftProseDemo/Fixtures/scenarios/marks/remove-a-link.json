@@ -17,10 +17,5 @@
     "doc": "see the docs<|> page\n",
     "marks": []
   },
-  "finally": [
-    "tier0",
-    "projection",
-    "markdownFixpoint",
-    "pmJSON"
-  ]
+  "finally": ["tier0", "normalizer", "markdownFixpoint"]
 }
