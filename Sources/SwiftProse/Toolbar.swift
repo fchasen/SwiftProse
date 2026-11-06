@@ -15,18 +15,20 @@ struct EditorToolbar: View {
 
     var body: some View {
         let groups = makeGroups(from: items, includesModeToggle: onToggleMode != nil)
-        let row = HStack(spacing: 8) {
-            ForEach(groups.indices, id: \.self) { i in
-                groupView(groups[i])
+        let row = GlassEffectContainer(spacing: ToolbarButtonMetrics.groupSpacing / 2) {
+            HStack(spacing: ToolbarButtonMetrics.groupSpacing) {
+                ForEach(groups.indices, id: \.self) { i in
+                    groupView(groups[i])
+                }
             }
         }
-        .buttonStyle(.borderless)
         .controlSize(.small)
         .disabled(!isEnabled)
         #if os(iOS)
         ScrollView(.horizontal, showsIndicators: false) {
             row
-                .padding(.vertical, 2)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
         }
         .fixedSize(horizontal: false, vertical: true)
         #else
@@ -40,13 +42,24 @@ struct EditorToolbar: View {
         case .spacer:
             Spacer()
         case .items(let items):
-            ControlGroup {
+            HStack(spacing: 0) {
                 ForEach(items.indices, id: \.self) { i in
+                    if i > 0 {
+                        ToolbarSeparator()
+                            .opacity(itemIsActive(items[i - 1]) || itemIsActive(items[i]) ? 0 : 1)
+                    }
                     button(for: items[i])
                 }
             }
+            .padding(ToolbarButtonMetrics.groupInset)
+            .glassEffect(.regular, in: .capsule)
             .fixedSize()
         }
+    }
+
+    private func itemIsActive(_ item: SwiftProseEditor.ToolbarItem) -> Bool {
+        if case .action(let action) = item { return isActive(action) }
+        return false
     }
 
     @ViewBuilder
@@ -149,7 +162,10 @@ private struct ToolbarMenuButton: View {
         } label: {
             Image(systemName: systemImage)
                 .frame(width: ToolbarButtonMetrics.width, height: ToolbarButtonMetrics.height)
+                .contentShape(Capsule())
         }
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
         .menuIndicator(.hidden)
         .fixedSize()
         .help(help)
@@ -166,9 +182,8 @@ private struct ToolbarActionButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .frame(width: ToolbarButtonMetrics.width, height: ToolbarButtonMetrics.height)
-                .modifier(ActiveStateBackground(isActive: isActive))
         }
+        .buttonStyle(ToolbarGlassButtonStyle(isActive: isActive))
         .help(help)
         .modifier(OptionalShortcut(shortcut: shortcut))
     }
@@ -187,35 +202,78 @@ private struct ToolbarLabelButton: View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: labelSize, weight: .semibold))
-                .frame(width: ToolbarButtonMetrics.width, height: ToolbarButtonMetrics.height)
-                .modifier(ActiveStateBackground(isActive: isActive))
         }
+        .buttonStyle(ToolbarGlassButtonStyle(isActive: isActive))
         .help(help)
         .modifier(OptionalShortcut(shortcut: shortcut))
     }
 }
 
-private struct ActiveStateBackground: ViewModifier {
+private struct ToolbarGlassButtonStyle: ButtonStyle {
     let isActive: Bool
 
-    func body(content: Content) -> some View {
-        content
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(Color.accentColor.opacity(isActive ? 0.22 : 0))
-            )
-            .foregroundStyle(isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+    func makeBody(configuration: Configuration) -> some View {
+        ToolbarGlassButtonBody(
+            label: configuration.label,
+            isActive: isActive,
+            isPressed: configuration.isPressed
+        )
+    }
+}
+
+private struct ToolbarGlassButtonBody<Label: View>: View {
+    let label: Label
+    let isActive: Bool
+    let isPressed: Bool
+
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    var body: some View {
+        label
+            .frame(width: ToolbarButtonMetrics.width, height: ToolbarButtonMetrics.height)
+            .foregroundStyle(isActive ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .background(Capsule().fill(fill))
+            .contentShape(Capsule())
+            .opacity(isEnabled ? 1 : 0.4)
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isActive)
+    }
+
+    private var fill: AnyShapeStyle {
+        if isActive {
+            return AnyShapeStyle(Color.accentColor.opacity(isPressed ? 0.8 : 1))
+        }
+        if isPressed {
+            return AnyShapeStyle(Color.primary.opacity(0.14))
+        }
+        if isHovered, isEnabled {
+            return AnyShapeStyle(Color.primary.opacity(0.07))
+        }
+        return AnyShapeStyle(Color.clear)
+    }
+}
+
+private struct ToolbarSeparator: View {
+    var body: some View {
+        Rectangle()
+            .fill(.separator)
+            .frame(width: 1, height: ToolbarButtonMetrics.separatorHeight)
     }
 }
 
 private enum ToolbarButtonMetrics {
     #if os(iOS)
-    static let width: CGFloat = 36
+    static let width: CGFloat = 40
     static let height: CGFloat = 32
+    static let separatorHeight: CGFloat = 16
     #else
-    static let width: CGFloat = 28
+    static let width: CGFloat = 32
     static let height: CGFloat = 24
+    static let separatorHeight: CGFloat = 14
     #endif
+    static let groupInset: CGFloat = 2
+    static let groupSpacing: CGFloat = 8
 }
 
 private struct OptionalShortcut: ViewModifier {
