@@ -104,7 +104,13 @@ defers three things to the main queue: input rules (queued with
 `EditDriver.settle()` is two main-queue fences followed by
 `controller.settleForHarness()`, which runs all three; `hasPendingWorkForHarness`
 reports whether any is left. It is sub-millisecond and causally complete,
-and it replaces every sleep.
+and it replaces every sleep. `type` settles after every character, so an
+input rule fires between keystrokes as it does for a person.
+
+Each op is one event for undo. The controller's undo manager groups by
+event, and AppKit closes that group when `NSApplication` finishes an event,
+which never happens inside a test method; `settle()` closes it the same way
+AppKit's event loop does, so two ops never share an undo group by accident.
 
 One consequence: **a harness run must be scheduled from outside a
 main-queue block.** libdispatch drains the main queue one level deep, so a
@@ -114,7 +120,7 @@ says so on stderr the first time a fence times out.
 
 ### Seams
 
-The harness imports `@_spi(Harness) import SwiftProseView` for seven seams
+The harness uses `@_spi(Harness) import SwiftProse` for seven seams
 on `EditorController` (`Sources/SwiftProseView/HarnessSPI.swift`):
 
 | seam | use |
@@ -157,7 +163,7 @@ that changes how the line parses is reported as such.
 |---|---|---|
 | `type` | `text` | types one character at a time through `insertText` |
 | `typeBurst` | `text` | inserts the whole string in one `insertText` |
-| `key` | `key` | a named key (`Return`, `Backspace`, `Tab`, `Shift-Tab`, arrows, …) through `doCommand(by:)` or `keyDown` |
+| `key` | `key` | a named key (`Enter`, `Backspace`, `Delete`, `Tab`, `Shift-Tab`, arrows, `Mod-b`, …; see `EditDriver.KeyTable`) through `doCommand(by:)` or `keyDown` |
 | `undo` / `redo` | `n` | the menu `undo:` / `redo:` action, `n` times |
 | `selectAll`, `copy`, `cut` | | the menu actions |
 | `paste` | `text`, `html`, `plain` | pastes `text` and optional `html`; `plain` pastes through Paste and Match Style |
@@ -174,14 +180,16 @@ that changes how the line parses is reported as such.
 
 An anchor is `{ "at": n }`, `{ "before": "text" }`, `{ "after": "text" }`
 (with `n` picking the occurrence), or `{ "block": i, "edge": "start" | "end" }`
-for paragraph `i`.
+for storage paragraph `i`, where `end` sits before its newline. A table row
+is one paragraph; the alignment row is not in storage.
 
 #### Expectations
 
 `expect` (as an op or the scenario's final block) takes any of:
 
-- `doc` — the markdown, with optional `<|>` / `<{ }>` markers for the
-  selection
+- `doc` — the markdown, compared with one trailing newline trimmed. `<|>`
+  / `<{ }>` markers are stripped before comparing; assert the selection
+  with `selection`
 - `selection` — `[location, length]` in storage offsets
 - `blockKind` — the caret paragraph's block, written
   `<leaf>[ quote:<n>][ list:<bullet|ordered>@<depth>][ task:<checked|unchecked>][ cont]`
@@ -204,8 +212,9 @@ TEST_RUNNER_SWIFTPROSE_RECORD=1 TEST_RUNNER_SWIFTPROSE_RECORD_OUT=/tmp/recorded 
   … -only-testing:SwiftProseDemoTests/ScenarioTests/testRecordScenarios
 ```
 
-It writes a copy of every scenario with the *observed* result and prints a
-report of where the author's `expect` and the editor disagree. A
+It writes a copy of every scenario with the *observed* markdown and caret
+`blockKind` and prints a report of where the author's `expect` and the
+editor disagree, with the observed storage selection. A
 disagreement is triaged by hand — either the expectation was wrong, or the
 editor is — never resolved by overwriting the file.
 
@@ -220,8 +229,8 @@ editor is — never resolved by overwriting the file.
 | `normalizer` | `harnessNormalizationDrift()` is `nil` | every 25 |
 | `vocabularyFull` | `vocabulary` over the whole document | every 50 |
 | `reader` | `StorageReader().document(from:)` twice is equal; writing that document equals `MarkdownWriter().markdown(from: storage)` | every 100 |
-| `markdownFixpoint` | `MarkdownWriter().markdown(from: MarkdownLoader().load(markdown())) == markdown()` | end |
-| `history` | undo until `canUndo` is false (cap 64) restores the baseline markdown; redo all restores the storage dump | end |
+| `markdownFixpoint` | `MarkdownWriter().markdown(from: MarkdownLoader().load(markdown()))` equals `markdown()`, ignoring one trailing newline and whitespace at the edges of a paragraph, which the writer keeps and loading drops | end |
+| `history` | undo through `activeUndoManagerForHarness` until `canUndo` is false (cap 64) restores the baseline markdown; redoing restores the `StorageDump` rows | end |
 | `layout` | `ensureLayout` over the document range on `textLayoutManager` | end |
 | `latency` | per-op p50 / p90 / p99 | end |
 
@@ -260,6 +269,10 @@ finding is a file rather than a note somewhere:
   the reason and only `--harness replay` runs them. While any is open the
   fuzz smoke stands down (`SWIFTPROSE_FUZZ_ANYWAY=1` overrides), because a
   run that rediscovers a known trap takes every test after it down too.
+- `FuzzTests.knownFindings` — open editor bugs the fuzz smoke tolerates,
+  keyed by signature prefix with the reason. A run that hits only these
+  passes and attaches them; `SWIFTPROSE_FUZZ_STRICT=1` fails on them. Take
+  an entry out when its bug is fixed.
 
 ```sh
 Scripts/findings.sh              # everything currently open

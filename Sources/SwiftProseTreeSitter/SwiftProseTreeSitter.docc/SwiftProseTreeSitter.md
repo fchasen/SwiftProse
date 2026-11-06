@@ -31,7 +31,7 @@ The host app depends on each `tree-sitter-<lang>` grammar package it wants. Toke
 
 ### Language detection
 
-A fence with no info string passes `nil` as the language, and the highlighter calls ``TreeSitterCodeBlockHighlighter/detectLanguage(for:)``. Each registered grammar parses the body; the one whose highlights cover at least 30% of the source characters and at least 1.5 times the runner-up's coverage wins. An ambiguous body stays uncoloured.
+A fence with no info string passes `nil` as the language, and the session calls ``TreeSitterCodeBlockHighlighter/detectLanguage(for:)`` on reset and after each edit until a language wins. Each registered grammar parses the body; the one whose highlights cover at least 30% of the body's UTF-16 units and at least 1.5 times the runner-up's coverage wins. Bodies shorter than 16 units and ambiguous bodies stay uncoloured.
 
 ## Topics
 
@@ -39,3 +39,9 @@ A fence with no info string passes `nil` as the language, and the highlighter ca
 
 - ``TreeSitterCodeBlockHighlighter``
 - ``CodePalette``
+
+### Captures
+
+- ``HighlightTag``
+- ``HighlightSpan``
+- ``TreeSitterMapping``
