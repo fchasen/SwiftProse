@@ -161,11 +161,9 @@ private struct ToolbarMenuButton: View {
             }
         } label: {
             Image(systemName: systemImage)
-                .frame(width: ToolbarButtonMetrics.width, height: ToolbarButtonMetrics.height)
-                .contentShape(Capsule())
         }
         .menuStyle(.button)
-        .buttonStyle(.borderless)
+        .buttonStyle(ToolbarGlassButtonStyle(isActive: false))
         .menuIndicator(.hidden)
         .fixedSize()
         .help(help)
