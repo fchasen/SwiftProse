@@ -358,6 +358,7 @@ final class ProseNSTextView: NSTextView {
     override func pasteAsPlainText(_ sender: Any?) {
         isPastingPlainText = true
         defer { isPastingPlainText = false }
+        guard !readSelection(from: .general, type: .string) else { return }
         super.pasteAsPlainText(sender)
     }
 
