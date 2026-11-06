@@ -26,6 +26,11 @@ final class IOSHostHarness {
     var markdown: String { controller.markdown() }
     var undoManager: UndoManager? { textView.undoManager }
 
+    var pushes: [String] {
+        controller.flushPendingBinding()
+        return box.pushes
+    }
+
     init(markdown: String = "", submits: Bool = false) {
         let box = Box(markdown)
         self.box = box
@@ -357,18 +362,18 @@ struct IOSHostTests {
 
     @Test func bindingPushesOncePerEditAndNeverOnLoad() {
         let host = IOSHostHarness(markdown: "a")
-        #expect(host.box.pushes.isEmpty)
+        #expect(host.pushes.isEmpty)
         host.select(1)
         host.type("b")
-        #expect(host.box.pushes == ["ab"])
+        #expect(host.pushes == ["ab"])
         host.controller.setMarkdown("fresh")
         host.controller.isEditable = false
         host.controller.isEditable = true
-        #expect(host.box.pushes == ["ab"])
+        #expect(host.pushes == ["ab"])
         host.select(5)
         host.key("\n")
         host.type("c")
-        #expect(host.box.pushes.last == "fresh\n\nc")
+        #expect(host.pushes.last == "fresh\n\nc")
     }
 
     @Test func markedTextDefersThePushUntilCommit() {
@@ -376,9 +381,9 @@ struct IOSHostTests {
         host.select(1)
         host.textView.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0))
         #expect(host.textView.markedTextRange != nil)
-        #expect(host.box.pushes.isEmpty)
+        #expect(host.pushes.isEmpty)
         host.textView.unmarkText()
-        #expect(host.box.pushes == ["aか"])
+        #expect(host.pushes == ["aか"])
     }
 
     @Test func returnDuringCompositionSkipsRulesAndPlugins() {
@@ -506,7 +511,7 @@ struct IOSHostTests {
         let range = try #require(host.textView.textRange(from: end, to: end))
         _ = delegate.textPasteConfigurationSupporting?(host.textView, performPasteOf: NSAttributedString(string: "**b**\r\n\r\n- c"), to: range)
         #expect(host.markdown == "a**b**\n\n- c")
-        #expect(host.box.pushes.last == "a**b**\n\n- c")
+        #expect(host.pushes.last == "a**b**\n\n- c")
     }
 
     @Test func taskGutterHitTestsLeftOfTheContent() throws {

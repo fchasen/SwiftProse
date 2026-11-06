@@ -16,8 +16,15 @@ final class EditorHarness: NSObject, NSTextViewDelegate {
     let window: NSWindow
     let textView: ProseNSTextView
     let pipeline: Pipeline
-    private(set) var pushes: [String] = []
+    private var recordedPushes: [String] = []
     private var storageDelegate: NormalizingStorageDelegate?
+
+    var pushes: [String] {
+        controller.flushPendingBinding()
+        return recordedPushes
+    }
+
+    var unflushedPushes: [String] { recordedPushes }
 
     var storage: NSTextStorage { controller.textStorage }
     var undoManager: UndoManager { controller.undoManager }
@@ -55,7 +62,7 @@ final class EditorHarness: NSObject, NSTextViewDelegate {
         textView.markdownController = controller
         window.contentView = textView
         controller.hostTextView = textView
-        controller.textSink = { [weak self] markdown in self?.pushes.append(markdown) }
+        controller.textSink = { [weak self] markdown in self?.recordedPushes.append(markdown) }
 
         if pipeline == .normalizer {
             let delegate = NormalizingStorageDelegate(controller: controller, textView: textView)
@@ -73,12 +80,12 @@ final class EditorHarness: NSObject, NSTextViewDelegate {
         storage.endEditing()
         storageDelegate?.isSuspended = false
         undoManager.removeAllActions()
-        pushes.removeAll()
+        recordedPushes.removeAll()
         textView.setSelectedRange(NSRange(location: 0, length: 0))
     }
 
     func clearPushes() {
-        pushes.removeAll()
+        recordedPushes.removeAll()
     }
 
     func step(_ action: () -> Void) {

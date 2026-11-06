@@ -119,7 +119,7 @@ Restyler     (fonts, colours, paragraph styles from block + intent)
 CodeHighlighting.update (session didEdit / reset per code block)
   ↓
 recordChange → pending DocumentChange
-  ↓  binding push
+  ↓  scheduleBindingPush (80 ms trailing debounce)
 flushDocumentChanges (next main-queue turn, or at the end of performEdit)
   ↓  plugins' documentDidChange, addOnDocumentChange observers
 input rules (deferEdit, origin .user only)
@@ -127,7 +127,7 @@ input rules (deferEdit, origin .user only)
 
 Commands go through `performEdit(_:ranges:replacements:...)` → `EditSession.perform`, which makes each command one undo step and flushes on return. Key handling (Return, Backspace, Tab, fence and thematic-break rules) lives in `Editing/KeyRules.swift`; block and inline-closer input rules in `Editing/InputRules.swift`; format commands in `Editing/FormatCommands.swift`; table editing in `Editing/TableEditing.swift` and `TableCommands.swift`; paste in `Editing/ClipboardEditing.swift` and `PasteSanitizer.swift`.
 
-`DocumentChange.origin` is `.user`, `.command`, `.undo` or `.load`. The text-view coordinators push the `text` binding after every change except `.load`.
+`DocumentChange.origin` is `.user`, `.command`, `.undo` or `.load`. Every change except `.load` marks the `text` binding dirty and re-arms an 80 ms trailing timer; the push serializes the document once when it fires. `flushPendingBinding()` pushes immediately and runs on end of editing, before `onSubmit`, on representable teardown, on a switch to source mode, on load-snapshot restore, in `settleForHarness()`, and when the app terminates (macOS) or enters the background (iOS). With no `textSink` attached the push is skipped and the binding stays dirty. A load cancels any pending push, so external text wins.
 
 ### Undo
 

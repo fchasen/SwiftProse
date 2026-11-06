@@ -1,5 +1,66 @@
 # Keystroke benchmark baseline
 
+## 2026-11-06 — deferred binding push
+
+`didProcessEditing` marks the binding dirty and restarts an 80 ms trailing
+timer. The timer, or `flushPendingBinding()`, runs `pushBinding`, which
+serializes once and calls the sink. A controller with no sink skips the push
+and keeps the binding dirty until one is attached.
+Reproduce and machine as below (debug build, Apple Silicon, macOS 27).
+
+The `keystroke` helper is unchanged: `flushDocumentChanges` fans out the
+`DocumentChange` and leaves the binding timer pending. The headless
+controller has no sink, so the plain keystroke rows measure the editing path
+alone. `bound sink, push deferred` attaches a sink and measures the same
+keystroke with the timer armed; `keystroke + flushPendingBinding` adds the
+push the timer would make, which is the cost a host pays once per burst.
+
+### Mixed document (~1200 blocks)
+
+83,692 UTF-16 source → 73,291 storage.
+
+| case | 2026-11-05 median µs | median µs | p90 µs | live blocks/op |
+|---|---:|---:|---:|---:|
+| keystroke — doc start | 18655.7 | 143.8 | 151.5 | 78.8 |
+| keystroke — mid paragraph | 18938.2 | 204.5 | 214.2 | 99.7 |
+| keystroke — nested list item | 18494.8 | 201.5 | 210.8 | 98.5 |
+| keystroke — inside fence | 18329.0 | 120.8 | 127.5 | 60.3 |
+| keystroke — tail | 18356.2 | 128.0 | 132.3 | 63.3 |
+| keystroke — change subscriber | 18520.3 | 196.5 | 205.9 | 104.7 |
+| keystroke — bound sink, push deferred | — | 205.0 | 215.6 | 107.0 |
+| keystroke + flushPendingBinding | — | 18283.2 | 18612.7 | 3243.4 |
+| insertMarkdown | 18820.5 | 260.4 | 272.0 | 101.5 |
+| markdown() | 34613.5 | 33995.8 | 34169.5 | 3080.6 |
+| MarkdownLoader.load | 69216.5 | 66119.2 | 67000.0 | 17708.1 |
+| MarkdownWriter.markdown(from:) | 18083.0 | 17679.2 | 17896.0 | 0.0 |
+
+### Long fence (one 3000-line fenced block)
+
+168,987 UTF-16 source → 168,971 storage.
+
+| case | 2026-11-05 median µs | median µs | p90 µs | live blocks/op |
+|---|---:|---:|---:|---:|
+| keystroke — inside 3000-line fence | 21578.1 | 50.4 | 53.5 | 0.1 |
+| markdown() | 27477.0 | 26509.2 | 26953.2 | 0.0 |
+| MarkdownLoader.load | 25017.5 | 24157.5 | 24317.8 | 6.6 |
+| MarkdownWriter.markdown(from:) | 20147.8 | 19916.2 | 20151.5 | 0.0 |
+
+### Storage primitives (`StoragePrimitiveBench`, best per-op µs)
+
+| primitive | mixed plain | mixed controller | fence plain | fence controller |
+|---|---:|---:|---:|---:|
+| 1-char edit | 35.0 | 360.1 | 1.6 | 85.5 |
+
+The other primitive rows match 2026-11-05 within noise.
+
+### Reading
+
+A keystroke now costs 0.12–0.21 ms on the mixed fixture, about 90–150x
+less than before, and 50 µs inside the long fence. One serialization per
+burst remains (`keystroke + flushPendingBinding`, ~18 ms), paid when the
+timer fires, the text view ends editing, the host submits, the editor
+switches to source mode or the representable is torn down.
+
 ## 2026-11-05 — core replacement (MarkdownEditorKit)
 
 The tree-sitter / ProseMirror-shaped core was replaced by the MarkdownEditorKit
@@ -22,8 +83,9 @@ the fixture runs outside the timer. `insertMarkdown` is the command path.
 `MarkdownLoader.load` and `MarkdownWriter.markdown(from:)` run without a
 controller.
 
-A keystroke costs about one `MarkdownWriter.markdown(from:)`: `pushBinding`
-serializes the whole document after every edit, with or without a text sink.
+A keystroke costs about one `MarkdownWriter.markdown(from:)`. At this
+revision `pushBinding` serialized the whole document after every edit, with or
+without a text sink; 2026-11-06 defers it to a trailing timer.
 
 ### Mixed document (~1200 blocks)
 

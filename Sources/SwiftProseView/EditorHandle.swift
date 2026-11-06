@@ -171,6 +171,7 @@ public final class EditorHandle: ProseEditing {
         } ?? false
         switch target {
         case .source:
+            richController.flushPendingBinding()
             let markdown = richController.markdown()
             let selection = SourceSelectionMapping.sourceRange(
                 forRich: richController.currentSelection,

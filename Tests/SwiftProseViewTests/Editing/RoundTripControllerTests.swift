@@ -67,6 +67,7 @@ struct RoundTripControllerTests {
         let edited = harness.controller.markdown()
         #expect(edited != sample.source)
         #expect(edited.contains("Z"))
+        #expect(harness.pushes.last == edited)
         harness.undo()
         #expect(harness.string == MarkdownLoader().load(sample.source).string)
         #expect(harness.controller.markdown() == sample.source)

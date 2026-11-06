@@ -160,15 +160,18 @@ final class EditDriver {
 
     // MARK: - Settling
     //
-    // Deferred work — input rules, the pending `DocumentChange` flush, the
-    // binding push, inline-content refresh — runs on `main.async`. Two
-    // main-queue fences put it behind us; `settleForHarness()` then runs
-    // whatever is still queued.
+    // Input rules, the pending `DocumentChange` flush and the inline-content
+    // refresh run on `main.async`; the binding push runs on an 80 ms
+    // trailing timer. Two fences drain the queue, `settleForHarness()` runs
+    // what is left and flushes the binding, and a trailing fence lets
+    // SwiftUI apply the push before the next op.
 
     func settle() {
         fence()
         fence()
         controller.settleForHarness()
+        fence()
+        if controller.hasPendingWorkForHarness { controller.settleForHarness() }
         endEvent()
     }
 

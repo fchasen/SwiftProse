@@ -158,6 +158,33 @@ struct KeystrokeBenchmarkTests {
             precondition(sink >= 0)
         }
 
+        do {
+            var pushes = 0
+            controller.textSink = { _ in pushes += 1 }
+            let offset = controller.textStorage.length / 2
+            samples.append(Self.measure(
+                "keystroke — bound sink, push deferred",
+                teardown: { Self.undoKeystroke(controller, at: offset) }
+            ) { _ in
+                Self.keystroke(controller, at: offset)
+            })
+            controller.flushPendingBinding()
+            samples.append(Self.measure(
+                "keystroke + flushPendingBinding",
+                iterations: 20,
+                teardown: {
+                    Self.undoKeystroke(controller, at: offset)
+                    controller.flushPendingBinding()
+                }
+            ) { _ in
+                Self.keystroke(controller, at: offset)
+                controller.flushPendingBinding()
+            })
+            controller.textSink = nil
+            controller.cancelBindingPush()
+            precondition(pushes > 0)
+        }
+
         let mid = controller.textStorage.length / 2
         samples.append(Self.measure(
             "insertMarkdown",

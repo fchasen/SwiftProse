@@ -75,6 +75,10 @@ final class HostedTypingTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 
+    private func settleBinding() {
+        settle(0.25)
+    }
+
     private func type(_ text: String, into textView: NSTextView) {
         for ch in text {
             textView.insertText(String(ch), replacementRange: textView.selectedRange())
@@ -268,18 +272,20 @@ final class HostedTypingTests: XCTestCase {
         h.binding.text = ""
         h.textView.setSelectedRange(NSRange(location: 0, length: 0))
         type("some url here", into: h.textView)
+        settleBinding()
         XCTAssertEqual(h.binding.text, "some url here")
 
         h.textView.setSelectedRange(NSRange(location: 5, length: 3))
         h.controller.perform(.bold)
+        settleBinding()
         XCTAssertEqual(h.binding.text, "some **url** here")
 
         h.textView.undo(nil)
-        settle()
+        settleBinding()
         XCTAssertEqual(h.binding.text, "some url here")
 
         h.controller.setMarkdown("fresh\n")
-        settle()
+        settleBinding()
         XCTAssertEqual(h.binding.text, "some url here")
     }
 

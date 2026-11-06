@@ -13,10 +13,11 @@ extension EditorController {
         drainDeferredEdits()
         flushDocumentChanges()
         refreshInlineContentIfNeeded()
+        flushPendingBinding()
     }
 
     @_spi(Harness) public var hasPendingWorkForHarness: Bool {
-        hasPendingDocumentChange || !deferredEdits.isEmpty
+        hasPendingDocumentChange || !deferredEdits.isEmpty || hasPendingBindingPush
     }
 
     @_spi(Harness) public var activeUndoManagerForHarness: UndoManager {

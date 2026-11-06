@@ -53,9 +53,13 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
 
     public private(set) var plugins: [EditorPlugin] = []
 
-    var textSink: ((String) -> Void)?
+    var textSink: ((String) -> Void)? {
+        didSet { if textSink != nil, bindingDirty { scheduleBindingPush() } }
+    }
     var lastPushed: String
     var bindingDirty = false
+    private var bindingPushWork: DispatchWorkItem?
+    static let bindingPushDelay: DispatchTimeInterval = .milliseconds(80)
     var originalText: String
     var serializedAtLoad: String
     private var stringAtLoad = ""
@@ -132,11 +136,26 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
             name: NSTextStorage.didProcessEditingNotification,
             object: textStorage
         )
+        #if canImport(AppKit) && os(macOS)
+        let applicationExit = NSApplication.willTerminateNotification
+        #elseif canImport(UIKit)
+        let applicationExit = UIApplication.didEnterBackgroundNotification
+        #endif
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(flushBindingOnApplicationExit(_:)),
+            name: applicationExit,
+            object: nil
+        )
         setMarkdown(markdown)
     }
 
     @objc private func invalidateDecorationCache(_ notification: Notification) {
         decorationCache.invalidate()
+    }
+
+    @objc private func flushBindingOnApplicationExit(_ notification: Notification) {
+        flushPendingBinding()
     }
 
     public func markdown() -> String {
@@ -225,7 +244,7 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
         vocabularyAtLoad = snapshot.vocabularyAtLoad
         setSelection(snapshot.selection)
         bindingDirty = true
-        pushBinding()
+        flushPendingBinding()
         intrinsicSizeInvalidator?()
         fanoutDocumentChange(DocumentChange(
             editedRange: NSRange(location: 0, length: textStorage.length),
@@ -262,6 +281,7 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
         originalText = markdown
         lastPushed = markdown
         bindingDirty = false
+        cancelBindingPush()
         serializedAtLoad = serialize()
         stringAtLoad = textStorage.string
         vocabularyAtLoad = VocabularySnapshot(
@@ -407,7 +427,8 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
     }
 
     func applyExternalText(_ text: String) {
-        guard text != lastPushed else { return }
+        let current = textSink == nil && bindingDirty ? markdown() : lastPushed
+        guard text != current else { return }
         setMarkdown(text)
     }
 
@@ -419,13 +440,38 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
     }
 
     func pushBinding() {
-        guard !isLoading, !hostHasMarkedText, !isSettingMarkedText, bindingDirty else { return }
+        guard let textSink, !isLoading, !hostHasMarkedText, !isSettingMarkedText, bindingDirty else { return }
         bindingDirty = false
         let serialized = serialize()
         let value = markdown(serialized: serialized)
         guard value != lastPushed else { return }
         lastPushed = value
-        textSink?(value)
+        textSink(value)
+    }
+
+    var hasPendingBindingPush: Bool { bindingPushWork != nil }
+
+    func scheduleBindingPush() {
+        bindingPushWork?.cancel()
+        bindingPushWork = nil
+        guard textSink != nil, bindingDirty else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.bindingPushWork = nil
+            self.pushBinding()
+        }
+        bindingPushWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.bindingPushDelay, execute: work)
+    }
+
+    package func flushPendingBinding() {
+        cancelBindingPush()
+        pushBinding()
+    }
+
+    func cancelBindingPush() {
+        bindingPushWork?.cancel()
+        bindingPushWork = nil
     }
 
     public var currentSelection: NSRange {
@@ -959,7 +1005,7 @@ public final class EditorController: NSObject, NSTextStorageDelegate, NSTextCont
             )
         }
         recordChange(editedRange, delta: characters ? delta : 0, origin: origin, isParagraphLocal: isParagraphLocal)
-        pushBinding()
+        scheduleBindingPush()
         if characters { intrinsicSizeInvalidator?() }
         scheduleFlush()
     }

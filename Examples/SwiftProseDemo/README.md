@@ -101,9 +101,11 @@ since `SceneBuilder` lacks `buildEither`.
 Normalization and restyling run inside the storage edit. The controller
 defers three things to the main queue: input rules (queued with
 `deferEdit`), the `DocumentChange` flush, and the inline-content refresh.
-`EditDriver.settle()` is two main-queue fences followed by
-`controller.settleForHarness()`, which runs all three; `hasPendingWorkForHarness`
-reports whether any is left. It is sub-millisecond and causally complete,
+The binding push runs on an 80 ms trailing timer. `EditDriver.settle()` is
+two main-queue fences, then `controller.settleForHarness()`, which runs all
+three and flushes the binding, then one more fence so SwiftUI applies the
+push before the next op. `hasPendingWorkForHarness` reports whether any of
+the four is left. It is sub-millisecond and causally complete,
 and it replaces every sleep. `type` settles after every character, so an
 input rule fires between keystrokes as it does for a person.
 
@@ -125,8 +127,8 @@ on `EditorController` (`Sources/SwiftProseView/HarnessSPI.swift`):
 
 | seam | use |
 |---|---|
-| `settleForHarness()` | run deferred input rules, the pending change flush and the inline-content refresh |
-| `hasPendingWorkForHarness` | whether any of that is queued |
+| `settleForHarness()` | run deferred input rules, the pending change flush and the inline-content refresh, then flush the pending binding push |
+| `hasPendingWorkForHarness` | whether any of that is queued, the binding push included |
 | `activeUndoManagerForHarness` | the undo manager edits register on: the host `NSTextView`'s on macOS, the controller's otherwise |
 | `breakUndoCoalescingForHarness()` | an AppKit typing-coalescing boundary; the `closeHistoryGroup` op |
 | `harnessEditRouteProbe` | reports the route each edit took: `typing`, `bulk`, `deletion`, `composition`, `command`, `inputRule`, `tableEdit`, `atomRedirect`, `paste`, `undo`, `redo`, `load` |

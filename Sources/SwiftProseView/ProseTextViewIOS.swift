@@ -116,6 +116,10 @@ public struct ProseTextViewIOS: UIViewRepresentable {
 
     public func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    public static func dismantleUIView(_ uiView: UITextView, coordinator: Coordinator) {
+        coordinator.parent.controller.flushPendingBinding()
+    }
+
     public final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: ProseTextViewIOS
         weak var textView: UITextView?
@@ -133,6 +137,10 @@ public struct ProseTextViewIOS: UIViewRepresentable {
 
         public func textViewDidChange(_ textView: UITextView) {
             (textView as? ProseUITextView)?.textDidChange()
+        }
+
+        public func textViewDidEndEditing(_ textView: UITextView) {
+            parent.controller.flushPendingBinding()
         }
 
         public func textViewDidChangeSelection(_ textView: UITextView) {
@@ -338,13 +346,13 @@ final class ProseUITextView: UITextView {
         }
         super.insertText(text)
         if text == "\n" { finishPluginKey(PluginKeyName.enter) }
-        markdownController?.pushBinding()
+        markdownController?.scheduleBindingPush()
     }
 
     override func deleteBackward() {
         if markedTextRange == nil, markdownController?.handleBackspace() == true { return }
         super.deleteBackward()
-        markdownController?.pushBinding()
+        markdownController?.scheduleBindingPush()
     }
 
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
@@ -363,7 +371,7 @@ final class ProseUITextView: UITextView {
         let hadMarkedText = markedTextRange != nil
         super.unmarkText()
         guard hadMarkedText, let controller = markdownController else { return }
-        controller.pushBinding()
+        controller.scheduleBindingPush()
         controller.flushDocumentChanges()
         syncTypingAttributes()
     }
@@ -372,6 +380,7 @@ final class ProseUITextView: UITextView {
         guard let controller = markdownController, markedTextRange == nil else { return false }
         if dispatchPluginKey(PluginKeyName.enter) { return true }
         if submits, let onSubmit {
+            controller.flushPendingBinding()
             onSubmit()
             return true
         }
@@ -433,7 +442,7 @@ final class ProseUITextView: UITextView {
         guard isEditable, let controller = markdownController else { return }
         guard controller.hostShouldChangeText(in: selectedRange, replacement: text) else { return }
         super.insertText(text)
-        controller.pushBinding()
+        controller.scheduleBindingPush()
     }
 
     func taskGutterIndex(at point: CGPoint, charIndex: Int) -> Int? {

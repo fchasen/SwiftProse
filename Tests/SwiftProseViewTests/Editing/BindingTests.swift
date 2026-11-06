@@ -31,7 +31,7 @@ struct BindingTests {
         #expect(font == harness.controller.theme.headingFont(level: 1))
     }
 
-    @Test func eachEditPushesOnceSynchronously() {
+    @Test func eachEditPushesOnceWhenFlushed() {
         let harness = EditorHarness(markdown: "hello")
         harness.select(5)
         harness.type("!")
@@ -69,6 +69,7 @@ struct BindingTests {
         let harness = EditorHarness(markdown: "a")
         harness.select(1)
         harness.type("b")
+        harness.controller.flushPendingBinding()
         #expect(harness.controller.undoManager.canUndo)
         harness.controller.applyExternalText("ab")
         #expect(harness.controller.undoManager.canUndo)
@@ -105,8 +106,10 @@ struct BindingTests {
         controller.textSink = { pushes.append($0) }
         controller.setSelection(NSRange(location: 1, length: 0))
         controller.insertMarkdown(" **y**")
+        controller.flushPendingBinding()
         #expect(pushes == ["x **y**"])
         manager.undo()
+        controller.flushPendingBinding()
         #expect(pushes == ["x **y**", "x"])
     }
 }

@@ -60,7 +60,7 @@ struct CommentEditor: View {
 }
 ```
 
-`SwiftProseEditor(text:)` binds to a markdown string. Edits push `controller.markdown()` into the binding; an external write to the binding (opening a different file, say) replaces the editor contents.
+`SwiftProseEditor(text:)` binds to a markdown string. In rich mode, edits push `controller.markdown()` into the binding 80 ms after the last change, and at once when the text view ends editing, when `onSubmit` fires, on a switch to source mode, when the view is torn down, and when the app terminates (macOS) or enters the background (iOS). Source mode pushes after every edit. `controller.markdown()` and `EditorHandle.markdown()` return the current text between pushes. An external write to the binding (opening a different file, say) replaces the editor contents and drops any pending push.
 
 In rich mode the editor hosts an `NSTextView` on macOS (`ProseTextViewMac`) and a `UITextView` on iOS (`ProseTextViewIOS`); source mode hosts `ProseSourceTextViewMac` and `ProseSourceTextViewIOS`. All four representables are public for hosts that embed the views directly.
 

@@ -140,6 +140,10 @@ public struct ProseTextViewMac: NSViewRepresentable {
 
     public func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.parent.controller.flushPendingBinding()
+    }
+
     private func textView(in nsView: NSView) -> NSTextView? {
         if let tv = nsView as? NSTextView { return tv }
         if let scroll = nsView as? NSScrollView { return scroll.documentView as? NSTextView }
@@ -180,6 +184,10 @@ public struct ProseTextViewMac: NSViewRepresentable {
         public func textViewDidChangeSelection(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             parent.controller.selectionDidChange(tv.selectedRange())
+        }
+
+        public func textDidEndEditing(_ notification: Notification) {
+            parent.controller.flushPendingBinding()
         }
 
         public func undoManager(for view: NSTextView) -> UndoManager? {
@@ -498,13 +506,13 @@ final class ProseNSTextView: NSTextView {
 
     override func unmarkText() {
         super.unmarkText()
-        markdownController?.pushBinding()
+        markdownController?.scheduleBindingPush()
         markdownController?.refreshInlineContentIfNeeded()
     }
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
         super.insertText(string, replacementRange: replacementRange)
-        markdownController?.pushBinding()
+        markdownController?.scheduleBindingPush()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -584,6 +592,7 @@ final class ProseNSTextView: NSTextView {
             if event.modifierFlags.contains(.shift) {
                 doCommand(by: #selector(NSResponder.insertNewline(_:)))
             } else {
+                markdownController?.flushPendingBinding()
                 onSubmit()
             }
             return

@@ -401,7 +401,7 @@ extension EditorController {
             codeHighlighting.resetAll(in: textStorage, baseColor: codeBaseColor)
             textStorage.endEditing()
         }
-        pushBinding()
+        scheduleBindingPush()
         repairTables()
     }
 }
